@@ -117,8 +117,12 @@ Reisetitel, Gesamtkilometer und die Aktionen „Anpassen" und „Zeigen".
 Die Funktionen kommen vor der Politur: erst Karte und Route korrekt, dann
 das Aussehen. So bleibt jeder Schritt testbar.
 
-## Offene Entscheidungen
+## Entscheidungen (24.11.2026)
 
-1. Zukunft der Kartenbibliothek (archiviertes osmdroid oder Alternative).
-2. Art des Pergament-Filters.
-3. Zeichnung der Polaroid-Pins.
+1. **Kartenbibliothek:** Noch keine endgültige Wahl. Zuerst wird M2 (Reisen
+   verwalten) ohne Karte gebaut. Die Kartenschicht wird so gekapselt, dass
+   osmdroid oder eine gepflegte Alternative später ausgetauscht werden kann.
+2. **Pergament-Filter:** `ColorMatrixColorFilter` auf der Kartenebene – sofort
+   umschaltbar, kein zusätzlicher Speicher.
+3. **Polaroid-Pins:** Eigener Overlay direkt auf der Karte – exakte Haftung
+   bei Zoom und Verschieben, gut performant.

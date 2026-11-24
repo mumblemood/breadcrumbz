@@ -8,15 +8,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import de.breadcrumbz.app.state.BreadcrumbzViewModelFactory
-import de.breadcrumbz.app.state.DatabaseTestViewModel
+import de.breadcrumbz.app.state.TripsViewModel
 import de.breadcrumbz.app.ui.theme.BreadcrumbzTheme
-import de.breadcrumbz.app.ui.trips.DatabaseTestScreen
+import de.breadcrumbz.app.ui.trips.TripsScreen
 
 class MainActivity : ComponentActivity() {
 
     private val container: AppContainer by lazy { (application as BreadcrumbzApp).container }
 
-    private val viewModel: DatabaseTestViewModel by viewModels {
+    private val viewModel: TripsViewModel by viewModels {
         BreadcrumbzViewModelFactory(container.repository)
     }
 
@@ -28,7 +28,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier,
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    DatabaseTestScreen(viewModel)
+                    TripsScreen(viewModel)
                 }
             }
         }

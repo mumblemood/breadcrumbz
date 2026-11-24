@@ -10,8 +10,8 @@ class BreadcrumbzViewModelFactory(
 
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(DatabaseTestViewModel::class.java)) {
-            return DatabaseTestViewModel(repository) as T
+        if (modelClass.isAssignableFrom(TripsViewModel::class.java)) {
+            return TripsViewModel(repository) as T
         }
         throw IllegalArgumentException("Unbekanntes ViewModel: $modelClass")
     }

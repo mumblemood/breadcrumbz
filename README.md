@@ -3,14 +3,13 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Meilenstein 1 – Datenfundament.**
-Die App kann Reisen, Stationen, Tagebucheinträge und Foto-Verknüpfungen lokal
-in einer Room-Datenbank speichern. Ein Testbildschirm erzeugt Beispieldaten,
-damit die Beziehungen überprüft werden können. Die fertigen Reise-Screens
-kommen in Meilenstein 2.
+**Aktueller Stand: Meilenstein 2 – Reisen verwalten.**
+Reisen können angelegt, bearbeitet und gelöscht werden. Die Liste zeigt alle
+gespeicherten Reisen. Zeitraum und Coverbild kommen mit den Foto-Funktionen
+in Meilenstein 4.
 
-Meilenstein 0 hatte den Build-Weg vom Quellcode bis zur installierbaren APK
-auf dem Handy geprüft.
+Meilenstein 1 hatte das Datenfundament gelegt, Meilenstein 0 den Build-Weg
+bis zur installierbaren APK geprüft.
 
 ## Grundsätze
 
