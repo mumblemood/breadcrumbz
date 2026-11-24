@@ -76,7 +76,7 @@ object PhotoSourceReader {
             try {
                 val original = MediaStore.setRequireOriginal(candidate)
                 val bytes = context.contentResolver.openInputStream(original)?.use { it.readBytes() }
-                if (!bytes.isNullOrEmpty()) result.add(bytes)
+                if (bytes != null && bytes.isNotEmpty()) result.add(bytes)
             } catch (_: Exception) {
                 // Nächste Möglichkeit probieren.
             }

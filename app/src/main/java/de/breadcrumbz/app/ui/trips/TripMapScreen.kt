@@ -757,13 +757,13 @@ fun TripMapScreen(
                             } else {
                                 // Rand um die äußeren Fotos, damit nichts abgeschnitten wird.
                                 val box = BoundingBox.fromGeoPoints(points)
-                                val latMargin = maxOf((box.north - box.south) * 0.15, 0.02)
-                                val lonMargin = maxOf((box.east - box.west) * 0.15, 0.02)
+                                val latMargin = maxOf((box.latNorth - box.latSouth) * 0.15, 0.02)
+                                val lonMargin = maxOf((box.lonEast - box.lonWest) * 0.15, 0.02)
                                 val padded = BoundingBox(
-                                    (box.north + latMargin).coerceAtMost(85.0),
-                                    (box.east + lonMargin).coerceAtMost(180.0),
-                                    (box.south - latMargin).coerceAtLeast(-85.0),
-                                    (box.west - lonMargin).coerceAtLeast(-180.0),
+                                    (box.latNorth + latMargin).coerceAtMost(85.0),
+                                    (box.lonEast + lonMargin).coerceAtMost(180.0),
+                                    (box.latSouth - latMargin).coerceAtLeast(-85.0),
+                                    (box.lonWest - lonMargin).coerceAtLeast(-180.0),
                                 )
                                 mapView.zoomToBoundingBox(padded, true, 140)
                             }
