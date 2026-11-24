@@ -1,0 +1,38 @@
+name: Breadcrumbz bauen
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code holen
+        uses: actions/checkout@v4
+
+      - name: Java einrichten
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle-Cache vorbereiten
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: APK bauen
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: APK als Download bereitstellen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Breadcrumbz - neueste Testversion
+          prerelease: true
+          overwrite_files: true
+          body: Automatisch aus dem Hauptzweig gebaut. APK herunterladen und auf dem Handy installieren.
+          files: app/build/outputs/apk/debug/app-debug.apk
