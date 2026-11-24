@@ -6,11 +6,29 @@ import de.breadcrumbz.app.data.db.BreadcrumbzDatabase
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
 import de.breadcrumbz.app.data.repository.RoomBreadcrumbzRepository
 import de.breadcrumbz.app.domain.repository.BreadcrumbzRepository
+import org.osmdroid.config.Configuration
+import java.io.File
 
 /** Zentraler Ort, an dem alle Bausteine zusammengesetzt werden. */
 class AppContainer(context: Context) {
+    private val appContext = context.applicationContext
+
+    init {
+        // Karten werden lokal gecacht. Der Test-Schlüssel und die Kacheln
+        // bleiben damit vollständig auf dem Gerät.
+        val mapBase = File(appContext.filesDir, "osmdroid")
+        val tileCache = File(mapBase, "tiles")
+        mapBase.mkdirs()
+        tileCache.mkdirs()
+        Configuration.getInstance().apply {
+            userAgentValue = "Breadcrumbz/0.3.0 (+https://github.com/mumblemood/breadcrumbz)"
+            osmdroidBasePath = mapBase
+            osmdroidTileCache = tileCache
+        }
+    }
+
     private val database = Room.databaseBuilder(
-        context.applicationContext,
+        appContext,
         BreadcrumbzDatabase::class.java,
         "breadcrumbz.db",
     ).build()
@@ -22,5 +40,5 @@ class AppContainer(context: Context) {
         photoDao = database.photoDao(),
     )
 
-    val photoStore = InternalPhotoStore(context)
+    val photoStore = InternalPhotoStore(appContext)
 }

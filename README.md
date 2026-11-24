@@ -3,13 +3,14 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Meilenstein 2 – Reisen verwalten.**
-Reisen können angelegt, bearbeitet und gelöscht werden. Die Liste zeigt alle
-gespeicherten Reisen. Zeitraum und Coverbild kommen mit den Foto-Funktionen
-in Meilenstein 4.
+**Aktueller Stand: Meilenstein 3 – Karte und Route.**
+Zu jeder Reise kann eine OSM-Karte geöffnet werden. Lange auf die Karte drücken
+erzeugt einen Wegpunkt, Punkte lassen sich ziehen und die Route wird als Linie
+gezeichnet. Die Gesamtkilometer werden live als Luftlinie berechnet. Kacheln
+werden lokal gecacht; die Pergament-Optik und Straßen-km folgen später.
 
-Meilenstein 1 hatte das Datenfundament gelegt, Meilenstein 0 den Build-Weg
-bis zur installierbaren APK geprüft.
+Meilenstein 2 hatte die Reisen-Verwaltung eingeführt, Meilenstein 1 das
+Datenfundament gelegt, Meilenstein 0 den Build-Weg bis zur APK geprüft.
 
 ## Grundsätze
 

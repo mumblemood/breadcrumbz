@@ -39,6 +39,7 @@ import de.breadcrumbz.app.state.TripsViewModel
 @Composable
 fun TripsScreen(
     viewModel: TripsViewModel,
+    onOpenTrip: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val trips by viewModel.trips.collectAsStateWithLifecycle()
@@ -98,6 +99,7 @@ fun TripsScreen(
                     items(trips, key = { it.id }) { trip ->
                         TripCard(
                             trip = trip,
+                            onOpen = { onOpenTrip(trip.id) },
                             onEdit = { openEditor(trip) },
                             onDelete = { deleteCandidate = trip },
                         )
@@ -176,6 +178,7 @@ fun TripsScreen(
 @Composable
 private fun TripCard(
     trip: Trip,
+    onOpen: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -194,6 +197,7 @@ private fun TripCard(
             }
             Spacer(Modifier.height(10.dp))
             Row {
+                TextButton(onClick = onOpen) { Text("Karte öffnen") }
                 TextButton(onClick = onEdit) { Text("Bearbeiten") }
                 TextButton(onClick = onDelete) { Text("Löschen") }
             }
