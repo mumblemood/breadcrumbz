@@ -15,4 +15,6 @@ data class TimelineItem(
     val hasLocation: Boolean,
     /** Anzahl Bilder, die an diesem Eintrag hängen. */
     val photoCount: Int = 0,
+    /** Anzahl Pins, die an diesem Eintrag hängen. */
+    val pinCount: Int = 0,
 )

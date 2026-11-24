@@ -28,6 +28,10 @@ data class Trip(
 data class Stop(
     val id: String,
     val tripId: String,
+    /** Pins können zu einem Tagebucheintrag gehören; alleinstehende haben null. */
+    val entryId: String?,
+    /** Verkehrsmittel für den Abschnitt vom vorherigen Pin hierher. null = Reise-Standard. */
+    val transportMode: TransportMode? = null,
     val title: String,
     val latitude: Double,
     val longitude: Double,

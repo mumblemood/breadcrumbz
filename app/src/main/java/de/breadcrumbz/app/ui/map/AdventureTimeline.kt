@@ -3,6 +3,7 @@ package de.breadcrumbz.app.ui.map
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,6 +30,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -39,6 +42,8 @@ import de.breadcrumbz.app.domain.util.haversineMeters
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 private data class TimelinePoint(
@@ -76,10 +81,18 @@ fun AdventureTimeline(
     onItemClick: (TimelineItem) -> Unit,
     onPhotoClick: (String) -> Unit,
     photoBitmap: (String) -> ImageBitmap?,
+    photoTimes: Map<String, Long> = emptyMap(),
+    mapZoom: Float = 14f,
+    externalKey: String? = null,
+    onScrollFraction: (Float) -> Unit = {},
+    onDropElement: (String, String?) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
-    val stepPx = with(density) { 168.dp.toPx() }
+    val stepPx = with(density) {
+        (168f * (mapZoom / 14f)).coerceIn(100f, 300f).dp.toPx()
+    }
+    val scrollState = rememberScrollState()
     val startPx = with(density) { 48.dp.toPx() }
     val baseY = with(density) { 112.dp.toPx() }
 
@@ -100,7 +113,7 @@ fun AdventureTimeline(
     }
     val totalKm = stopKm.values.maxOrNull() ?: 0.0
 
-    val points = remember(items, expandedDay, expandedEntryIds, photosByEntry, stopKm) {
+    val points = remember(items, expandedDay, expandedEntryIds, photosByEntry, photoTimes, stopKm, stops) {
         val result = mutableListOf<TimelinePoint>()
         val kmOf = { item: TimelineItem -> item.stopId?.let { stopKm[it] } ?: 0.0 }
 
@@ -110,7 +123,7 @@ fun AdventureTimeline(
                 TimelinePoint(
                     key = "day-$key",
                     label = dayLabel(first.time),
-                    detail = "${dayItems.size} Einträge",
+                    detail = "${dayItems.size} Elemente",
                     x = 0f,
                     km = kmOf(first),
                     dayKey = key,
@@ -126,7 +139,10 @@ fun AdventureTimeline(
                     result.add(
                         TimelinePoint(
                             key = item.id,
-                            label = item.title.ifBlank { "Foto" },
+                            label = item.title.ifBlank {
+                                if (item.kind == TimelineKind.STOP) "Pin" else
+                                    if (item.kind == TimelineKind.PHOTO) "Foto" else "Eintrag"
+                            },
                             detail = when (item.kind) {
                                 TimelineKind.STOP -> "Station"
                                 TimelineKind.ENTRY ->
@@ -146,21 +162,47 @@ fun AdventureTimeline(
                         ),
                     )
                     if (item.entryId != null && expandedEntryIds.contains(item.entryId)) {
-                        photoIds.forEach { photoId ->
-                            result.add(
-                                TimelinePoint(
-                                    key = "entryphoto-$photoId",
-                                    label = "Foto",
-                                    detail = "",
-                                    x = 0f,
-                                    km = kmOf(item),
-                                    dayKey = key,
-                                    item = null,
-                                    photoId = photoId,
-                                    kind = 4,
-                                ),
+                        val photoChildren = photoIds.map { photoId ->
+                            (photoTimes[photoId] ?: 0L) to TimelinePoint(
+                                key = "entryphoto-$photoId",
+                                label = "Foto",
+                                detail = "",
+                                x = 0f,
+                                km = kmOf(item),
+                                dayKey = key,
+                                item = null,
+                                photoId = photoId,
+                                kind = 4,
                             )
                         }
+                        val pinChildren = stops
+                            .filter { stop -> stop.entryId == item.entryId }
+                            .map { stop ->
+                                (stop.visitedAt ?: stop.createdAt) to TimelinePoint(
+                                    key = "entrypin-${stop.id}",
+                                    label = stop.title.ifBlank { "Pin" },
+                                    detail = "Pin im Eintrag",
+                                    x = 0f,
+                                    km = stopKm[stop.id] ?: kmOf(item),
+                                    dayKey = dayKey(stop.visitedAt ?: stop.createdAt),
+                                    item = TimelineItem(
+                                        id = "stop-${stop.id}",
+                                        time = stop.visitedAt ?: stop.createdAt,
+                                        kind = TimelineKind.STOP,
+                                        title = stop.title.ifBlank { "Pin" },
+                                        subtitle = "Pin im Eintrag",
+                                        stopId = stop.id,
+                                        entryId = item.entryId,
+                                        photoId = null,
+                                        hasLocation = true,
+                                    ),
+                                    photoId = null,
+                                    kind = 5,
+                                )
+                            }
+                        (photoChildren + pinChildren)
+                            .sortedBy { it.first }
+                            .forEach { result.add(it.second) }
                     }
                 }
             }
@@ -172,6 +214,18 @@ fun AdventureTimeline(
     }
 
     val contentWidth = with(density) { (startPx + points.size * stepPx + 72.dp.toPx()).toDp() }
+
+    LaunchedEffect(scrollState.value, contentWidth) {
+        val widthPx = with(density) { contentWidth.toPx() }
+        if (widthPx > 0f) onScrollFraction(scrollState.value / widthPx)
+    }
+    LaunchedEffect(externalKey) {
+        val index = points.indexOfFirst { it.key == externalKey }
+        if (index >= 0) {
+            scrollState.animateScrollTo((index * stepPx).roundToInt())
+        }
+    }
+
     val kmTargets = remember(totalKm) {
         buildList {
             var value = 100.0
@@ -186,7 +240,7 @@ fun AdventureTimeline(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+            .horizontalScroll(scrollState),
     ) {
         Box(modifier = Modifier.width(contentWidth).fillMaxHeight()) {
             androidx.compose.foundation.Canvas(
@@ -198,6 +252,25 @@ fun AdventureTimeline(
                     baseY + (sin(index * 0.85f) * with(density) { 9.dp.toPx() }).toFloat()
                 }
                 val dash = PathEffect.dashPathEffect(floatArrayOf(18f, 13f), 0f)
+
+                // Hintergrundfeld: zeigt sichtbar, welche Elemente im Eintrag stecken.
+                points.forEachIndexed { index, point ->
+                    val children = (point.item?.photoCount ?: 0) +
+                        (point.item?.pinCount ?: 0)
+                    if (point.kind == 2 && children > 0 &&
+                        expandedEntryIds.contains(point.item?.entryId)
+                    ) {
+                        drawRoundRect(
+                            color = Color(0xFFF6E27A).copy(alpha = 0.38f),
+                            topLeft = Offset(point.x - 76f, yAt(index) - 10f),
+                            size = androidx.compose.ui.geometry.Size(
+                                170f,
+                                58f + children * 34f,
+                            ),
+                            cornerRadius = androidx.compose.ui.geometry.Radius(14f, 14f),
+                        )
+                    }
+                }
 
                 val path = Path()
                 path.moveTo(points.first().x, yAt(0))
@@ -262,6 +335,26 @@ fun AdventureTimeline(
                     modifier = Modifier
                         .offset(x = x, y = y)
                         .width(156.dp)
+                        .pointerInput(point.key) {
+                            var dragX = 0f
+                            detectDragGestures(onDragEnd = {
+                                val source = when {
+                                    point.kind == 3 || point.kind == 4 ->
+                                        point.photoId?.let { "photo-$it" }
+                                    point.kind == 1 || point.kind == 5 ->
+                                        point.item?.stopId?.let { "stop-$it" }
+                                    else -> null
+                                }
+                                if (source != null) {
+                                    val finalX = point.x + dragX
+                                    val target = points.firstOrNull { candidate ->
+                                        candidate.kind == 2 &&
+                                            abs(candidate.x - finalX) < 170f
+                                    }?.item?.entryId
+                                    onDropElement(source, target)
+                                }
+                            }) { _, amount -> dragX += amount.x }
+                        }
                         .clickable {
                             when {
                                 point.kind == 0 && point.dayKey != null ->
@@ -326,7 +419,9 @@ fun AdventureTimeline(
                                     style = MaterialTheme.typography.labelSmall,
                                     modifier = Modifier.weight(1f),
                                 )
-                                if (point.kind == 2 && item?.photoCount?.let { it > 0 } == true) {
+                                if (point.kind == 2 &&
+                                    ((item?.photoCount ?: 0) + (item?.pinCount ?: 0)) > 0
+                                ) {
                                     Text(
                                         if (expandedEntryIds.contains(item.entryId)) "▴" else "▾",
                                         style = MaterialTheme.typography.labelSmall,
@@ -343,14 +438,14 @@ fun AdventureTimeline(
                 }
             }
 
-            // Distanz immer sichtbar – auch bei kurzen Reisen unter 100 km.
+            // Gesamtdistanz am rechten Ende der Zeitleiste.
             Text(
-                text = "Distanz: ${String.format(Locale.GERMANY, "%.1f", totalKm)} km",
+                text = "Gesamt: ${String.format(Locale.GERMANY, "%.1f", totalKm)} km",
                 color = Color(0xFF3B2B20),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
-                    .offset(x = 8.dp, y = 6.dp)
+                    .offset(x = contentWidth - 156.dp, y = 6.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFFFBF4E4))
                     .padding(horizontal = 8.dp, vertical = 3.dp),

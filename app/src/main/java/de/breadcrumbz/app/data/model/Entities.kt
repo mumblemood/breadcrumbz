@@ -38,6 +38,8 @@ data class TripEntity(
 data class StopEntity(
     @PrimaryKey val id: String,
     val tripId: String,
+    val entryId: String?,
+    val transportMode: String?,
     val title: String,
     val latitude: Double,
     val longitude: Double,

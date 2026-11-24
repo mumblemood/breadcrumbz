@@ -6,6 +6,8 @@ import de.breadcrumbz.app.data.db.BreadcrumbzDatabase
 import de.breadcrumbz.app.data.db.MIGRATION_1_2
 import de.breadcrumbz.app.data.db.MIGRATION_2_3
 import de.breadcrumbz.app.data.db.MIGRATION_3_4
+import de.breadcrumbz.app.data.db.MIGRATION_4_5
+import de.breadcrumbz.app.data.db.MIGRATION_5_6
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
 import de.breadcrumbz.app.data.place.PlaceNameResolver
 import de.breadcrumbz.app.data.repository.RoomBreadcrumbzRepository
@@ -35,7 +37,13 @@ class AppContainer(context: Context) {
         appContext,
         BreadcrumbzDatabase::class.java,
         "breadcrumbz.db",
-    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
+    ).addMigrations(
+        MIGRATION_1_2,
+        MIGRATION_2_3,
+        MIGRATION_3_4,
+        MIGRATION_4_5,
+        MIGRATION_5_6,
+    ).build()
 
     val photoStore = InternalPhotoStore(appContext)
 

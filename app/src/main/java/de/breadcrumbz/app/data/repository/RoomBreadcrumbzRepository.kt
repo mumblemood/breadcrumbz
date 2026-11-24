@@ -76,9 +76,14 @@ class RoomBreadcrumbzRepository(
         source: StopSource,
     ): Stop {
         val now = System.currentTimeMillis()
+        val defaultMode = observeTrips().firstOrNull()
+            ?.firstOrNull { it.id == tripId }
+            ?.defaultTransportMode ?: TransportMode.CAR
         val stop = Stop(
             id = UUID.randomUUID().toString(),
             tripId = tripId,
+            entryId = null,
+            transportMode = defaultMode,
             title = title.trim(),
             latitude = latitude,
             longitude = longitude,

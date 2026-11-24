@@ -7,7 +7,9 @@ import de.breadcrumbz.app.data.photo.InternalPhotoStore
 import de.breadcrumbz.app.data.photo.PhotoImporter
 import de.breadcrumbz.app.data.place.PlaceNameResolver
 import de.breadcrumbz.app.domain.model.Photo
+import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.StopSource
+import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.TimelineItem
 import de.breadcrumbz.app.domain.model.TimelineKind
 import de.breadcrumbz.app.domain.repository.BreadcrumbzRepository
@@ -72,7 +74,8 @@ class TripMapViewModel(
         photos,
     ) { allStops, allEntries, allPhotos ->
         buildList {
-            allStops.forEach { stop ->
+            // Pins in Einträgen erscheinen nur im Eintrag, nicht noch einmal allein.
+            allStops.filter { it.entryId == null }.forEach { stop ->
                 add(
                     TimelineItem(
                         id = "stop-${stop.id}",
@@ -100,6 +103,7 @@ class TripMapViewModel(
                         photoId = null,
                         hasLocation = entry.stopId != null,
                         photoCount = allPhotos.count { it.entryId == entry.id },
+                        pinCount = allStops.count { it.entryId == entry.id },
                     ),
                 )
             }
@@ -234,6 +238,8 @@ class TripMapViewModel(
         body: String,
         time: Long,
         images: List<ImportedPhoto>,
+        fallbackLatitude: Double? = null,
+        fallbackLongitude: Double? = null,
     ) {
         if (title.isBlank() && body.isBlank() && images.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
@@ -252,9 +258,9 @@ class TripMapViewModel(
                     entryId = null,
                     fileName = fileName,
                     mimeType = item.mimeType,
-                    capturedAt = metadata.capturedAt,
-                    latitude = metadata.latitude,
-                    longitude = metadata.longitude,
+                    capturedAt = metadata.capturedAt ?: time,
+                    latitude = metadata.latitude ?: fallbackLatitude,
+                    longitude = metadata.longitude ?: fallbackLongitude,
                     caption = "",
                     sortIndex = startIndex + index,
                     createdAt = now + index,
@@ -295,12 +301,81 @@ class TripMapViewModel(
                     .firstOrNull { it.id in ids && it.stopId != null }?.stopId
             }
 
+            // Ohne EXIF-GPS bekommt das Bild den aktuellen Kartenort als festen Ort.
+            if (resolvedStopId == null &&
+                fallbackLatitude != null && fallbackLongitude != null
+            ) {
+                val name = placeNameResolver.resolve(fallbackLatitude, fallbackLongitude)
+                    ?: "Wegpunkt ${allStops.size + 1}"
+                resolvedStopId = repository.addStop(
+                    tripId = tripId,
+                    title = name,
+                    latitude = fallbackLatitude,
+                    longitude = fallbackLongitude,
+                    visitedAt = time,
+                    source = StopSource.MANUAL,
+                ).id
+            }
+
             val entry = repository.addEntry(tripId, resolvedStopId, title.trim(), body.trim())
             repository.updateEntry(entry.copy(createdAt = time))
+            val targetStop = resolvedStopId?.let { id ->
+                repository.observeStops(tripId).first().firstOrNull { it.id == id }
+            }
             createdPhotos.forEach { photo ->
                 repository.updatePhoto(
-                    photo.copy(entryId = entry.id, stopId = resolvedStopId ?: photo.stopId),
+                    photo.copy(
+                        entryId = entry.id,
+                        stopId = resolvedStopId ?: photo.stopId,
+                        capturedAt = photo.capturedAt ?: time,
+                        latitude = photo.latitude ?: targetStop?.latitude,
+                        longitude = photo.longitude ?: targetStop?.longitude,
+                    ),
                 )
+            }
+        }
+    }
+
+    /**
+     * Ordnet ein Element per Drag & Drop einem Eintrag zu oder löst es wieder.
+     * Schlüssel: "photo-<id>" oder "stop-<id>". Hat der Eintrag einen Ort, zieht
+     * ein zugeordnetes Bild dorthin.
+     */
+    fun assignElementToEntry(elementKey: String, entryId: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val stopsNow = repository.observeStops(tripId).first()
+            val entry = entryId?.let { id ->
+                repository.observeEntriesForTrip(tripId).first().firstOrNull { it.id == id }
+            }
+            val targetStop = entry?.stopId?.let { id -> stopsNow.firstOrNull { it.id == id } }
+
+            when {
+                elementKey.startsWith("photo-") -> {
+                    val id = elementKey.removePrefix("photo-")
+                    val photo = repository.observePhotos(tripId).first()
+                        .firstOrNull { it.id == id } ?: return@launch
+                    repository.updatePhoto(
+                        photo.copy(
+                            entryId = entryId,
+                            stopId = targetStop?.id ?: photo.stopId,
+                            latitude = targetStop?.latitude ?: photo.latitude,
+                            longitude = targetStop?.longitude ?: photo.longitude,
+                        ),
+                    )
+                }
+                elementKey.startsWith("stop-") -> {
+                    val id = elementKey.removePrefix("stop-")
+                    val stop = stopsNow.firstOrNull { it.id == id } ?: return@launch
+                    repository.updateStop(stop.copy(entryId = entryId))
+                    if (entryId != null && entry?.stopId == null) {
+                        repository.updateEntry(entry.copy(stopId = stop.id))
+                    }
+                    if (entryId != null) {
+                        repository.observePhotos(tripId).first()
+                            .filter { it.stopId == stop.id }
+                            .forEach { photo -> repository.updatePhoto(photo.copy(entryId = entryId)) }
+                    }
+                }
             }
         }
     }
@@ -323,6 +398,24 @@ class TripMapViewModel(
     fun setCoverPhoto(photoId: String) {
         viewModelScope.launch(Dispatchers.IO) {
             repository.setCoverPhoto(tripId, photoId)
+        }
+    }
+
+    /** Umschalter zwischen automatischem Linien-Stil und glattem Direkt-Spline. */
+    fun setRouteMode(routeMode: RouteMode) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = repository.observeTrips().first().firstOrNull { it.id == tripId }
+                ?: return@launch
+            repository.updateTrip(current.copy(routeMode = routeMode))
+        }
+    }
+
+    /** Verkehrsmittel für einen Abschnitt ändern (Pin = Ankunft an diesem Abschnitt). */
+    fun setStopTransportMode(stopId: String, mode: TransportMode) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val stop = repository.observeStops(tripId).first().firstOrNull { it.id == stopId }
+                ?: return@launch
+            repository.updateStop(stop.copy(transportMode = mode))
         }
     }
 

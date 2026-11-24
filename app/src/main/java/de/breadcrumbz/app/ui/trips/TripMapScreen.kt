@@ -10,6 +10,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,9 +47,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -57,14 +62,23 @@ import de.breadcrumbz.app.data.photo.ImportedPhoto
 import de.breadcrumbz.app.data.photo.PhotoSourceReader
 import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.TimelineItem
+import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.TimelineKind
+import de.breadcrumbz.app.domain.util.haversineMeters
 import de.breadcrumbz.app.state.TripMapViewModel
 import de.breadcrumbz.app.ui.map.AdventureTimeline
+import de.breadcrumbz.app.ui.map.ClusterElement
+import de.breadcrumbz.app.ui.map.ClusterOverlay
+import de.breadcrumbz.app.ui.map.PinInteractionOverlay
 import de.breadcrumbz.app.ui.map.PolaroidOverlay
+import de.breadcrumbz.app.ui.map.RouteStyling
 import de.breadcrumbz.app.ui.map.StickyNoteOverlay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.events.MapListener
+import org.osmdroid.events.ScrollEvent
+import org.osmdroid.events.ZoomEvent
 import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
@@ -78,6 +92,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 private fun standardTiles() = XYTileSource(
     "OSM-Standard",
@@ -98,6 +113,12 @@ private fun rememberThumbnail(viewModel: TripMapViewModel, fileName: String): Im
     remember(fileName) {
         val options = BitmapFactory.Options().apply { inSampleSize = 8 }
         BitmapFactory.decodeFile(viewModel.photoPath(fileName), options)?.asImageBitmap()
+    }
+
+@Composable
+private fun rememberFullImage(viewModel: TripMapViewModel, fileName: String): ImageBitmap? =
+    remember(fileName) {
+        BitmapFactory.decodeFile(viewModel.photoPath(fileName))?.asImageBitmap()
     }
 
 private fun formatDate(time: Long?, withYear: Boolean = false): String {
@@ -133,6 +154,11 @@ fun TripMapScreen(
     val scope = rememberCoroutineScope()
 
     var didCenter by remember { mutableStateOf(false) }
+    var mapZoom by remember { mutableStateOf(14f) }
+    var mapCenter by remember { mutableStateOf<GeoPoint?>(null) }
+    var lastTimelineSync by remember { mutableStateOf(0L) }
+    var fullscreenKey by remember { mutableStateOf<String?>(null) }
+    val markers = remember { mutableMapOf<String, Marker>() }
     var expandedDay by remember { mutableStateOf<String?>(null) }
     var expandedEntryIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedPhotoId by remember { mutableStateOf<String?>(null) }
@@ -153,12 +179,17 @@ fun TripMapScreen(
     val thumbnails = photos.map { it.id to rememberThumbnail(viewModel, it.fileName) }.toMap()
     val photosByEntry = remember(photos) {
         photos.filter { it.entryId != null }
+            .sortedBy { it.capturedAt ?: it.createdAt }
             .groupBy { it.entryId.orEmpty() }
             .mapValues { entry -> entry.value.map { it.id } }
+    }
+    val photoTimes = remember(photos) {
+        photos.associate { it.id to (it.capturedAt ?: it.createdAt) }
     }
 
     BackHandler {
         when {
+            fullscreenKey != null -> fullscreenKey = null
             showEntryEditor -> showEntryEditor = false
             showNewEntryDialog -> showNewEntryDialog = false
             stackPhotoIds.isNotEmpty() -> stackPhotoIds = emptyList()
@@ -230,6 +261,40 @@ fun TripMapScreen(
         MyLocationNewOverlay(GpsMyLocationProvider(context), mapView)
     }
 
+    val mapListener = remember {
+        object : MapListener {
+            override fun onScroll(event: ScrollEvent?): Boolean {
+                if (System.currentTimeMillis() - lastTimelineSync > 700L) {
+                    lastTimelineSync = System.currentTimeMillis()
+                    mapCenter = mapView.mapCenter
+                }
+                return false
+            }
+
+            override fun onZoom(event: ZoomEvent?): Boolean {
+                lastTimelineSync = System.currentTimeMillis()
+                mapZoom = mapView.zoomLevelDouble.toFloat()
+                mapCenter = mapView.mapCenter
+                return false
+            }
+        }
+    }
+
+    val pinOverlay = remember(stops) {
+        PinInteractionOverlay(
+            markers = markers,
+            stops = stops,
+            onTap = { id ->
+                selectedPhotoId = null
+                fullscreenKey = "stop-$id"
+                viewModel.selectStop(id)
+            },
+            onMove = { id, latitude, longitude ->
+                viewModel.moveStop(id, latitude, longitude)
+            },
+        )
+    }
+
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { results ->
@@ -276,7 +341,9 @@ fun TripMapScreen(
 
     DisposableEffect(mapView) {
         mapView.onResume()
+        mapView.addMapListener(mapListener)
         onDispose {
+            mapView.removeMapListener(mapListener)
             mapView.onPause()
             mapView.onDetach()
         }
@@ -318,27 +385,51 @@ fun TripMapScreen(
     fun handleTimelineClick(item: TimelineItem) {
         when (item.kind) {
             TimelineKind.PHOTO -> {
-                item.photoId?.let { selectedPhotoId = it }
+                item.photoId?.let { fullscreenKey = "photo-$it" }
             }
             TimelineKind.STOP -> {
                 val stop = stops.firstOrNull { it.id == item.stopId }
                 if (stop != null) {
                     focusStop(mapView, stop.latitude, stop.longitude)
+                    fullscreenKey = "stop-${stop.id}"
                     viewModel.selectStop(stop.id)
                 }
             }
             TimelineKind.ENTRY -> {
-                if (item.hasLocation) {
-                    val stop = stops.firstOrNull { it.id == item.stopId }
-                    if (stop != null) {
-                        focusStop(mapView, stop.latitude, stop.longitude)
-                        viewModel.selectStop(stop.id)
-                        if (item.entryId != null) {
-                            openEntryEditor(allEntries.firstOrNull { it.id == item.entryId })
-                        }
+                if (item.entryId != null) {
+                    fullscreenKey = "entry-${item.entryId}"
+                    if (!item.hasLocation) {
+                        // Ort setzen bleibt im Vollbild möglich.
+                        viewModel.cancelPlacement()
                     }
-                } else if (item.entryId != null) {
-                    viewModel.beginEntryPlacement(item.entryId)
+                }
+            }
+        }
+    }
+
+    fun geoFor(item: TimelineItem): GeoPoint? {
+        val stop = stops.firstOrNull { it.id == item.stopId }
+        if (stop != null) return GeoPoint(stop.latitude, stop.longitude)
+        val photo = photos.firstOrNull { it.id == item.photoId }
+        if (photo?.latitude != null && photo.longitude != null) {
+            return GeoPoint(photo.latitude, photo.longitude)
+        }
+        return null
+    }
+
+    val nearestIndex = remember(mapCenter, timeline, stops, photos) {
+        val center = mapCenter
+        if (center == null || timeline.isEmpty()) {
+            null
+        } else {
+            timeline.indices.minByOrNull { index ->
+                val point = geoFor(timeline[index])
+                if (point != null) {
+                    haversineMeters(
+                        center.latitude, center.longitude, point.latitude, point.longitude,
+                    )
+                } else {
+                    Double.MAX_VALUE
                 }
             }
         }
@@ -394,47 +485,71 @@ fun TripMapScreen(
                         val placedPhotos = photos.filter {
                             it.latitude != null && it.longitude != null
                         }
-                        view.overlays.add(
-                            PolaroidOverlay(
-                                photos = placedPhotos,
-                                filePath = { name -> viewModel.photoPath(name) },
-                                onPhotoClick = { ids ->
-                                    if (ids.size == 1) {
-                                        selectedPhotoId = ids.first()
-                                    } else {
-                                        stackPhotoIds = ids
-                                    }
-                                },
-                            ),
-                        )
-
-                        val stickyEntries = allEntries.filter { entry ->
-                            entry.stopId != null &&
-                                (entry.title.isNotBlank() || entry.body.isNotBlank())
+                        val clusterElements = buildList {
+                            stops.forEach { stop ->
+                                add(ClusterElement(stop.latitude, stop.longitude, "stop-${stop.id}"))
+                            }
+                            placedPhotos.forEach { photo ->
+                                add(
+                                    ClusterElement(
+                                        photo.latitude!!,
+                                        photo.longitude!!,
+                                        "photo-${photo.id}",
+                                    ),
+                                )
+                            }
                         }
-                        view.overlays.add(
-                            StickyNoteOverlay(
-                                entries = stickyEntries,
-                                stops = stops,
-                                onEntryClick = { id ->
-                                    openEntryEditor(allEntries.firstOrNull { it.id == id })
-                                },
-                            ),
-                        )
+                        val clustered = view.zoomLevelDouble <= 13.0 &&
+                            clusterElements.isNotEmpty()
 
-                        if (stops.size > 1) {
-                            val route = Polyline(view)
-                            route.setPoints(stops.map { GeoPoint(it.latitude, it.longitude) })
-                            route.color = 0xFF3B2B20.toInt()
-                            route.width = 6f
-                            view.overlays.add(route)
+                        if (clustered) {
+                            view.overlays.add(
+                                ClusterOverlay(clusterElements) { box ->
+                                    view.zoomToBoundingBox(box, true, 80)
+                                },
+                            )
+                        } else {
+                            view.overlays.add(
+                                PolaroidOverlay(
+                                    photos = placedPhotos,
+                                    filePath = { name -> viewModel.photoPath(name) },
+                                    onPhotoClick = { ids ->
+                                        if (ids.size == 1) {
+                                            fullscreenKey = "photo-${ids.first()}"
+                                        } else {
+                                            stackPhotoIds = ids
+                                        }
+                                    },
+                                ),
+                            )
+
+                            val stickyEntries = allEntries.filter { entry ->
+                                entry.stopId != null &&
+                                    (entry.title.isNotBlank() || entry.body.isNotBlank())
+                            }
+                            view.overlays.add(
+                                StickyNoteOverlay(
+                                    entries = stickyEntries,
+                                    stops = stops,
+                                    onEntryClick = { id -> fullscreenKey = "entry-$id" },
+                                ),
+                            )
                         }
 
+                        RouteStyling.build(
+                            mapView = view,
+                            stops = stops,
+                            defaultMode = trip?.defaultTransportMode
+                                ?: de.breadcrumbz.app.domain.model.TransportMode.CAR,
+                            routeMode = trip?.routeMode ?: RouteMode.AUTO,
+                        ).forEach { view.overlays.add(it) }
+
+                        markers.clear()
                         stops.forEach { stop ->
                             val marker = Marker(view)
                             marker.position = GeoPoint(stop.latitude, stop.longitude)
                             marker.title = stop.title
-                            marker.snippet = "Ziehen verschiebt den Punkt"
+                            marker.snippet = "2 Sekunden halten, dann ziehen"
                             marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
 
                             val icon = ContextCompat.getDrawable(
@@ -450,29 +565,11 @@ fun TripMapScreen(
                                 )
                                 marker.icon = it
                             }
-
-                            marker.isDraggable = true
-                            val stopId = stop.id
-                            marker.setOnMarkerClickListener { _, _ ->
-                                selectedPhotoId = null
-                                viewModel.selectStop(stopId)
-                                true
-                            }
-                            marker.setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
-                                override fun onMarkerDrag(marker: Marker?) = Unit
-                                override fun onMarkerDragStart(marker: Marker?) = Unit
-                                override fun onMarkerDragEnd(marker: Marker?) {
-                                    if (marker != null) {
-                                        viewModel.moveStop(
-                                            stopId,
-                                            marker.position.latitude,
-                                            marker.position.longitude,
-                                        )
-                                    }
-                                }
-                            })
-                            view.overlays.add(marker)
+                            marker.isDraggable = false
+                            markers[stop.id] = marker
+                            if (!clustered) view.overlays.add(marker)
                         }
+                        if (!clustered) view.overlays.add(pinOverlay)
                         view.invalidate()
                     },
                 )
@@ -494,6 +591,16 @@ fun TripMapScreen(
                     }
                     Button(onClick = { showMyLocation() }) {
                         Text("Standort")
+                    }
+                    Button(onClick = {
+                        val next = if (trip?.routeMode == RouteMode.DIRECT) {
+                            RouteMode.AUTO
+                        } else {
+                            RouteMode.DIRECT
+                        }
+                        viewModel.setRouteMode(next)
+                    }) {
+                        Text(if (trip?.routeMode == RouteMode.DIRECT) "Linie: direkt" else "Linie: Auto")
                     }
                     Button(onClick = {
                         val points = buildList {
@@ -606,8 +713,28 @@ fun TripMapScreen(
                         }
                     },
                     onItemClick = { item -> handleTimelineClick(item) },
-                    onPhotoClick = { id -> selectedPhotoId = id },
+                    onPhotoClick = { id -> fullscreenKey = "photo-$id" },
                     photoBitmap = { id -> thumbnails[id] },
+                    photoTimes = photoTimes,
+                    mapZoom = mapZoom,
+                    externalKey = timeline.getOrNull(nearestIndex ?: -1)?.id,
+                    onScrollFraction = { fraction ->
+                        if (timeline.isNotEmpty() &&
+                            System.currentTimeMillis() - lastTimelineSync > 700L
+                        ) {
+                            val index = (fraction * timeline.lastIndex)
+                                .roundToInt()
+                                .coerceIn(0, timeline.lastIndex)
+                            val point = geoFor(timeline[index])
+                            if (point != null) {
+                                lastTimelineSync = System.currentTimeMillis()
+                                mapView.controller.setCenter(point)
+                            }
+                        }
+                    },
+                    onDropElement = { source, entryId ->
+                        viewModel.assignElementToEntry(source, entryId)
+                    },
                     modifier = Modifier.fillMaxHeight(),
                 )
             }
@@ -703,7 +830,7 @@ fun TripMapScreen(
                                 }
                             }
                             TextButton(onClick = {
-                                selectedPhotoId = id
+                                fullscreenKey = "photo-$id"
                                 stackPhotoIds = emptyList()
                             }) {
                                 Text("Öffnen")
@@ -768,6 +895,8 @@ fun TripMapScreen(
                         body = newEntryBody,
                         time = chosenTime,
                         images = chosenImages,
+                        fallbackLatitude = mapView.mapCenter.latitude,
+                        fallbackLongitude = mapView.mapCenter.longitude,
                     )
                     expandedDay = dayKeyOf(chosenTime)
                     showNewEntryDialog = false
@@ -842,6 +971,25 @@ fun TripMapScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showEntryEditor = false }) { Text("Abbrechen") }
+            },
+        )
+    }
+
+    val activeFullscreenKey = fullscreenKey
+    if (activeFullscreenKey != null) {
+        FullscreenElement(
+            elementKey = activeFullscreenKey,
+            viewModel = viewModel,
+            stops = stops,
+            photos = photos,
+            entries = allEntries,
+            photoBitmap = { id -> thumbnails[id] },
+            onClose = { fullscreenKey = null },
+            onOpenElement = { key -> fullscreenKey = key },
+            onEditEntry = { entry -> openEntryEditor(entry) },
+            onEditPhoto = { id ->
+                fullscreenKey = null
+                selectedPhotoId = id
             },
         )
     }

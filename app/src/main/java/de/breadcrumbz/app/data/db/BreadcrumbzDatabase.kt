@@ -18,7 +18,7 @@ import de.breadcrumbz.app.data.model.TripEntity
         PhotoEntity::class,
         PlaceNameEntity::class,
     ],
-    version = 4,
+    version = 6,
     exportSchema = true,
 )
 abstract class BreadcrumbzDatabase : RoomDatabase() {
@@ -96,5 +96,19 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
 val MIGRATION_3_4 = object : Migration(3, 4) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `photos` ADD COLUMN `entryId` TEXT")
+    }
+}
+
+/** Version 5: Pins können einem Eintrag zugeordnet sein. */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `stops` ADD COLUMN `entryId` TEXT")
+    }
+}
+
+/** Version 6: Jeder Abschnitt kann ein eigenes Verkehrsmittel haben. */
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `stops` ADD COLUMN `transportMode` TEXT")
     }
 }

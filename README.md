@@ -3,20 +3,29 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Meilenstein 6 – dauerhafte Timeline und Einträge mit Bildern.**
+**Aktueller Stand: Meilenstein 6 – Elemente, Vollbild und abschnittsweise Routen.**
 Die Karte nimmt die oberen zwei Drittel ein, die **Timeline** ist ein festes
-unteres Drittel über die gesamte Fensterbreite. Sie zeigt eine geschwungene,
-gestrichelte Linie mit Pin-Nadeln. Tagesmarken und Einträge mit mehreren Bildern
-lassen sich aufklappen; die Distanz ist immer als Beschriftung sichtbar und
-alle 100 km senkrecht markiert. Der **„+"**-Knopf öffnet einen Dialog für Titel,
-Tagebuch, Datum, Uhrzeit und mehrere neue Bilder aus der Galerie. Der Ort wird
-automatisch aus GPS und Aufnahmezeit der Bilder bzw. vorhandenen Stationen
-bestimmt. Text-Einträge erscheinen als gelbe Zettel auf der Karte, Fotos als
-große Polaroids unter dem Marker. Mit **„Standort"** wird die eigene Position
-angezeigt und die Karte dorthin zentriert. Foto-Titel sind handschriftlich
-(maximal 12 Zeichen), ein Foto kann als Titelbild gesetzt werden. Das
-Standard-Verkehrsmittel wird beim Anlegen oder Bearbeiten einer Reise gewählt;
-die Linien-Stile pro Abschnitt folgen in einem späteren Schritt.
+unteres Drittel. Pins, Fotos und Tagebucheinträge sind gleichwertige **Elemente**
+mit festem Ort und fester Zeit; ein Eintrag ist ein Behälter dafür, muss aber
+nicht leer sein und kann auch allein stehen. In der Timeline lassen sich Bilder
+und Pins per Drag & Drop in einen Eintrag ziehen oder wieder herauslösen; ein
+gelbes Feld umschließt die enthaltenen Elemente. Die Gesamtdistanz steht am
+rechten Ende, die 100-km-Marker bleiben erhalten. Karte und Timeline sind
+synchron: Zoom und Ausschnitt wirken in beide Richtungen. Beim Rauszoomen
+legen sich nahe Elemente zusammen, ein Kreis zeigt die Anzahl.
+
+Ein Klick auf jedes Element öffnet es **vollbild** mit Zurück-Knopf; Bilder
+werden dabei vollständig (ohne Beschneiden) gezeigt. Ein Pin lässt sich erst
+nach **zwei Sekunden Halten** mit haptischem Feedback verschieben. Wird ein Bild
+einem Eintrag mit Ort zugeordnet, wandert es auf der Karte zu dessen Pin.
+
+Der **„+"**-Knopf öffnet Titel, Tagebuch, Datum, Uhrzeit und mehrere neue Bilder
+aus der Galerie. Der Ort wird automatisch aus EXIF-GPS, Zeit vorhandener
+Stationen oder dem aktuellen Kartenausschnitt bestimmt. Mit **„Standort"**
+wird die eigene Position angezeigt. Die Route wird **pro Abschnitt** im Stil des
+Verkehrsmittels gezeichnet (Straße, Weg, Wasser, Bahn, Flugbogen, Campingbus);
+der Knopf **„Linie: direkt"** schaltet auf einen glatten Spline um. Das
+Standard-Verkehrsmittel der Reise bleibt die Vorgabe für neue Abschnitte.
 
 **Aus Meilenstein 5:** Beim Setzen eines Punkts wird der Ortsname automatisch
 über Nominatim (OpenStreetMap) ermittelt und lokal gecacht; ohne Internet wird
