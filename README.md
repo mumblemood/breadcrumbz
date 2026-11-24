@@ -20,6 +20,8 @@ auf dem Handy geprüft.
 - Saubere Trennung von Daten, Regeln und Oberfläche, damit später Chromecast
   ergänzt werden kann, ohne die App umzubauen
 
+Das geplante Karten- und Overlay-Design ist in `docs/map-design.md` beschrieben.
+
 ## Technik
 
 - Kotlin + Jetpack Compose (Material 3)
