@@ -176,7 +176,7 @@ class BackupManager(
         null
     }
 
-    private fun JSONArray?.forEachRow(block: (JSONObject) -> Unit) {
+    private suspend fun JSONArray?.forEachRow(block: suspend (JSONObject) -> Unit) {
         if (this == null) return
         for (index in 0 until length()) {
             try {
@@ -187,18 +187,18 @@ class BackupManager(
         }
     }
 
-    private fun optLong(obj: JSONObject, key: String): Long? =
-        if (obj.has(key) && !obj.isNull(key)) obj.optLong(key) else null
+    private fun JSONObject.longOrNull(key: String): Long? =
+        if (has(key) && !isNull(key)) optLong(key) else null
 
-    private fun optDouble(obj: JSONObject, key: String): Double? =
-        if (obj.has(key) && !obj.isNull(key)) obj.optDouble(key) else null
+    private fun JSONObject.doubleOrNull(key: String): Double? =
+        if (has(key) && !isNull(key)) optDouble(key) else null
 
-    private fun putNullable(obj: JSONObject, key: String, value: Long?) {
-        obj.put(key, value ?: JSONObject.NULL)
+    private fun JSONObject.putNullable(key: String, value: Long?) {
+        put(key, value ?: JSONObject.NULL)
     }
 
-    private fun putNullable(obj: JSONObject, key: String, value: Double?) {
-        obj.put(key, value ?: JSONObject.NULL)
+    private fun JSONObject.putNullable(key: String, value: Double?) {
+        put(key, value ?: JSONObject.NULL)
     }
 
     private fun TripEntity.toJson() = JSONObject().apply {
@@ -221,14 +221,14 @@ class BackupManager(
         title = optString("title", "Neue Reise"),
         titleIsAuto = optBoolean("titleIsAuto", false),
         description = optString("description", ""),
-        startDate = optLong("startDate"),
-        endDate = optLong("endDate"),
+        startDate = longOrNull("startDate"),
+        endDate = longOrNull("endDate"),
         coverPhotoId = if (isNull("coverPhotoId")) null else optString("coverPhotoId"),
         overlayMode = optString("overlayMode", "STANDARD"),
         defaultTransportMode = optString("defaultTransportMode", "CAR"),
         routeMode = optString("routeMode", "AUTO"),
-        createdAt = optLong("createdAt") ?: System.currentTimeMillis(),
-        updatedAt = optLong("updatedAt") ?: System.currentTimeMillis(),
+        createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
+        updatedAt = longOrNull("updatedAt") ?: System.currentTimeMillis(),
     )
 
     private fun StopEntity.toJson() = JSONObject().apply {
@@ -255,16 +255,16 @@ class BackupManager(
         entryId = if (isNull("entryId")) null else optString("entryId"),
         transportMode = if (isNull("transportMode")) null else optString("transportMode"),
         title = optString("title", "Wegpunkt"),
-        latitude = optDouble("latitude") ?: 0.0,
-        longitude = optDouble("longitude") ?: 0.0,
+        latitude = doubleOrNull("latitude") ?: 0.0,
+        longitude = doubleOrNull("longitude") ?: 0.0,
         sortIndex = optInt("sortIndex", 0),
-        visitedAt = optLong("visitedAt"),
+        visitedAt = longOrNull("visitedAt"),
         source = optString("source", "MANUAL"),
-        distanceFromPreviousMeters = optDouble("distanceFromPreviousMeters"),
+        distanceFromPreviousMeters = doubleOrNull("distanceFromPreviousMeters"),
         distanceSource = if (isNull("distanceSource")) null else optString("distanceSource"),
-        distanceUpdatedAt = optLong("distanceUpdatedAt"),
-        createdAt = optLong("createdAt") ?: System.currentTimeMillis(),
-        updatedAt = optLong("updatedAt") ?: System.currentTimeMillis(),
+        distanceUpdatedAt = longOrNull("distanceUpdatedAt"),
+        createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
+        updatedAt = longOrNull("updatedAt") ?: System.currentTimeMillis(),
     )
 
     private fun EntryEntity.toJson() = JSONObject().apply {
@@ -285,8 +285,8 @@ class BackupManager(
         title = optString("title", ""),
         body = optString("body", ""),
         sortIndex = optInt("sortIndex", 0),
-        createdAt = optLong("createdAt") ?: System.currentTimeMillis(),
-        updatedAt = optLong("updatedAt") ?: System.currentTimeMillis(),
+        createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
+        updatedAt = longOrNull("updatedAt") ?: System.currentTimeMillis(),
     )
 
     private fun PhotoEntity.toJson() = JSONObject().apply {
@@ -311,12 +311,12 @@ class BackupManager(
         entryId = if (isNull("entryId")) null else optString("entryId"),
         fileName = optString("fileName").ifBlank { UUID.randomUUID().toString() + ".jpg" },
         mimeType = optString("mimeType", "image/jpeg"),
-        capturedAt = optLong("capturedAt"),
-        latitude = optDouble("latitude"),
-        longitude = optDouble("longitude"),
+        capturedAt = longOrNull("capturedAt"),
+        latitude = doubleOrNull("latitude"),
+        longitude = doubleOrNull("longitude"),
         caption = optString("caption", ""),
         sortIndex = optInt("sortIndex", 0),
-        createdAt = optLong("createdAt") ?: System.currentTimeMillis(),
+        createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
     )
 
     private fun PlaceNameEntity.toJson() = JSONObject().apply {
@@ -328,6 +328,6 @@ class BackupManager(
     private fun JSONObject.toPlace() = PlaceNameEntity(
         key = optString("key"),
         name = optString("name"),
-        createdAt = optLong("createdAt") ?: System.currentTimeMillis(),
+        createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
     )
 }
