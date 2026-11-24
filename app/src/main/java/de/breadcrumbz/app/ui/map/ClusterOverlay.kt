@@ -38,6 +38,7 @@ class ClusterOverlay(
     }
 
     private val groups = mutableListOf<Pair<RectF, List<ClusterElement>>>()
+    private var ignoreTapsUntilRelease = false
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow) return
@@ -73,13 +74,20 @@ class ClusterOverlay(
     }
 
     override fun onTouchEvent(event: MotionEvent, mapView: MapView): Boolean {
-        if (event.action == MotionEvent.ACTION_UP) {
-            val hit = groups.firstOrNull { it.first.contains(event.x, event.y) }
-            if (hit != null) {
-                val points = hit.second.map { GeoPoint(it.latitude, it.longitude) }
-                onClusterClick(BoundingBox.fromGeoPoints(points))
-                return true
+        when (event.actionMasked) {
+            MotionEvent.ACTION_POINTER_DOWN -> ignoreTapsUntilRelease = true
+            MotionEvent.ACTION_UP -> {
+                val blocked = ignoreTapsUntilRelease
+                ignoreTapsUntilRelease = false
+                if (blocked) return true
+                val hit = groups.firstOrNull { it.first.contains(event.x, event.y) }
+                if (hit != null) {
+                    val points = hit.second.map { GeoPoint(it.latitude, it.longitude) }
+                    onClusterClick(BoundingBox.fromGeoPoints(points))
+                    return true
+                }
             }
+            MotionEvent.ACTION_CANCEL -> ignoreTapsUntilRelease = false
         }
         return super.onTouchEvent(event, mapView)
     }

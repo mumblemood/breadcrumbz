@@ -3,29 +3,29 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Meilenstein 6 – Elemente, Vollbild und abschnittsweise Routen.**
-Die Karte nimmt die oberen zwei Drittel ein, die **Timeline** ist ein festes
-unteres Drittel. Pins, Fotos und Tagebucheinträge sind gleichwertige **Elemente**
-mit festem Ort und fester Zeit; ein Eintrag ist ein Behälter dafür, muss aber
-nicht leer sein und kann auch allein stehen. In der Timeline lassen sich Bilder
-und Pins per Drag & Drop in einen Eintrag ziehen oder wieder herauslösen; ein
-gelbes Feld umschließt die enthaltenen Elemente. Die Gesamtdistanz steht am
-rechten Ende, die 100-km-Marker bleiben erhalten. Karte und Timeline sind
-synchron: Zoom und Ausschnitt wirken in beide Richtungen. Beim Rauszoomen
-legen sich nahe Elemente zusammen, ein Kreis zeigt die Anzahl.
+**Aktueller Stand: Meilenstein 6 – organisierte Einträge, klare Timeline, Icons.**
+Jedes **Foto gehört zu einem Eintrag**. Zeit und Ort schlägt das erste Bild vor;
+dieser Ort ist zugleich der Pin des Eintrags. Alte Einzelbilder werden beim
+Öffnen automatisch in je einen eigenen Eintrag überführt – nichts geht verloren.
+Im Foto-Vollbild gibt es den Knopf **„Ort in Eintrag übernehmen"**: Der Pin des
+Eintrags wandert dorthin, und alle Bilder des Eintrags ziehen mit. Beim Ziehen
+eines Pins verschieben sich Eintrag und Bilder ebenfalls mit.
 
-Ein Klick auf jedes Element öffnet es **vollbild** mit Zurück-Knopf; Bilder
-werden dabei vollständig (ohne Beschneiden) gezeigt. Ein Pin lässt sich erst
-nach **zwei Sekunden Halten** mit haptischem Feedback verschieben. Wird ein Bild
-einem Eintrag mit Ort zugeordnet, wandert es auf der Karte zu dessen Pin.
+Ein Pin wird zuerst **angetippt** (ausgewählt und geöffnet); erst danach lässt er
+sich durch **zwei Sekunden Halten** mit haptischem Feedback lösen und ziehen.
+Während des **Pinch-Zooms** wird nichts ausgewählt – erst nach dem Loslassen wieder.
+
+Die **Timeline** liegt weiter oben, zeigt echte Pin-Symbole, größere schräge
+Polaroids und Einträge mit sichtbarer Bild-Vorschau, die zum Aufklappen einlädt.
+Das Element in der **Mitte** ist halb ausgewählt hervorgehoben; liegt ein Bild in
+einem Stapel, kommt es nach vorn. Gesamtdistanz rechts, 100-km-Marker, Drag &
+Drop und die Synchronisation mit der Karte bleiben erhalten. Im Hauptmenü
+**tippt** man eine Reise zum Öffnen an und **hält sie gedrückt** zum Bearbeiten.
+Die Icons oben rechts in der Karte zeigen den **Standort** bzw. die **ganze Reise**.
 
 Der **„+"**-Knopf öffnet Titel, Tagebuch, Datum, Uhrzeit und mehrere neue Bilder
-aus der Galerie. Der Ort wird automatisch aus EXIF-GPS, Zeit vorhandener
-Stationen oder dem aktuellen Kartenausschnitt bestimmt. Mit **„Standort"**
-wird die eigene Position angezeigt. Die Route wird **pro Abschnitt** im Stil des
-Verkehrsmittels gezeichnet (Straße, Weg, Wasser, Bahn, Flugbogen, Campingbus);
-der Knopf **„Linie: direkt"** schaltet auf einen glatten Spline um. Das
-Standard-Verkehrsmittel der Reise bleibt die Vorgabe für neue Abschnitte.
+aus der Galerie. Die Route wird **pro Abschnitt** im Stil des Verkehrsmittels
+gezeichnet; **„Linie: direkt"** schaltet auf einen glatten Spline um.
 
 **Aus Meilenstein 5:** Beim Setzen eines Punkts wird der Ortsname automatisch
 über Nominatim (OpenStreetMap) ermittelt und lokal gecacht; ohne Internet wird
@@ -34,7 +34,7 @@ einen vorhandenen Foto-Stopp einsortiert (Gruppierungs-Bug behoben). Die Foto-Pi
 sind deutlich größer und zeigen bei mehreren Bildern ein Stapel-Symbol mit Anzahl.
 Pins können gelöscht werden: Einträge bleiben ohne Ort in der Timeline erhalten
 und lassen sich dort mit „Ort setzen" neu verorten; Fotos wandern in „Ohne Ort".
-Die Taste **„Ganze Reise"** zoomt auf alle Stationen und Fotos.
+Das Vollbild-Icon oben rechts zoomt auf alle Stationen und Fotos.
 
 Meilenstein 4 hatte den Foto-Import mit EXIF, Gruppierung und Polaroid-Pins
 gebracht. Fotos werden als Kopie im App-Speicher abgelegt; Aufnahmezeit und GPS

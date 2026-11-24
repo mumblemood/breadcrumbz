@@ -9,6 +9,7 @@ import de.breadcrumbz.app.data.model.PhotoEntity
 import de.breadcrumbz.app.data.model.PlaceNameEntity
 import de.breadcrumbz.app.data.model.StopEntity
 import de.breadcrumbz.app.data.model.TripEntity
+import java.util.UUID
 
 @Database(
     entities = [
@@ -18,7 +19,7 @@ import de.breadcrumbz.app.data.model.TripEntity
         PhotoEntity::class,
         PlaceNameEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class BreadcrumbzDatabase : RoomDatabase() {
@@ -110,5 +111,53 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
 val MIGRATION_5_6 = object : Migration(5, 6) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `stops` ADD COLUMN `transportMode` TEXT")
+    }
+}
+
+/**
+ * Version 7: Jedes Foto gehört zu einem Eintrag. Alte Einzelbilder bekommen
+ * je einen eigenen Eintrag mit ihrer Zeit und ihrem Ort. Dabei wird nichts
+ * gelöscht oder überschrieben.
+ */
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        val cursor = db.query(
+            "SELECT `id`, `tripId`, `stopId`, `caption`, `capturedAt`, `createdAt`, `sortIndex` " +
+                "FROM `photos` WHERE `entryId` IS NULL",
+        )
+        val pending = mutableListOf<Array<Any?>>()
+        cursor.use {
+            while (it.moveToNext()) {
+                val id = it.getString(0)
+                val tripId = it.getString(1)
+                val stopId = if (it.isNull(2)) null else it.getString(2)
+                val caption = it.getString(3).orEmpty()
+                val capturedAt = if (it.isNull(4)) it.getLong(5) else it.getLong(4)
+                val sortIndex = it.getInt(6)
+                pending.add(
+                    arrayOf(
+                        UUID.randomUUID().toString(),
+                        tripId,
+                        stopId,
+                        caption.take(12).ifBlank { "Foto" },
+                        capturedAt,
+                        sortIndex,
+                        id,
+                    ),
+                )
+            }
+        }
+        pending.forEach { row ->
+            db.execSQL(
+                "INSERT INTO `entries` " +
+                    "(`id`, `tripId`, `stopId`, `title`, `body`, `sortIndex`, `createdAt`, `updatedAt`) " +
+                    "VALUES (?, ?, ?, ?, '', ?, ?, ?)",
+                arrayOf(row[0], row[1], row[2], row[3], row[5], row[4], row[4]),
+            )
+            db.execSQL(
+                "UPDATE `photos` SET `entryId` = ? WHERE `id` = ?",
+                arrayOf(row[0], row[6]),
+            )
+        }
     }
 }

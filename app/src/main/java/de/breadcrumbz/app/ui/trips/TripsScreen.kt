@@ -2,6 +2,8 @@ package de.breadcrumbz.app.ui.trips
 
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -274,6 +276,7 @@ fun TripsScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TripCard(
     trip: Trip,
@@ -283,7 +286,12 @@ private fun TripCard(
     onDelete: () -> Unit,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = onOpen,
+                onLongClick = onEdit,
+            ),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -327,11 +335,12 @@ private fun TripCard(
             }
 
             Spacer(Modifier.height(10.dp))
-            Row {
-                TextButton(onClick = onOpen) { Text("Karte öffnen") }
-                TextButton(onClick = onEdit) { Text("Bearbeiten") }
-                TextButton(onClick = onDelete) { Text("Löschen") }
-            }
+            Text(
+                "Tippen: öffnen · Lange drücken: bearbeiten",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = onDelete) { Text("Löschen") }
         }
     }
 }

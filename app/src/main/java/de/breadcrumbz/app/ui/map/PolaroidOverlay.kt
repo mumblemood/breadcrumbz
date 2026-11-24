@@ -23,7 +23,10 @@ class PolaroidOverlay(
     private val photos: List<Photo>,
     private val filePath: (String) -> String,
     private val onPhotoClick: (List<String>) -> Unit,
+    private val frontPhotoId: String? = null,
 ) : Overlay() {
+
+    private var ignoreTapsUntilRelease = false
 
     private data class Group(
         val ids: List<String>,
@@ -175,12 +178,19 @@ class PolaroidOverlay(
     }
 
     override fun onTouchEvent(event: MotionEvent, mapView: MapView): Boolean {
-        if (event.action == MotionEvent.ACTION_UP) {
-            val hit = hitAreas.firstOrNull { it.first.contains(event.x, event.y) }
-            if (hit != null) {
-                onPhotoClick(hit.second)
-                return true
+        when (event.actionMasked) {
+            MotionEvent.ACTION_POINTER_DOWN -> ignoreTapsUntilRelease = true
+            MotionEvent.ACTION_UP -> {
+                val blocked = ignoreTapsUntilRelease
+                ignoreTapsUntilRelease = false
+                if (blocked) return true
+                val hit = hitAreas.firstOrNull { it.first.contains(event.x, event.y) }
+                if (hit != null) {
+                    onPhotoClick(hit.second)
+                    return true
+                }
             }
+            MotionEvent.ACTION_CANCEL -> ignoreTapsUntilRelease = false
         }
         return super.onTouchEvent(event, mapView)
     }
@@ -190,9 +200,16 @@ class PolaroidOverlay(
         .values
         .map { items ->
             val sorted = items.sortedBy { it.capturedAt ?: Long.MAX_VALUE }
+            // Das gerade in der Mitte der Timeline liegende Bild kommt nach vorn.
+            val front = frontPhotoId?.let { id -> sorted.firstOrNull { it.id == id } }
+            val ordered = if (front != null) {
+                sorted.filter { it.id != front.id } + front
+            } else {
+                sorted
+            }
             Group(
-                ids = sorted.map { it.id },
-                representative = sorted.first(),
+                ids = ordered.map { it.id },
+                representative = ordered.last(),
                 latitude = sorted.mapNotNull { it.latitude }.average(),
                 longitude = sorted.mapNotNull { it.longitude }.average(),
             )

@@ -76,6 +76,7 @@ fun FullscreenElement(
     onOpenElement: (String) -> Unit,
     onEditEntry: (Entry) -> Unit,
     onEditPhoto: (String) -> Unit,
+    onAdoptPhotoLocation: (String) -> Unit,
 ) {
     Dialog(
         onDismissRequest = onClose,
@@ -148,6 +149,16 @@ fun FullscreenElement(
                                 }
                                 TextButton(onClick = { onEditPhoto(photo.id) }) {
                                     Text("Titel bearbeiten")
+                                }
+                                if (photo.latitude != null && photo.longitude != null &&
+                                    entry != null
+                                ) {
+                                    TextButton(onClick = {
+                                        onAdoptPhotoLocation(photo.id)
+                                        onClose()
+                                    }) {
+                                        Text("Ort in Eintrag übernehmen")
+                                    }
                                 }
                                 if (photo.latitude == null || photo.longitude == null) {
                                     TextButton(onClick = {

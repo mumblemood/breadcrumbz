@@ -30,6 +30,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -38,6 +40,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +54,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
@@ -158,8 +162,10 @@ fun TripMapScreen(
     var mapCenter by remember { mutableStateOf<GeoPoint?>(null) }
     var lastTimelineSync by remember { mutableStateOf(0L) }
     var fullscreenKey by remember { mutableStateOf<String?>(null) }
+    var centerKey by remember { mutableStateOf<String?>(null) }
     val markers = remember { mutableMapOf<String, Marker>() }
     var expandedDay by remember { mutableStateOf<String?>(null) }
+    var didAutoExpandDay by remember { mutableStateOf(false) }
     var expandedEntryIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedPhotoId by remember { mutableStateOf<String?>(null) }
     var stackPhotoIds by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -185,6 +191,22 @@ fun TripMapScreen(
     }
     val photoTimes = remember(photos) {
         photos.associate { it.id to (it.capturedAt ?: it.createdAt) }
+    }
+    val frontPhotoId = remember(centerKey) {
+        when {
+            centerKey?.startsWith("photo-") == true ->
+                centerKey.removePrefix("photo-")
+            centerKey?.startsWith("entryphoto-") == true ->
+                centerKey.removePrefix("entryphoto-")
+            else -> null
+        }
+    }
+
+    LaunchedEffect(timeline) {
+        if (!didAutoExpandDay && timeline.isNotEmpty()) {
+            expandedDay = dayKeyOf(timeline.first().time)
+            didAutoExpandDay = true
+        }
     }
 
     BackHandler {
@@ -280,10 +302,11 @@ fun TripMapScreen(
         }
     }
 
-    val pinOverlay = remember(stops) {
+    val pinOverlay = remember(stops, activeStopId) {
         PinInteractionOverlay(
             markers = markers,
             stops = stops,
+            selectedStopId = activeStopId,
             onTap = { id ->
                 selectedPhotoId = null
                 fullscreenKey = "stop-$id"
@@ -520,6 +543,7 @@ fun TripMapScreen(
                                             stackPhotoIds = ids
                                         }
                                     },
+                                    frontPhotoId = frontPhotoId,
                                 ),
                             )
 
@@ -589,8 +613,17 @@ fun TripMapScreen(
                     }) {
                         Text("+")
                     }
-                    Button(onClick = { showMyLocation() }) {
-                        Text("Standort")
+                    IconButton(
+                        onClick = { showMyLocation() },
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFFBF4E4)),
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_location),
+                            contentDescription = "Standort anzeigen",
+                            tint = Color(0xFF3B2B20),
+                        )
                     }
                     Button(onClick = {
                         val next = if (trip?.routeMode == RouteMode.DIRECT) {
@@ -602,26 +635,35 @@ fun TripMapScreen(
                     }) {
                         Text(if (trip?.routeMode == RouteMode.DIRECT) "Linie: direkt" else "Linie: Auto")
                     }
-                    Button(onClick = {
-                        val points = buildList {
-                            stops.forEach { add(GeoPoint(it.latitude, it.longitude)) }
-                            photos.forEach { photo ->
-                                val latitude = photo.latitude
-                                val longitude = photo.longitude
-                                if (latitude != null && longitude != null) {
-                                    add(GeoPoint(latitude, longitude))
+                    IconButton(
+                        onClick = {
+                            val points = buildList {
+                                stops.forEach { add(GeoPoint(it.latitude, it.longitude)) }
+                                photos.forEach { photo ->
+                                    val latitude = photo.latitude
+                                    val longitude = photo.longitude
+                                    if (latitude != null && longitude != null) {
+                                        add(GeoPoint(latitude, longitude))
+                                    }
                                 }
                             }
-                        }
-                        if (points.isNotEmpty()) {
-                            mapView.zoomToBoundingBox(
-                                BoundingBox.fromGeoPoints(points),
-                                true,
-                                100,
-                            )
-                        }
-                    }) {
-                        Text("Ganze Reise")
+                            if (points.isNotEmpty()) {
+                                mapView.zoomToBoundingBox(
+                                    BoundingBox.fromGeoPoints(points),
+                                    true,
+                                    100,
+                                )
+                            }
+                        },
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFFBF4E4)),
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_fullscreen),
+                            contentDescription = "Ganze Reise vollständig anzeigen",
+                            tint = Color(0xFF3B2B20),
+                        )
                     }
                 }
 
@@ -680,9 +722,6 @@ fun TripMapScreen(
                                 TextButton(onClick = { confirmDeleteStopId = activeStop.id }) {
                                     Text("Pin löschen")
                                 }
-                                TextButton(onClick = { viewModel.selectStop(null) }) {
-                                    Text("Zur Karte")
-                                }
                             }
                         }
                     }
@@ -735,6 +774,7 @@ fun TripMapScreen(
                     onDropElement = { source, entryId ->
                         viewModel.assignElementToEntry(source, entryId)
                     },
+                    onCenterKeyChange = { key -> centerKey = key },
                     modifier = Modifier.fillMaxHeight(),
                 )
             }
@@ -774,6 +814,17 @@ fun TripMapScreen(
                     Row {
                         TextButton(onClick = { viewModel.setCoverPhoto(selectedPhoto.id) }) {
                             Text("Titelbild")
+                        }
+                        if (selectedPhoto.latitude != null &&
+                            selectedPhoto.longitude != null &&
+                            selectedPhoto.entryId != null
+                        ) {
+                            TextButton(onClick = {
+                                viewModel.adoptPhotoLocation(selectedPhoto.id)
+                                selectedPhotoId = null
+                            }) {
+                                Text("Ort in Eintrag übernehmen")
+                            }
                         }
                         if (selectedPhoto.latitude == null || selectedPhoto.longitude == null) {
                             TextButton(onClick = {
@@ -991,6 +1042,7 @@ fun TripMapScreen(
                 fullscreenKey = null
                 selectedPhotoId = id
             },
+            onAdoptPhotoLocation = { id -> viewModel.adoptPhotoLocation(id) },
         )
     }
 }
