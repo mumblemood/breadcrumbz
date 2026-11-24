@@ -1,0 +1,71 @@
+package de.breadcrumbz.app.data.db
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import de.breadcrumbz.app.data.model.EntryEntity
+import de.breadcrumbz.app.data.model.PhotoEntity
+import de.breadcrumbz.app.data.model.StopEntity
+import de.breadcrumbz.app.data.model.TripEntity
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface TripDao {
+    @Query("SELECT * FROM trips ORDER BY updatedAt DESC")
+    fun observeAll(): Flow<List<TripEntity>>
+
+    @Query("SELECT * FROM trips WHERE id = :id")
+    fun observeById(id: String): Flow<TripEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(trip: TripEntity)
+
+    @Query("DELETE FROM trips WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
+@Dao
+interface StopDao {
+    @Query("SELECT * FROM stops WHERE tripId = :tripId ORDER BY sortIndex ASC")
+    fun observeForTrip(tripId: String): Flow<List<StopEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(stop: StopEntity)
+
+    @Query("DELETE FROM stops WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("SELECT COALESCE(MAX(sortIndex), -1) + 1 FROM stops WHERE tripId = :tripId")
+    suspend fun nextSortIndex(tripId: String): Int
+}
+
+@Dao
+interface EntryDao {
+    @Query("SELECT * FROM entries WHERE stopId = :stopId ORDER BY sortIndex ASC")
+    fun observeForStop(stopId: String): Flow<List<EntryEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entry: EntryEntity)
+
+    @Query("DELETE FROM entries WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("SELECT COALESCE(MAX(sortIndex), -1) + 1 FROM entries WHERE stopId = :stopId")
+    suspend fun nextSortIndex(stopId: String): Int
+}
+
+@Dao
+interface PhotoDao {
+    @Query("SELECT * FROM photos WHERE tripId = :tripId ORDER BY sortIndex ASC")
+    fun observeForTrip(tripId: String): Flow<List<PhotoEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(photo: PhotoEntity)
+
+    @Query("DELETE FROM photos WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("SELECT COALESCE(MAX(sortIndex), -1) + 1 FROM photos WHERE tripId = :tripId")
+    suspend fun nextSortIndex(tripId: String): Int
+}

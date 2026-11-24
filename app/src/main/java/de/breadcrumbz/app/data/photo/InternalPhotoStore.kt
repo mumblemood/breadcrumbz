@@ -1,0 +1,42 @@
+package de.breadcrumbz.app.data.photo
+
+import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.UUID
+
+/**
+ * Fotos werden als Kopie im privaten App-Speicher abgelegt.
+ * So bleiben Bilder erhalten, wenn sie später aus der Galerie gelöscht werden,
+ * und ein Backup kann alle Bilder vollständig mitnehmen.
+ */
+class InternalPhotoStore(context: Context) {
+    private val directory = File(context.applicationContext.filesDir, "photos").apply { mkdirs() }
+
+    fun createFileName(mimeType: String): String {
+        val extension = when (mimeType.lowercase()) {
+            "image/png" -> "png"
+            "image/webp" -> "webp"
+            "image/heic", "image/heif" -> "heic"
+            else -> "jpg"
+        }
+        return "${UUID.randomUUID()}.$extension"
+    }
+
+    suspend fun save(bytes: ByteArray, mimeType: String): String = withContext(Dispatchers.IO) {
+        val fileName = createFileName(mimeType)
+        File(directory, fileName).writeBytes(bytes)
+        fileName
+    }
+
+    fun fileFor(fileName: String): File = File(directory, fileName)
+
+    suspend fun delete(fileName: String): Boolean = withContext(Dispatchers.IO) {
+        if (fileName.contains('/') || fileName.contains('\\')) {
+            false
+        } else {
+            File(directory, fileName).delete()
+        }
+    }
+}

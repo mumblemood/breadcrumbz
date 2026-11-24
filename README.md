@@ -3,10 +3,14 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Meilenstein 0 – Build-Test.**
-Die App zeigt gerade nur einen kleinen Begrüßungsbildschirm. Ziel dieses
-Schritts ist es, den gesamten Weg vom Quellcode bis zur installierbaren APK
-auf dem Handy zu prüfen, bevor die eigentlichen Funktionen kommen.
+**Aktueller Stand: Meilenstein 1 – Datenfundament.**
+Die App kann Reisen, Stationen, Tagebucheinträge und Foto-Verknüpfungen lokal
+in einer Room-Datenbank speichern. Ein Testbildschirm erzeugt Beispieldaten,
+damit die Beziehungen überprüft werden können. Die fertigen Reise-Screens
+kommen in Meilenstein 2.
+
+Meilenstein 0 hatte den Build-Weg vom Quellcode bis zur installierbaren APK
+auf dem Handy geprüft.
 
 ## Grundsätze
 
@@ -26,11 +30,18 @@ auf dem Handy zu prüfen, bevor die eigentlichen Funktionen kommen.
 
 ```text
 app/src/main/java/de/breadcrumbz/app/
-  data/     Datenhaltung, Foto-Auswertung, Karten- und Backup-Logik (folgt)
-  domain/   Geschäftsregeln (folgt)
-  state/    ViewModels und aktueller Bildschirm-Zustand (folgt)
+  data/     Datenbank, Tabellen, Foto-Ablage und Repository-Implementierung
+  domain/   Datenmodelle und das Repository-Interface (ohne Android-Bezug)
+  state/    ViewModels und aktueller Bildschirm-Zustand
   ui/       Oberfläche: theme, trips, map, timeline, entry, overlay, ...
+app/schemas/  Versionierte Datenbank-Schemata für spätere Upgrades
 ```
+
+Fotos werden als Kopie im privaten App-Speicher abgelegt
+(`filesDir/photos/`), damit sie auch nach dem Löschen in der Galerie
+erhalten bleiben und vollständig gesichert werden können.
+
+Pro Station können mehrere Tagebucheinträge gespeichert werden.
 
 ## APK bauen
 
