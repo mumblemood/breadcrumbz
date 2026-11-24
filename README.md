@@ -3,7 +3,7 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Version 0.13.0 – Foto-Titel direkt bearbeitbar, Post-its entfernt, Zeitleiste und Foto-Stapel überarbeitet.**
+**Aktueller Stand: Version 0.14.0 – Foto-Import stabiler, Einträge bleiben erhalten, Bedienung von Zeitleiste und Menüs vereinfacht.**
 
 Die **Reisenliste** (Startseite) zeigt alle Reisen chronologisch, die neueste oben.
 Das **App-Logo** steht oben links. Das **„+"** sitzt mittig oben **innerhalb der Liste**
@@ -13,7 +13,8 @@ Pins und Einträgen abgeleitet, manuell gesetzte Werte behalten Vorrang. Ist ein
 Titelbild festgelegt, liegt es leicht sichtbar im Hintergrund der Karte. Das
 **Dreistrich-Menü** oben rechts enthält Einstellungen sowie
 **Backup erstellen** und **Backup einspielen**. Ein Tippen auf eine Reise öffnet
-sie, langes Drücken öffnet die Reisebearbeitung mit genau diesen zwei Feldern.
+sie, langes Drücken öffnet die Reisebearbeitung mit genau einem Feld: dem Titel.
+Der Zeitraum wird nicht mehr angefasst, sondern bleibt automatisch.
 
 Der Reisetitel steht in der Kartenkopfleiste. Solange er automatisch ist, steht
 dort kursiv **„neue Reise"**; ein Tippen öffnet ein direktes Textfeld (kein
@@ -22,8 +23,9 @@ Bearbeitung und speichert den Titel. Sobald der erste Ort, Pin oder Eintrag
 bekannt ist, übernimmt die App ihn automatisch als Titel – weiterhin kursiv, bis
 du den Titel selbst tippst. Danach bleibt er fest. Das Dreistrich-Menü in der Karte öffnet die
 **Reise-Einstellungen** mit Linienstil, Kartenstil, Standard-Verkehrsmittel und
-**Titelbild wählen** (alle Fotos der Reise als Vorschau). Die Zähler und der alte
-Knopf **„Linie:auto"** sind entfernt.
+**Titelbild wählen** (alle Fotos der Reise als Vorschau). Diese Einstellungen
+ändern nur die Reise selbst – Einträge, Pins und Fotos bleiben erhalten. Die
+Zähler und der alte Knopf **„Linie:auto"** sind entfernt.
 
 **Pins:** Zwei Sekunden Halten auf freier Karte erzeugt einen Pin. Ein Tippen
 wählt ihn aus; der ausgewählte Pin wird **1,5× größer**. Nur ein Element ist
@@ -33,9 +35,10 @@ nie verzogen: Der Rahmen passt sich dem Seitenverhältnis an, alle Ränder sind
 gleich breit und nur der untere Rand ist für die Beschriftung dicker. Die
 Polaroids werden mit dem Zoom größer und kleiner. Pinch-Zoom funktioniert
 überall; währenddessen wird nichts ausgewählt. Der ausgewählte Pin bekommt einen
-farbigen Ring um den Kopf. Der kleinste Zoom ist Stufe 1: Mit dem Knopf für die
-**Gesamtansicht** zoomt die App auf die ganze Welt, solange es noch keine Fotos
-und Pins gibt. Danach passt sie die Karte mit sicherem Rand an alle Punkte an.
+farbigen Ring um den Kopf. Der kleinste Zoom ist Stufe 1: Solange es noch keine
+Fotos und Pins gibt, bleibt die **aktuelle Position in der Mitte** und die Karte
+wird nur so weit rausgezoomt, dass sie den Bildschirm in der Höhe füllt. Danach
+passt sie die Karte mit sicherem Rand an alle Punkte an.
 Foto-Stapel entstehen nach dem **Abstand der Originalorte**: nahe Fotos stapeln
 sich, entfernte liegen einzeln. Klappst du einen Eintrag in der Zeitleiste auf,
 wandern seine Fotos vorübergehend einzeln an ihre Originalorte und bekommen
@@ -43,8 +46,9 @@ jeweils eigene Pins.
 
 **Timeline:** Sie lässt sich überall wischen; Ziehen eines Elements startet erst
 nach längerem Halten. Die schwarze gestrichelte Linie ist dick und hat nur einen
-dünnen weißen Rand. Ein Klick auf den Rahmen öffnet oder schließt Tag bzw.
-Eintrag – Pfeile gibt es nicht. Alle **Tagesrahmen** liegen auf derselben Höhe
+dünnen weißen Rand. Ein Tippen auf den Rahmen **oder auf die Eintragskarte** öffnet bzw. schließt
+Tag und Eintrag – Pfeile gibt es nicht. Beim Ziehen leuchtet der Eintrag auf,
+dem du das Element zuordnen willst. Alle **Tagesrahmen** liegen auf derselben Höhe
 mit sinnvollem Abstand zum oberen Rand, alle **Eintragsrahmen** ebenso. Ihre
 Höhe bleibt beim Auf-/Zuklappen gleich, nur die Breite ändert sich. Das Element
 in der **Bildschirmmitte bleibt dabei stehen**; automatische Bewegungen laufen
@@ -63,15 +67,17 @@ aufgefrischt und können in den Einstellungen erneut aktualisiert werden.
 einem Import wird die bestehende Datenbank als Snapshot kopiert; der Import liest
 toleranter, auch wenn einzelne Zeilen beschädigt sind.
 
-**Einträge entstehen über das „+" in der Karte oder über das Plus über einem
-ausgewählten Pin ohne Eintrag.** Es sind mehrere Einträge pro Tag und mehrere
-Elemente pro Eintrag möglich. Elemente öffnen sich beim Antippen und werden
-dort direkt bearbeitet. Fotos schreiben Zeit und Ort nur in noch leere Felder
-des Eintrags; vorhandene Werte bleiben erhalten. Ein Eintrag aus der Timeline
-kann nach langem Halten auf einen Pin oder auf freie Karte gezogen werden – dort
-entsteht dann ein neuer Pin. Beim Ziehen eines Pins verschieben sich Eintrag und
-Bilder mit. Alte Einzelbilder wurden bereits in eigene Einträge überführt –
-nichts ging verloren. Während des Pinch-Zooms wird nichts ausgewählt.
+**Einträge entstehen über das „+" unten rechts in der Karte oder im
+Elementfenster eines Pins über „+ Eintrag hier“.** Es sind mehrere Einträge pro
+Tag und mehrere Elemente pro Eintrag möglich. Elemente öffnen sich beim Antippen
+und werden dort direkt bearbeitet – auch das Löschen gibt es nur dort. Fotos
+übergeben **Datum, Uhrzeit und Ort** an den Eintrag; Felder, die du selbst
+gesetzt hast, bleiben erhalten. Ein Eintrag aus der Zeitleiste kann nach langem
+Halten auf einen Pin oder auf freie Karte gezogen werden – dort entsteht dann
+ein neuer Pin. Beim Ziehen eines Pins verschieben sich Eintrag und Bilder mit.
+Alte Einzelbilder wurden bereits in eigene Einträge überführt – nichts ging
+verloren. Während des Pinch-Zooms wird nichts ausgewählt. Ein schlechtes Foto
+überspringt der Import, statt die App abzustürzen.
 
 Die Detailansichten öffnen sich als **Pop-up** über leicht abgedunkeltem
 Hauptbereich; ein Klick daneben schließt es. Im Eintrag siehst du auch die
@@ -106,7 +112,7 @@ beim Import die Erlaubnis für Media-Standorte an und liest das Original.
 | **Foto-Stapel-Fenster** | Die Liste, wenn mehrere Fotos an einem Ort liegen. |
 | **Reise-Einstellungen** | Das Dreistrich-Menü oben rechts in der Reisekarte. |
 | **Titelbild-Auswahl** | Der Dialog aus den Reise-Einstellungen mit allen Fotos der Reise. |
-| **Reisebearbeitung** | Der Dialog nach langem Drücken auf eine Reise in der Reisenliste. |
+| **Reisebearbeitung** | Der Dialog nach langem Drücken auf eine Reise in der Reisenliste – nur für den Titel. |
 | **Verortung** | Einen Pin setzen/ziehen oder den Fotoort in einen Eintrag übernehmen. |
 
 ## Grundsätze

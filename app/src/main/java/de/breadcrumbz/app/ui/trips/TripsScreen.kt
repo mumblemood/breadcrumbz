@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -67,13 +66,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private fun parseGermanDate(value: String): Long? = try {
-    if (value.isBlank()) null
-    else SimpleDateFormat("dd.MM.yyyy", Locale.GERMANY).parse(value.trim())?.time
-} catch (_: Exception) {
-    null
-}
-
 private fun formatDate(value: Long?): String = value?.let {
     SimpleDateFormat("dd.MM.yyyy", Locale.GERMANY).format(Date(it))
 } ?: ""
@@ -100,8 +92,6 @@ fun TripsScreen(
     var showEditor by rememberSaveable { mutableStateOf(false) }
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var titleInput by rememberSaveable { mutableStateOf("") }
-    var startDateInput by rememberSaveable { mutableStateOf("") }
-    var endDateInput by rememberSaveable { mutableStateOf("") }
     var deleteCandidate by remember { mutableStateOf<Trip?>(null) }
     val editingTrip = overviews.firstOrNull { it.trip.id == editingId }?.trip
 
@@ -133,8 +123,6 @@ fun TripsScreen(
     fun openEditor(trip: Trip) {
         editingId = trip.id
         titleInput = trip.title
-        startDateInput = formatDate(trip.startDate)
-        endDateInput = formatDate(trip.endDate)
         showEditor = true
     }
 
@@ -295,23 +283,11 @@ fun TripsScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
-                    Row {
-                        OutlinedTextField(
-                            value = startDateInput,
-                            onValueChange = { startDateInput = it },
-                            label = { Text("Von (dd.MM.yyyy)") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        OutlinedTextField(
-                            value = endDateInput,
-                            onValueChange = { endDateInput = it },
-                            label = { Text("Bis (dd.MM.yyyy)") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
+                    Text(
+                        "Der Zeitraum entsteht automatisch aus Fotos, Pins und Einträgen.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             },
             confirmButton = {
@@ -322,8 +298,9 @@ fun TripsScreen(
                             title = titleInput,
                             // Nicht angezeigte Felder unverändert weitergeben.
                             description = editingTrip?.description.orEmpty(),
-                            startDate = parseGermanDate(startDateInput),
-                            endDate = parseGermanDate(endDateInput),
+                            // Zeitraum bleibt automatisch und wird nicht angefasst.
+                            startDate = editingTrip?.startDate,
+                            endDate = editingTrip?.endDate,
                             transportMode = editingTrip?.defaultTransportMode
                                 ?: TransportMode.CAR,
                         )

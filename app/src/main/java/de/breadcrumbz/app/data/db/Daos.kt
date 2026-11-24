@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import de.breadcrumbz.app.data.model.EntryEntity
 import de.breadcrumbz.app.data.model.PhotoEntity
 import de.breadcrumbz.app.data.model.PlaceNameEntity
@@ -21,6 +22,10 @@ interface TripDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(trip: TripEntity)
+
+    /** Nur die Reise selbst ändern – ohne REPLACE bleiben alle Kinder erhalten. */
+    @Update
+    suspend fun update(trip: TripEntity)
 
     @Query("DELETE FROM trips WHERE id = :id")
     suspend fun deleteById(id: String)

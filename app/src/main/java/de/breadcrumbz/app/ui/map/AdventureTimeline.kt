@@ -99,6 +99,7 @@ private fun dayLabel(time: Long): String =
 private fun TimelineFrame(
     rect: Rect,
     fill: Color,
+    highlight: Boolean = false,
     onClick: () -> Unit,
 ) {
     val density = LocalDensity.current
@@ -114,7 +115,11 @@ private fun TimelineFrame(
             )
             .clip(RoundedCornerShape(14.dp))
             .background(fill)
-            .border(1.dp, ink.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+            .border(
+                if (highlight) 3.dp else 1.dp,
+                if (highlight) accent else ink.copy(alpha = 0.45f),
+                RoundedCornerShape(14.dp),
+            )
             .clickable { onClick() },
     )
 }
@@ -156,6 +161,8 @@ fun AdventureTimeline(
     var timelineBounds by remember { mutableStateOf(Rect.Zero) }
     // Beim Auf-/Zuklappen merken wir uns das Element in der Bildschirmmitte.
     var anchorKey by remember { mutableStateOf<String?>(null) }
+    // Beim Ziehen wird der Eintrag hervorgehoben, auf den man zusteuert.
+    var dragTargetEntryId by remember { mutableStateOf<String?>(null) }
     val startPx = with(density) { 48.dp.toPx() }
     val baseY = with(density) { 88.dp.toPx() }
 
@@ -385,7 +392,11 @@ fun AdventureTimeline(
                 }
             }
             entryFrames.forEach { (id, rect) ->
-                TimelineFrame(rect = rect, fill = fieldGray) {
+                TimelineFrame(
+                    rect = rect,
+                    fill = fieldGray,
+                    highlight = id == dragTargetEntryId,
+                ) {
                     anchorKey = centerKey
                     onEntryToggle(id)
                 }
@@ -490,9 +501,15 @@ fun AdventureTimeline(
                                     dragX += amount.x
                                     dragY += amount.y
                                     dragOffset.value = Offset(dragX, dragY)
+                                    // Sofortiges Feedback: Zielrahmen leuchtet auf.
+                                    dragTargetEntryId = points.firstOrNull { candidate ->
+                                        candidate.kind == 2 &&
+                                            abs(candidate.x - (point.x + dragX)) < 170f
+                                    }?.item?.entryId
                                 },
                                 onDragEnd = {
                                     dragOffset.value = Offset.Zero
+                                    dragTargetEntryId = null
                                     val source = when {
                                         point.kind == 3 || point.kind == 4 ->
                                             point.photoId?.let { "photo-$it" }
@@ -521,7 +538,10 @@ fun AdventureTimeline(
                                         onDropElement(source, target)
                                     }
                                 },
-                                onDragCancel = { dragOffset.value = Offset.Zero },
+                                onDragCancel = {
+                                    dragOffset.value = Offset.Zero
+                                    dragTargetEntryId = null
+                                },
                             )
                         }
                         // Einträge toggeln über den Rahmen; der Titel öffnet den Eintrag.
@@ -642,17 +662,29 @@ fun AdventureTimeline(
                         }
 
                         else -> {
-                            // Eintrag: Titel öffnet, der Rahmen toggelt.
+                            // Eintrag: Karte/Rahmen toggeln, Titel öffnet das Fenster.
                             val entryId = item?.entryId
                             val entryPhotos = entryId?.let { photosByEntry[it] }.orEmpty()
                             val body = entryId?.let { entryBodies[it] }.orEmpty()
                             Column(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        anchorKey = centerKey
+                                        item?.entryId?.let(onEntryToggle)
+                                    }
                                     .background(if (expanded) fieldGray else paper)
                                     .border(
-                                        if (highlighted) 2.dp else 1.dp,
-                                        if (highlighted) accent else Color(0xFFDCCDB4),
+                                        if (highlighted || entryId == dragTargetEntryId) {
+                                            2.dp
+                                        } else {
+                                            1.dp
+                                        },
+                                        if (highlighted || entryId == dragTargetEntryId) {
+                                            accent
+                                        } else {
+                                            Color(0xFFDCCDB4)
+                                        },
                                         RoundedCornerShape(8.dp),
                                     )
                                     .padding(horizontal = 10.dp, vertical = 6.dp),

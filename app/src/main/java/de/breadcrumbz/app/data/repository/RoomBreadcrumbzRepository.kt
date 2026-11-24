@@ -61,7 +61,10 @@ class RoomBreadcrumbzRepository(
     }
 
     override suspend fun updateTrip(trip: Trip) {
-        tripDao.upsert(trip.copy(updatedAt = System.currentTimeMillis()).toEntity())
+        // Ein REPLACE würde die Reise löschen und neu einfügen – wegen der
+        // CASCADE-Fremdschlüssel würden dabei alle Einträge, Pins und Fotos
+        // verschwinden. @Update ändert nur die Reise selbst.
+        tripDao.update(trip.copy(updatedAt = System.currentTimeMillis()).toEntity())
     }
 
     override suspend fun deleteTrip(id: String) = tripDao.deleteById(id)

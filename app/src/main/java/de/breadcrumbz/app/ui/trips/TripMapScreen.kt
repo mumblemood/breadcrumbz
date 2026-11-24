@@ -3,6 +3,7 @@ package de.breadcrumbz.app.ui.trips
 import android.Manifest
 import android.graphics.BitmapFactory
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,12 +29,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -84,9 +85,7 @@ import de.breadcrumbz.app.state.TripMapViewModel
 import de.breadcrumbz.app.ui.map.AdventureTimeline
 import de.breadcrumbz.app.ui.map.ClusterElement
 import de.breadcrumbz.app.ui.map.ClusterOverlay
-import de.breadcrumbz.app.ui.map.EntryPlusOverlay
 import de.breadcrumbz.app.ui.map.PinInteractionOverlay
-import de.breadcrumbz.app.ui.map.PlacePinIcon
 import de.breadcrumbz.app.ui.map.PolaroidOverlay
 import de.breadcrumbz.app.ui.map.RouteStyling
 import kotlinx.coroutines.Dispatchers
@@ -106,6 +105,7 @@ import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.log2
 import kotlin.math.roundToInt
 
 private fun standardTiles() = XYTileSource(
@@ -190,8 +190,9 @@ fun TripMapScreen(
     var expandedEntryIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var stackPhotoIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var coverPickerOpen by remember { mutableStateOf(false) }
-    var confirmDeleteStopId by remember { mutableStateOf<String?>(null) }
     var photoTargetEntryId by remember { mutableStateOf<String?>(null) }
+    var zoomOutToCurrent by remember { mutableStateOf(false) }
+    var didRequestEmptyLocation by remember { mutableStateOf(false) }
     var mapBounds by remember { mutableStateOf(Rect.Zero) }
 
     var editingTitle by remember { mutableStateOf(false) }
@@ -254,23 +255,53 @@ fun TripMapScreen(
         val targetId = photoTargetEntryId
         if (uris.isNotEmpty() && targetId != null) {
             scope.launch(Dispatchers.IO) {
-                val imported = uris.mapNotNull { uri ->
-                    val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
-                    if (!mimeType.startsWith("image/")) return@mapNotNull null
-                    val source = PhotoSourceReader.readWithMetadata(context, uri)
-                        ?: return@mapNotNull null
-                    ImportedPhoto(
-                        bytes = source.bytes,
-                        mimeType = mimeType,
-                        latitude = source.latitude,
-                        longitude = source.longitude,
-                        capturedAt = source.capturedAt,
-                    )
+                val imported = mutableListOf<ImportedPhoto>()
+                uris.forEach { uri ->
+                    try {
+                        val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                        if (!mimeType.startsWith("image/")) return@forEach
+                        val source = PhotoSourceReader.readWithMetadata(context, uri)
+                            ?: return@forEach
+                        imported.add(
+                            ImportedPhoto(
+                                bytes = source.bytes,
+                                mimeType = mimeType,
+                                latitude = source.latitude,
+                                longitude = source.longitude,
+                                capturedAt = source.capturedAt,
+                            ),
+                        )
+                    } catch (_: Throwable) {
+                        // Dieses eine Foto überspringen – die App bleibt stabil.
+                    }
                 }
-                viewModel.addPhotosToEntry(targetId, imported)
-                withContext(Dispatchers.Main) {
-                    photoTargetEntryId = null
-                    fullscreenKey = "entry-$targetId"
+                if (imported.isNotEmpty()) {
+                    try {
+                        // Erst fertig speichern, dann das Elementfenster öffnen.
+                        viewModel.addPhotosToEntry(targetId, imported)
+                        withContext(Dispatchers.Main) {
+                            photoTargetEntryId = null
+                            fullscreenKey = "entry-$targetId"
+                        }
+                    } catch (_: Throwable) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(
+                                context,
+                                "Fotos konnten nicht gespeichert werden.",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            photoTargetEntryId = null
+                        }
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            context,
+                            "Kein lesbares Bild gefunden.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        photoTargetEntryId = null
+                    }
                 }
             }
         } else {
@@ -314,7 +345,7 @@ fun TripMapScreen(
         MapView(context).apply {
             setTileSource(standardTiles())
             setMultiTouchControls(true)
-            // Ganz rauszoomen muss möglich sein, damit die Weltkarte sichtbar ist.
+            // Nicht weiter raus als ein Kartenbildschirm in der Höhe.
             minZoomLevel = 1.0
             controller.setZoom(14.0)
             controller.setCenter(GeoPoint(51.0, 10.0))
@@ -368,21 +399,9 @@ fun TripMapScreen(
     ) { results ->
         if (results.values.any { it }) {
             locationOverlay.enableMyLocation()
-            val fix = locationOverlay.lastFix
-            if (fix != null) {
-                mapView.controller.animateTo(
-                    GeoPoint(fix.latitude, fix.longitude), 15.0, 600L,
-                )
-            } else {
-                locationOverlay.runOnFirstFix {
-                    mapView.post {
-                        val first = locationOverlay.myLocation
-                        if (first != null) {
-                            mapView.controller.animateTo(first, 15.0, 600L)
-                        }
-                    }
-                }
-            }
+            val zoom = if (zoomOutToCurrent) fillZoom(mapView) else 15.0
+            zoomOutToCurrent = false
+            focusCurrentPosition(mapView, locationOverlay, zoom)
         }
     }
 
@@ -393,6 +412,15 @@ fun TripMapScreen(
                 Manifest.permission.ACCESS_COARSE_LOCATION,
             ),
         )
+    }
+
+    // Leere Reise: aktuelle Position in die Mitte, nicht die ganze Welt.
+    LaunchedEffect(stops.isEmpty(), photos.isEmpty()) {
+        if (stops.isEmpty() && photos.isEmpty() && !didRequestEmptyLocation) {
+            didRequestEmptyLocation = true
+            zoomOutToCurrent = true
+            showMyLocation()
+        }
     }
 
     DisposableEffect(mapView) {
@@ -712,17 +740,6 @@ fun TripMapScreen(
                             if (!clustered) view.overlays.add(marker)
                         }
                         if (!clustered) view.overlays.add(pinOverlay)
-
-                        val selectedStop = stops.firstOrNull { it.id == activeStopId }
-                        if (selectedStop != null &&
-                            allEntries.none { it.stopId == selectedStop.id }
-                        ) {
-                            view.overlays.add(
-                                EntryPlusOverlay(
-                                    GeoPoint(selectedStop.latitude, selectedStop.longitude),
-                                ) { openNewEntry(selectedStop.id) },
-                            )
-                        }
                         view.invalidate()
                     },
                 )
@@ -743,9 +760,6 @@ fun TripMapScreen(
                         .padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Button(onClick = { openNewEntry() }) {
-                        Text("+")
-                    }
                     IconButton(
                         onClick = { showMyLocation() },
                         modifier = Modifier
@@ -771,10 +785,10 @@ fun TripMapScreen(
                                 }
                             }
                             if (points.isEmpty()) {
-                                // Noch keine Fotos und Pins: ganze Weltkarte zeigen.
-                                mapView.controller.animateTo(
-                                    GeoPoint(0.0, 0.0), 1.0, 600L,
-                                )
+                                // Ohne Einträge nur so weit raus, dass die Karte
+                                // die Höhe füllt – Mitte ist die aktuelle Position.
+                                zoomOutToCurrent = true
+                                showMyLocation()
                             } else {
                                 // Rand um die äußeren Fotos, damit nichts abgeschnitten wird.
                                 val box = BoundingBox.fromGeoPoints(points)
@@ -826,33 +840,19 @@ fun TripMapScreen(
                     }
                 }
 
-                val activeStop = stops.firstOrNull { it.id == activeStopId }
-                if (activeStop != null) {
-                    Card(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(8.dp),
-                        shape = RoundedCornerShape(16.dp),
-                    ) {
-                        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                PlacePinIcon(tint = Color(0xFF3B2B20), size = 14.dp)
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    activeStop.title,
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            Row {
-                                TextButton(onClick = { openNewEntry(activeStop.id) }) {
-                                    Text("+ Eintrag")
-                                }
-                                TextButton(onClick = { confirmDeleteStopId = activeStop.id }) {
-                                    Text("Pin löschen")
-                                }
-                            }
-                        }
-                    }
+                // Neuer Eintrag immer unten rechts, unabhängig vom gewählten Pin.
+                FloatingActionButton(
+                    onClick = { openNewEntry() },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(16.dp),
+                    containerColor = Color(0xFF3B2B20),
+                    contentColor = Color(0xFFFBF4E4),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_add),
+                        contentDescription = "Neuer Eintrag",
+                    )
                 }
             }
 
@@ -981,32 +981,6 @@ fun TripMapScreen(
         )
     }
 
-    if (confirmDeleteStopId != null) {
-        AlertDialog(
-            onDismissRequest = { confirmDeleteStopId = null },
-            title = { Text("Pin löschen?") },
-            text = {
-                Text(
-                    "Der Pin wird entfernt. Einträge bleiben ohne Ort in der Timeline " +
-                        "erhalten und können dort neu verortet werden. Fotos kommen " +
-                        "zurück in „Ohne Ort“.",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDeleteStopId?.let { viewModel.deleteStop(it) }
-                    viewModel.selectStop(null)
-                    confirmDeleteStopId = null
-                }) {
-                    Text("Löschen")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDeleteStopId = null }) { Text("Abbrechen") }
-            },
-        )
-    }
-
     if (coverPickerOpen) {
         AlertDialog(
             onDismissRequest = { coverPickerOpen = false },
@@ -1092,6 +1066,7 @@ fun TripMapScreen(
                 photoTargetEntryId = entryId
                 startGalleryPick()
             },
+            onAddEntry = { stopId -> openNewEntry(stopId) },
             onAdoptPhotoLocation = { id -> viewModel.adoptPhotoLocation(id) },
         )
     }
@@ -1100,4 +1075,32 @@ fun TripMapScreen(
 private fun focusStop(mapView: MapView, latitude: Double, longitude: Double) {
     // Etwas weiter rauszoomen und weich bewegen, damit man die Umgebung sieht.
     mapView.controller.animateTo(GeoPoint(latitude, longitude), 13.0, 600L)
+}
+
+/** Kleinster Zoom, bei dem die Weltkartenhöhe den Kartenbildschirm füllt. */
+private fun fillZoom(mapView: MapView): Double {
+    val heightPx = mapView.height.takeIf { it > 0 }?.toDouble() ?: 512.0
+    return maxOf(1.0, log2(heightPx / 256.0))
+}
+
+/** Aktuelle Position weich in die Mitte bringen. */
+private fun focusCurrentPosition(
+    mapView: MapView,
+    locationOverlay: MyLocationNewOverlay,
+    zoom: Double,
+) {
+    val fix = locationOverlay.lastFix
+    if (fix != null) {
+        mapView.controller.animateTo(
+            GeoPoint(fix.latitude, fix.longitude), zoom, 600L,
+        )
+    } else {
+        locationOverlay.runOnFirstFix {
+            mapView.post {
+                locationOverlay.myLocation?.let { point ->
+                    mapView.controller.animateTo(point, zoom, 600L)
+                }
+            }
+        }
+    }
 }

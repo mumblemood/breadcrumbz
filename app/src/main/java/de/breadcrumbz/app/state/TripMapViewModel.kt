@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import de.breadcrumbz.app.data.photo.ImportedPhoto
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
 import de.breadcrumbz.app.data.photo.PhotoImporter
-import de.breadcrumbz.app.data.photo.PhotoMetadata
 import de.breadcrumbz.app.data.place.PlaceNameResolver
 import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.OverlayMode
@@ -244,26 +243,31 @@ class TripMapViewModel(
      * Fotos werden einem geöffneten Eintrag hinzugefügt. Zeit und Ort kommen
      * aus EXIF, aber nur in noch leere Felder: vorhandene Werte bleiben stehen.
      */
-    fun addPhotosToEntry(entryId: String, images: List<ImportedPhoto>) {
-        if (images.isEmpty()) return
-        viewModelScope.launch(Dispatchers.IO) {
+    suspend fun addPhotosToEntry(entryId: String, images: List<ImportedPhoto>) =
+        withContext(Dispatchers.IO) {
+            if (images.isEmpty()) return@withContext
             val entry = repository.observeEntriesForTrip(tripId).first()
-                .firstOrNull { it.id == entryId } ?: return@launch
+                .firstOrNull { it.id == entryId } ?: return@withContext
             val now = System.currentTimeMillis()
             val startIndex = repository.observePhotos(tripId).first().size
             val created = mutableListOf<Photo>()
 
             images.forEachIndexed { index, item ->
+                // Ein einzelnes schlechtes Foto darf den ganzen Import nicht umbringen.
                 val metadata = try {
                     PhotoImporter.read(item.bytes)
-                } catch (_: Exception) {
-                    PhotoMetadata(null, null, null)
+                } catch (_: Throwable) {
+                    null
                 }
                 // MediaStore-Werte greifen, wenn die Datei selbst keine GPS-Daten hat.
-                val capturedAt = item.capturedAt ?: metadata.capturedAt
-                val latitude = item.latitude ?: metadata.latitude
-                val longitude = item.longitude ?: metadata.longitude
-                val fileName = photoStore.save(item.bytes, item.mimeType)
+                val capturedAt = item.capturedAt ?: metadata?.capturedAt
+                val latitude = item.latitude ?: metadata?.latitude
+                val longitude = item.longitude ?: metadata?.longitude
+                val fileName = try {
+                    photoStore.save(item.bytes, item.mimeType)
+                } catch (_: Throwable) {
+                    return@forEachIndexed
+                }
                 val photo = Photo(
                     id = UUID.randomUUID().toString(),
                     tripId = tripId,
@@ -278,55 +282,66 @@ class TripMapViewModel(
                     sortIndex = startIndex + index,
                     createdAt = now + index,
                 )
-                repository.insertPhoto(photo)
-                created.add(photo)
+                try {
+                    repository.insertPhoto(photo)
+                    created.add(photo)
+                } catch (_: Throwable) {
+                    // Dieses Bild überspringen, den Rest trotzdem übernehmen.
+                }
             }
+            if (created.isEmpty()) return@withContext
+
+            // Zeit und Ort kommen aus demselben Foto, damit beides zusammenpasst.
+            val primary = created.firstOrNull {
+                it.capturedAt != null && it.latitude != null && it.longitude != null
+            } ?: created.firstOrNull { it.capturedAt != null }
+            ?: created.firstOrNull { it.latitude != null && it.longitude != null }
 
             var updated = entry
-            val primary = created.firstOrNull { it.capturedAt != null }
-            if (updated.entryAt == null && primary?.capturedAt != null) {
+            if (primary?.capturedAt != null &&
+                (updated.entryAt == null || updated.timeFromPhoto)
+            ) {
                 updated = updated.copy(entryAt = primary.capturedAt, timeFromPhoto = true)
             }
 
+            val photoLatitude = primary?.latitude
+            val photoLongitude = primary?.longitude
             var targetStopId = updated.stopId
             var targetStop: Stop? = null
-            if (targetStopId == null) {
-                val geoTagged = created.firstOrNull {
-                    it.latitude != null && it.longitude != null
-                }
-                if (geoTagged != null) {
-                    val latitude = geoTagged.latitude!!
-                    val longitude = geoTagged.longitude!!
-                    val photoTime = geoTagged.capturedAt
-                    targetStop = repository.observeStops(tripId).first()
-                        .firstOrNull { stop ->
-                            photoMatchesStop(
-                                latitude, longitude, photoTime,
-                                stop.latitude, stop.longitude, stop.visitedAt,
-                            )
-                        }
-                    if (targetStop == null) {
-                        val place = placeNameResolver.resolve(latitude, longitude)
-                        val name = place ?: run {
-                            val stamp = photoTime?.let {
-                                SimpleDateFormat("dd.MM. HH:mm", Locale.GERMANY).format(Date(it))
-                            } ?: "Foto"
-                            "Foto · $stamp"
-                        }
-                        targetStop = repository.addStop(
-                            tripId = tripId,
-                            title = name,
-                            latitude = latitude,
-                            longitude = longitude,
-                            visitedAt = photoTime,
-                            source = StopSource.PHOTO,
+            if ((targetStopId == null || updated.placeFromPhoto) &&
+                photoLatitude != null && photoLongitude != null
+            ) {
+                val photoTime = primary.capturedAt
+                targetStop = repository.observeStops(tripId).first()
+                    .firstOrNull { stop ->
+                        photoMatchesStop(
+                            photoLatitude, photoLongitude, photoTime,
+                            stop.latitude, stop.longitude, stop.visitedAt,
                         )
-                        autoNameTripFrom(place)
                     }
-                    targetStopId = targetStop!!.id
-                    updated = updated.copy(stopId = targetStopId, placeFromPhoto = true)
+                if (targetStop == null) {
+                    val place = runCatching {
+                        placeNameResolver.resolve(photoLatitude, photoLongitude)
+                    }.getOrNull()
+                    val name = place ?: run {
+                        val stamp = photoTime?.let {
+                            SimpleDateFormat("dd.MM. HH:mm", Locale.GERMANY).format(Date(it))
+                        } ?: "Foto"
+                        "Foto · $stamp"
+                    }
+                    targetStop = repository.addStop(
+                        tripId = tripId,
+                        title = name,
+                        latitude = photoLatitude,
+                        longitude = photoLongitude,
+                        visitedAt = photoTime,
+                        source = StopSource.PHOTO,
+                    )
+                    autoNameTripFrom(place)
                 }
-            } else {
+                targetStopId = targetStop.id
+                updated = updated.copy(stopId = targetStopId, placeFromPhoto = true)
+            } else if (targetStopId != null) {
                 targetStop = repository.observeStops(tripId).first()
                     .firstOrNull { it.id == targetStopId }
             }
@@ -345,7 +360,6 @@ class TripMapViewModel(
                 )
             }
         }
-    }
 
     /** Fotos ohne offenen Eintrag landen in einem neuen Eintrag. */
     fun importPhotos(items: List<ImportedPhoto>) {

@@ -142,6 +142,7 @@ fun FullscreenElement(
     onClose: () -> Unit,
     onOpenElement: (String) -> Unit,
     onAddPhotos: (String) -> Unit,
+    onAddEntry: (String) -> Unit,
     onAdoptPhotoLocation: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -367,6 +368,9 @@ fun FullscreenElement(
                                         it.stopId == stop.id ||
                                             it.entryId in linkedEntries.map { entry -> entry.id }
                                     }
+                                    var confirmDeletePin by remember(stop.id) {
+                                        mutableStateOf(false)
+                                    }
                                     Column(modifier = Modifier.fillMaxWidth()) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             PlacePinIcon(
@@ -443,6 +447,44 @@ fun FullscreenElement(
                                                     }
                                                 }
                                             }
+                                        }
+                                        Spacer(Modifier.height(12.dp))
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            InkTextButton(onClick = { onAddEntry(stop.id) }) {
+                                                Text("+ Eintrag hier")
+                                            }
+                                            InkTextButton(onClick = { confirmDeletePin = true }) {
+                                                Text("Pin löschen")
+                                            }
+                                        }
+                                        if (confirmDeletePin) {
+                                            AlertDialog(
+                                                onDismissRequest = { confirmDeletePin = false },
+                                                title = { Text("Pin löschen?") },
+                                                text = {
+                                                    Text(
+                                                        "Der Pin wird entfernt. Einträge bleiben " +
+                                                            "ohne Ort in der Timeline erhalten und " +
+                                                            "Fotos kommen zurück in „Ohne Ort“.",
+                                                    )
+                                                },
+                                                confirmButton = {
+                                                    TextButton(onClick = {
+                                                        viewModel.deleteStop(stop.id)
+                                                        viewModel.selectStop(null)
+                                                        confirmDeletePin = false
+                                                        onClose()
+                                                    }) { Text("Löschen") }
+                                                },
+                                                dismissButton = {
+                                                    TextButton(onClick = {
+                                                        confirmDeletePin = false
+                                                    }) { Text("Abbrechen") }
+                                                },
+                                            )
                                         }
                                     }
                                 }
