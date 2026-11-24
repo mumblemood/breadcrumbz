@@ -1,6 +1,8 @@
 package de.breadcrumbz.app.ui.trips
 
+import android.Manifest
 import android.graphics.BitmapFactory
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -46,6 +48,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.breadcrumbz.app.R
 import de.breadcrumbz.app.data.photo.ImportedPhoto
+import de.breadcrumbz.app.data.photo.PhotoSourceReader
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.state.TripMapViewModel
 import de.breadcrumbz.app.ui.map.PolaroidOverlay
@@ -113,12 +116,35 @@ fun TripMapScreen(
                 val imported = uris.mapNotNull { uri ->
                     val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
                     if (!mimeType.startsWith("image/")) return@mapNotNull null
-                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                        ?: return@mapNotNull null
+                    val bytes = PhotoSourceReader.read(context, uri) ?: return@mapNotNull null
                     ImportedPhoto(bytes, mimeType)
                 }
                 viewModel.importPhotos(imported)
             }
+        }
+    }
+
+    val requestImportPermissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        importLauncher.launch(arrayOf("image/*"))
+    }
+
+    fun startPhotoImport() {
+        val permissions = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.READ_MEDIA_IMAGES)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                add(Manifest.permission.ACCESS_MEDIA_LOCATION)
+            }
+        }
+        if (permissions.isEmpty()) {
+            importLauncher.launch(arrayOf("image/*"))
+        } else {
+            requestImportPermissions.launch(permissions.toTypedArray())
         }
     }
 
@@ -291,9 +317,7 @@ fun TripMapScreen(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Row {
-                        TextButton(onClick = {
-                            importLauncher.launch(arrayOf("image/*"))
-                        }) {
+                        TextButton(onClick = { startPhotoImport() }) {
                             Text("Fotos importieren")
                         }
                         TextButton(onClick = { showPhotos = !showPhotos }) {
@@ -415,7 +439,13 @@ private fun PhotoRow(
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
-                text = photo.caption.ifBlank { "Kein Titel" },
+                text = photo.caption.ifBlank {
+                    if (photo.latitude == null) {
+                        "GPS fehlt – antippen zum Setzen"
+                    } else {
+                        "Hängt am Pin"
+                    }
+                },
                 style = MaterialTheme.typography.bodySmall,
             )
         }

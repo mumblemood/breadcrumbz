@@ -7,7 +7,9 @@ Kartenroute und Tagebuch schön zu dokumentieren.
 Fotos können aus der Galerie importiert werden. Sie werden als Kopie im
 App-Speicher abgelegt; Aufnahmezeit und GPS kommen aus den EXIF-Daten. Fotos,
 die zeitlich (≤ 30 Minuten) und örtlich (≤ 200 m) zusammenpassen, werden zu
-einem Foto-Stopp gruppiert. Fotos ohne GPS landen in „Ohne Ort" und können
+einem Foto-Stopp gruppiert. Seit Android 10 blendet das System GPS-Daten in
+Galerie-Fotos aus; die App fragt beim Import die Erlaubnis für Media-Standorte
+an und liest das unveränderte Original. Fotos ohne GPS landen in „Ohne Ort" und können
 durch Antippen und langes Drücken auf die Karte platziert werden. Auf der Karte
 erscheinen sie als kleine Polaroid-Pins.
 

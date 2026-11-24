@@ -43,6 +43,9 @@ class PolaroidOverlay(
         color = Color.parseColor("#D99B52")
         strokeWidth = 3f
     }
+    private val pinHeadPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#D99B52")
+    }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow) return
@@ -88,13 +91,11 @@ class PolaroidOverlay(
             )
             canvas.restore()
 
-            canvas.drawLine(
-                point.x.toFloat(),
-                point.y.toFloat(),
-                point.x.toFloat(),
-                point.y - 4f,
-                pinPaint,
-            )
+            val pinX = point.x.toFloat()
+            val pinY = point.y.toFloat()
+            canvas.drawLine(pinX, pinY, pinX, pinY - 14f, pinPaint)
+            canvas.drawCircle(pinX, pinY, 6f, pinHeadPaint)
+            canvas.drawCircle(pinX, pinY, 6f, borderPaint)
             hitAreas.add(
                 RectF(
                     point.x - cardWidth / 2,
