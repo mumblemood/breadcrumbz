@@ -76,7 +76,9 @@ import java.util.Locale
 private val paper = Color(0xFFF6EFE1)
 private val ink = Color(0xFF3B2B20)
 private val frame = Color(0xFFDCCDB4)
-private val comic = FontFamily.NamedFontFamily("comic sans")
+// Comic Sans ist nicht auf allen Geräten installiert. Die systemweite
+// Comic/Cursive-Schrift ist die zuverlässige Wahl.
+private val comic = FontFamily.Cursive
 
 /** TextButton mit Lesbarkeit auf dem festen Papierhintergrund. */
 @Composable
