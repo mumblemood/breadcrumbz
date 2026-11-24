@@ -60,6 +60,9 @@ interface PhotoDao {
     @Query("SELECT * FROM photos WHERE tripId = :tripId ORDER BY sortIndex ASC")
     fun observeForTrip(tripId: String): Flow<List<PhotoEntity>>
 
+    @Query("SELECT * FROM photos WHERE id = :id")
+    suspend fun findById(id: String): PhotoEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(photo: PhotoEntity)
 

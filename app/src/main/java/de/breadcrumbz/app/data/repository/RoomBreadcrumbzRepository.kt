@@ -6,6 +6,7 @@ import de.breadcrumbz.app.data.db.StopDao
 import de.breadcrumbz.app.data.db.TripDao
 import de.breadcrumbz.app.data.model.toDomain
 import de.breadcrumbz.app.data.model.toEntity
+import de.breadcrumbz.app.data.photo.InternalPhotoStore
 import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.OverlayMode
 import de.breadcrumbz.app.domain.model.Photo
@@ -22,6 +23,7 @@ class RoomBreadcrumbzRepository(
     private val stopDao: StopDao,
     private val entryDao: EntryDao,
     private val photoDao: PhotoDao,
+    private val photoStore: InternalPhotoStore,
 ) : BreadcrumbzRepository {
 
     override fun observeTrips(): Flow<List<Trip>> =
@@ -121,5 +123,13 @@ class RoomBreadcrumbzRepository(
 
     override suspend fun insertPhoto(photo: Photo) = photoDao.upsert(photo.toEntity())
 
-    override suspend fun deletePhoto(id: String) = photoDao.deleteById(id)
+    override suspend fun updatePhoto(photo: Photo) = photoDao.upsert(photo.toEntity())
+
+    override suspend fun deletePhoto(id: String) {
+        val photo = photoDao.findById(id)?.toDomain()
+        photoDao.deleteById(id)
+        if (photo != null) {
+            photoStore.delete(photo.fileName)
+        }
+    }
 }

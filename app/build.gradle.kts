@@ -15,8 +15,8 @@ android {
         applicationId = "de.breadcrumbz.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.3.0-m3"
+        versionCode = 3
+        versionName = "0.4.0-m4"
     }
 
     // Fester Test-Schlüssel: jeder Build bekommt dadurch dieselbe Signatur.
@@ -77,6 +77,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     implementation("org.osmdroid:osmdroid-android:6.1.20")
+    implementation("androidx.exifinterface:exifinterface:1.3.6")
 
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")

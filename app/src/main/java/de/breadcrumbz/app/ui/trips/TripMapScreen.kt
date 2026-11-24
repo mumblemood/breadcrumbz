@@ -1,14 +1,24 @@
 package de.breadcrumbz.app.ui.trips
 
+import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -22,23 +32,34 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.breadcrumbz.app.R
+import de.breadcrumbz.app.data.photo.ImportedPhoto
+import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.state.TripMapViewModel
+import de.breadcrumbz.app.ui.map.PolaroidOverlay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.osmdroid.events.MapEventsReceiver
-import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 private fun standardTiles() = XYTileSource(
@@ -55,6 +76,13 @@ private fun standardTiles() = XYTileSource(
     "© OpenStreetMap-Mitwirkende",
 )
 
+@Composable
+private fun rememberThumbnail(viewModel: TripMapViewModel, fileName: String): ImageBitmap? =
+    remember(fileName) {
+        val options = BitmapFactory.Options().apply { inSampleSize = 8 }
+        BitmapFactory.decodeFile(viewModel.photoPath(fileName), options)?.asImageBitmap()
+    }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TripMapScreen(
@@ -66,8 +94,33 @@ fun TripMapScreen(
 
     val trip by viewModel.trip.collectAsStateWithLifecycle()
     val stops by viewModel.stops.collectAsStateWithLifecycle()
+    val photos by viewModel.photos.collectAsStateWithLifecycle()
     val distanceKm by viewModel.distanceKm.collectAsStateWithLifecycle()
+    val pendingPhotoId by viewModel.pendingPhotoId.collectAsStateWithLifecycle()
+
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var didCenter by remember { mutableStateOf(false) }
+    var showPhotos by remember { mutableStateOf(false) }
+    var selectedPhotoId by remember { mutableStateOf<String?>(null) }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            scope.launch(Dispatchers.IO) {
+                val imported = uris.mapNotNull { uri ->
+                    val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                    if (!mimeType.startsWith("image/")) return@mapNotNull null
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: return@mapNotNull null
+                    ImportedPhoto(bytes, mimeType)
+                }
+                viewModel.importPhotos(imported)
+            }
+        }
+    }
 
     val mapView = remember {
         MapView(context).apply {
@@ -78,16 +131,13 @@ fun TripMapScreen(
         }
     }
 
-    var didCenter by remember { mutableStateOf(false) }
-    var selectedStopId by remember { mutableStateOf<String?>(null) }
-
     val tapOverlay = remember {
         MapEventsOverlay(object : MapEventsReceiver {
             override fun singleTapConfirmedHelper(point: GeoPoint?): Boolean = false
 
             override fun longPressHelper(point: GeoPoint?): Boolean {
                 if (point != null) {
-                    viewModel.addStop(point.latitude, point.longitude)
+                    viewModel.onMapLongPress(point.latitude, point.longitude)
                 }
                 return true
             }
@@ -133,6 +183,17 @@ fun TripMapScreen(
                     view.overlays.clear()
                     view.overlays.add(tapOverlay)
 
+                    val placedPhotos = photos.filter {
+                        it.latitude != null && it.longitude != null
+                    }
+                    view.overlays.add(
+                        PolaroidOverlay(
+                            photos = placedPhotos,
+                            filePath = { name -> viewModel.photoPath(name) },
+                            onPhotoClick = { id -> selectedPhotoId = id },
+                        ),
+                    )
+
                     if (stops.size > 1) {
                         val route = Polyline(view)
                         route.setPoints(stops.map { GeoPoint(it.latitude, it.longitude) })
@@ -162,7 +223,7 @@ fun TripMapScreen(
                         marker.isDraggable = true
                         val stopId = stop.id
                         marker.setOnMarkerClickListener { _, _ ->
-                            selectedStopId = stopId
+                            selectedPhotoId = null
                             true
                         }
                         marker.setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
@@ -186,11 +247,31 @@ fun TripMapScreen(
                 },
             )
 
+            if (pendingPhotoId != null) {
+                Card(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(8.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Jetzt lange auf die Karte drücken")
+                        TextButton(onClick = { viewModel.cancelPlacement() }) {
+                            Text("Abbrechen")
+                        }
+                    }
+                }
+            }
+
             Card(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(16.dp)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface,
@@ -200,25 +281,145 @@ fun TripMapScreen(
                     Text(trip?.title ?: "Reise", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "${stops.size} Wegpunkte · " +
+                        text = "${stops.size} Wegpunkte · ${photos.size} Fotos · " +
                             String.format(Locale.GERMANY, "%.1f", distanceKm) + " km (Luftlinie)",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "Lange drücken = neuer Punkt. Punkt ziehen = Route ändern.",
+                        text = "Lange drücken = Punkt setzen. Foto-Pins antippen = Bild ansehen.",
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    if (selectedStopId != null) {
+                    Row {
                         TextButton(onClick = {
-                            viewModel.deleteStop(selectedStopId!!)
-                            selectedStopId = null
+                            importLauncher.launch(arrayOf("image/*"))
                         }) {
-                            Text("Ausgewählten Punkt löschen")
+                            Text("Fotos importieren")
+                        }
+                        TextButton(onClick = { showPhotos = !showPhotos }) {
+                            Text(if (showPhotos) "Fotos ausblenden" else "Fotos anzeigen")
+                        }
+                    }
+
+                    if (showPhotos) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            val withoutLocation = photos.filter {
+                                it.latitude == null || it.longitude == null
+                            }
+                            val withLocation = photos.filter {
+                                it.latitude != null && it.longitude != null
+                            }
+
+                            if (withoutLocation.isNotEmpty()) {
+                                Text(
+                                    "Ohne Ort – antippen, dann lange auf die Karte drücken",
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                                withoutLocation.forEach { photo ->
+                                    PhotoRow(
+                                        photo = photo,
+                                        thumbnail = rememberThumbnail(viewModel, photo.fileName),
+                                        onClick = { viewModel.beginPlacement(photo.id) },
+                                        onDelete = { viewModel.deletePhoto(photo.id) },
+                                    )
+                                }
+                            }
+
+                            if (withLocation.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text("Auf der Karte", style = MaterialTheme.typography.labelLarge)
+                                withLocation.forEach { photo ->
+                                    PhotoRow(
+                                        photo = photo,
+                                        thumbnail = rememberThumbnail(viewModel, photo.fileName),
+                                        onClick = { selectedPhotoId = photo.id },
+                                        onDelete = { viewModel.deletePhoto(photo.id) },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    val selectedPhoto = photos.firstOrNull { it.id == selectedPhotoId }
+    if (selectedPhoto != null) {
+        AlertDialog(
+            onDismissRequest = { selectedPhotoId = null },
+            title = { Text("Foto") },
+            text = {
+                Column {
+                    val thumbnail = rememberThumbnail(viewModel, selectedPhoto.fileName)
+                    if (thumbnail != null) {
+                        Image(
+                            bitmap = thumbnail,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(200.dp)
+                                .clip(RoundedCornerShape(12.dp)),
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        selectedPhoto.capturedAt?.let {
+                            SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(Date(it))
+                        } ?: "Kein Aufnahmedatum",
+                    )
+                    if (selectedPhoto.caption.isNotBlank()) {
+                        Text(selectedPhoto.caption)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { selectedPhotoId = null }) { Text("Schließen") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun PhotoRow(
+    photo: Photo,
+    thumbnail: ImageBitmap?,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (thumbnail != null) {
+            Image(
+                bitmap = thumbnail,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+            )
+        }
+        Spacer(Modifier.size(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = photo.capturedAt?.let {
+                    SimpleDateFormat("dd.MM. HH:mm", Locale.GERMANY).format(Date(it))
+                } ?: "Ohne Datum",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text = photo.caption.ifBlank { "Kein Titel" },
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        TextButton(onClick = onClick) { Text("Öffnen") }
+        TextButton(onClick = onDelete) { Text("Löschen") }
     }
 }

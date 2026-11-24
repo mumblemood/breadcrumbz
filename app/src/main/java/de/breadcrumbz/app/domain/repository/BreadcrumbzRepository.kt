@@ -47,5 +47,6 @@ interface BreadcrumbzRepository {
 
     fun observePhotos(tripId: String): Flow<List<Photo>>
     suspend fun insertPhoto(photo: Photo)
+    suspend fun updatePhoto(photo: Photo)
     suspend fun deletePhoto(id: String)
 }

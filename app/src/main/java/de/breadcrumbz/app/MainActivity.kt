@@ -25,7 +25,7 @@ class MainActivity : ComponentActivity() {
     private val container: AppContainer by lazy { (application as BreadcrumbzApp).container }
 
     private val tripsViewModel: TripsViewModel by viewModels {
-        BreadcrumbzViewModelFactory(container.repository)
+        BreadcrumbzViewModelFactory(container.repository, container.photoStore)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,7 +46,11 @@ class MainActivity : ComponentActivity() {
                         )
                     } else {
                         val mapFactory = remember(tripId) {
-                            BreadcrumbzViewModelFactory(container.repository, tripId)
+                            BreadcrumbzViewModelFactory(
+                                container.repository,
+                                container.photoStore,
+                                tripId,
+                            )
                         }
                         val mapViewModel: TripMapViewModel = viewModel(
                             key = tripId,

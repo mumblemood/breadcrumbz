@@ -3,14 +3,17 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Meilenstein 3 – Karte und Route.**
-Zu jeder Reise kann eine OSM-Karte geöffnet werden. Lange auf die Karte drücken
-erzeugt einen Wegpunkt, Punkte lassen sich ziehen und die Route wird als Linie
-gezeichnet. Die Gesamtkilometer werden live als Luftlinie berechnet. Kacheln
-werden lokal gecacht; die Pergament-Optik und Straßen-km folgen später.
+**Aktueller Stand: Meilenstein 4 – Fotos.**
+Fotos können aus der Galerie importiert werden. Sie werden als Kopie im
+App-Speicher abgelegt; Aufnahmezeit und GPS kommen aus den EXIF-Daten. Fotos,
+die zeitlich (≤ 30 Minuten) und örtlich (≤ 200 m) zusammenpassen, werden zu
+einem Foto-Stopp gruppiert. Fotos ohne GPS landen in „Ohne Ort" und können
+durch Antippen und langes Drücken auf die Karte platziert werden. Auf der Karte
+erscheinen sie als kleine Polaroid-Pins.
 
-Meilenstein 2 hatte die Reisen-Verwaltung eingeführt, Meilenstein 1 das
-Datenfundament gelegt, Meilenstein 0 den Build-Weg bis zur APK geprüft.
+Meilenstein 3 hatte Karte, Wegpunkte und Live-Kilometer gebracht, Meilenstein 2
+die Reisen-Verwaltung, Meilenstein 1 das Datenfundament, Meilenstein 0 den
+Build-Weg bis zur APK.
 
 ## Grundsätze
 

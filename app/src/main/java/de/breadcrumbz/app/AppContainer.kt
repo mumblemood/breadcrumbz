@@ -33,12 +33,13 @@ class AppContainer(context: Context) {
         "breadcrumbz.db",
     ).build()
 
+    val photoStore = InternalPhotoStore(appContext)
+
     val repository: BreadcrumbzRepository = RoomBreadcrumbzRepository(
         tripDao = database.tripDao(),
         stopDao = database.stopDao(),
         entryDao = database.entryDao(),
         photoDao = database.photoDao(),
+        photoStore = photoStore,
     )
-
-    val photoStore = InternalPhotoStore(appContext)
 }
