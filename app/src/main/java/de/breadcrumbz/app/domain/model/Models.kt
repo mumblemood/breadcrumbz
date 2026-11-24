@@ -62,6 +62,10 @@ data class Entry(
     val sortIndex: Int,
     val createdAt: Long,
     val updatedAt: Long,
+    /** true = Zeit kam aus dem ersten Foto und wurde noch nicht angefasst. */
+    val timeFromPhoto: Boolean = false,
+    /** true = Ort kam aus dem ersten Foto und wurde noch nicht angefasst. */
+    val placeFromPhoto: Boolean = false,
 )
 
 data class Photo(

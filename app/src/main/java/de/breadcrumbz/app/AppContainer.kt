@@ -13,6 +13,7 @@ import de.breadcrumbz.app.data.db.MIGRATION_5_6
 import de.breadcrumbz.app.data.db.MIGRATION_6_7
 import de.breadcrumbz.app.data.db.MIGRATION_7_8
 import de.breadcrumbz.app.data.db.MIGRATION_8_9
+import de.breadcrumbz.app.data.db.MIGRATION_9_10
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
 import de.breadcrumbz.app.data.place.PlaceNameRefresher
 import de.breadcrumbz.app.data.place.PlaceNameResolver
@@ -56,6 +57,7 @@ class AppContainer(context: Context) {
         MIGRATION_6_7,
         MIGRATION_7_8,
         MIGRATION_8_9,
+        MIGRATION_9_10,
     ).build()
 
     private val tripDao = database.tripDao()
@@ -84,7 +86,7 @@ class AppContainer(context: Context) {
         photoDao = photoDao,
         placeNameDao = placeNameDao,
         photoStore = photoStore,
-        appVersion = "0.9.0",
+        appVersion = "0.10.0",
     )
 
     private val placeRefresher = PlaceNameRefresher(stopDao, placeNameResolver)

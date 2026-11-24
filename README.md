@@ -3,7 +3,7 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Version 0.9.0 – Einträge und Bearbeitung neu aufgebaut.**
+**Aktueller Stand: Version 0.10.0 – Bedienung, Pop-up-Details und Zeitleiste verfeinert.**
 
 Die **Startseite** zeigt alle Reisen chronologisch, die neueste oben. Das **„+"**
 ganz oben legt sofort eine neue Reise an und öffnet direkt die Karte – ohne
@@ -24,12 +24,17 @@ wählt ihn aus; der ausgewählte Pin wird **1,5× größer**. Nur ein Element is
 gleichzeitig ausgewählt, ein Tippen ins Leere hebt die Auswahl auf. Die Nadel
 zeigt mit der Spitze auf die Mitte des oberen weißen Polaroid-Rands. Fotos werden
 nie verzogen: Der Rahmen passt sich dem Seitenverhältnis an, alle Ränder sind
-gleich breit und nur der untere Rand ist für die Beschriftung dicker.
+gleich breit und nur der untere Rand ist für die Beschriftung dicker. Die
+Polaroids werden mit dem Zoom größer und kleiner. Pinch-Zoom funktioniert
+überall; währenddessen wird nichts ausgewählt. Als kleinster Zoom ist Stufe 4
+eingestellt.
 
 **Timeline:** Sie lässt sich überall wischen; Ziehen eines Elements startet erst
-nach längerem Halten. Die schwarze gestrichelte Linie hat einen weißen Rand und
-ist dreimal so dick wie zuvor. Ein aufgeklappter Eintrag liegt auf hellgrauem
-Grund. Pins und Fotos sitzen „auf der Linie angepinnt".
+nach längerem Halten. Die schwarze gestrichelte Linie ist dick und hat nur einen
+dünnen weißen Rand. Ein aufgeklappter Tag hat eine größere grüne Markierung, ein
+aufgeklappter Eintrag eine hellgraue, die alle zugehörigen Elemente umschließt.
+Pins haben einen farbigen Rand; vor Ortsnamen steht immer ein einfarbiges Pin-
+Symbol in Textgröße.
 
 **Ortsnamen** werden automatisch als **„Stadt, Staat"** aus den Koordinaten
 ermittelt. Vorhandene alte Namen werden beim ersten Start dieser Version einmalig
@@ -50,8 +55,13 @@ entsteht dann ein neuer Pin. Beim Ziehen eines Pins verschieben sich Eintrag und
 Bilder mit. Alte Einzelbilder wurden bereits in eigene Einträge überführt –
 nichts ging verloren. Während des Pinch-Zooms wird nichts ausgewählt.
 
-Die Detailansichten (Pin, Foto, Eintrag) nutzen feste Papier-/Tintafarben und
-bleiben deshalb bei **hell und dunkel** gleich gut lesbar.
+Die Detailansichten öffnen sich als **Pop-up** über leicht abgedunkeltem
+Hauptbereich. Zeit und Ort stehen direkt unterm Titel. Wurden sie aus dem ersten
+Foto übernommen, stehen sie kursiv mit **„(aus erstem Foto)"**; ein Tippen
+öffnet eine bequeme Auswahl und entfernt den Kursiv-Hinweis. Das Foto selbst hat
+einen großen Polaroid-Rahmen mit dem Titel im unteren Rand (Comic-Schrift);
+Ort und Zeit stehen darunter klein. Die festen Papier-/Tintafarben bleiben bei
+**hell und dunkel** gleich gut lesbar.
 
 **Aus früheren Meilensteinen:** Foto-Import mit EXIF, Gruppierung, Polaroid-Pins,
 Karte mit osmdroid und lokalem Karten-Cache, Live-Luftlinie in km, Einträge mit

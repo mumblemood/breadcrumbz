@@ -19,7 +19,7 @@ import java.util.UUID
         PhotoEntity::class,
         PlaceNameEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class BreadcrumbzDatabase : RoomDatabase() {
@@ -186,5 +186,21 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
 val MIGRATION_8_9 = object : Migration(8, 9) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `entries` ADD COLUMN `entryAt` INTEGER")
+    }
+}
+
+/**
+ * Version 10: Merkt sich, ob Zeit und Ort aus dem ersten Foto stammen. Dann
+ * stehen sie im Detailfenster kursiv mit „(aus erstem Foto)". Alte Einträge
+ * behalten ihre Werte; die neuen Felder starten auf 0.
+ */
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE `entries` ADD COLUMN `timeFromPhoto` INTEGER NOT NULL DEFAULT 0",
+        )
+        db.execSQL(
+            "ALTER TABLE `entries` ADD COLUMN `placeFromPhoto` INTEGER NOT NULL DEFAULT 0",
+        )
     }
 }

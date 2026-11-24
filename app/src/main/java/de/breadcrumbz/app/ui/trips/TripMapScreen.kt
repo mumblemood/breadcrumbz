@@ -83,6 +83,7 @@ import de.breadcrumbz.app.ui.map.ClusterElement
 import de.breadcrumbz.app.ui.map.ClusterOverlay
 import de.breadcrumbz.app.ui.map.EntryPlusOverlay
 import de.breadcrumbz.app.ui.map.PinInteractionOverlay
+import de.breadcrumbz.app.ui.map.PlacePinIcon
 import de.breadcrumbz.app.ui.map.PolaroidOverlay
 import de.breadcrumbz.app.ui.map.RouteStyling
 import de.breadcrumbz.app.ui.map.StickyNoteOverlay
@@ -298,6 +299,8 @@ fun TripMapScreen(
         MapView(context).apply {
             setTileSource(standardTiles())
             setMultiTouchControls(true)
+            // Sinnvolle Untergrenze: ganze Reise überblicken, ohne ins Bodenlose zu zoomen.
+            minZoomLevel = 4.0
             controller.setZoom(14.0)
             controller.setCenter(GeoPoint(51.0, 10.0))
         }
@@ -465,11 +468,12 @@ fun TripMapScreen(
                         OutlinedTextField(
                             value = titleDraft,
                             onValueChange = { titleDraft = it },
-                            label = { Text("Reisetitel") },
+                            placeholder = { Text("Reisetitel") },
                             singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyMedium,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = { commitTitle() }),
-                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     } else {
                         val titleText = if (dateRange.isBlank()) {
@@ -606,7 +610,9 @@ fun TripMapScreen(
                                 )
                             }
                         }
-                        val clustered = view.zoomLevelDouble <= 13.0 &&
+                        // Erst bei sehr weitem Zoom clustering; dazwischen bleiben
+                        // die verkleinerten Polaroids als einzelne Einträge sichtbar.
+                        val clustered = view.zoomLevelDouble <= 9.0 &&
                             clusterElements.isNotEmpty()
 
                         if (clustered) {
@@ -657,7 +663,7 @@ fun TripMapScreen(
                             val marker = Marker(view)
                             marker.position = GeoPoint(stop.latitude, stop.longitude)
                             marker.title = stop.title
-                            marker.snippet = "2 Sekunden halten, dann ziehen"
+                            marker.snippet = ""
                             marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
 
                             val icon = ContextCompat.getDrawable(
@@ -770,25 +776,23 @@ fun TripMapScreen(
                     }
                 }
 
-                Card(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-                        val activeStop = stops.firstOrNull { it.id == activeStopId }
-                        if (activeStop == null) {
-                            Text(
-                                "Pin antippen zum Auswählen",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                        if (activeStop != null) {
-                            Text(
-                                activeStop.title,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
+                val activeStop = stops.firstOrNull { it.id == activeStopId }
+                if (activeStop != null) {
+                    Card(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(8.dp),
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                PlacePinIcon(tint = Color(0xFF3B2B20), size = 14.dp)
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    activeStop.title,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
                             Row {
                                 TextButton(onClick = { openNewEntry(activeStop.id) }) {
                                     Text("+ Eintrag")

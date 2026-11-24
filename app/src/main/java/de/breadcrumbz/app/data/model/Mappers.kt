@@ -89,6 +89,8 @@ fun EntryEntity.toDomain() = Entry(
     sortIndex = sortIndex,
     createdAt = createdAt,
     updatedAt = updatedAt,
+    timeFromPhoto = timeFromPhoto,
+    placeFromPhoto = placeFromPhoto,
 )
 
 fun Entry.toEntity() = EntryEntity(
@@ -101,6 +103,8 @@ fun Entry.toEntity() = EntryEntity(
     sortIndex = sortIndex,
     createdAt = createdAt,
     updatedAt = updatedAt,
+    timeFromPhoto = timeFromPhoto,
+    placeFromPhoto = placeFromPhoto,
 )
 
 fun PhotoEntity.toDomain() = Photo(

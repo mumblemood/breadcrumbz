@@ -52,14 +52,13 @@ class EntryPlusOverlay(
     }
 
     override fun onTouchEvent(event: MotionEvent, mapView: MapView): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN && isHit(event, mapView)) {
-            return true
-        }
+        // Kein Event verbrauchen: sonst kommt beim Karten-Overlay kein
+        // Pinch-Zoom an. Nur der fertige Tap auf das Plus wird ausgeführt.
         if (event.actionMasked == MotionEvent.ACTION_UP && isHit(event, mapView)) {
             onClick()
             return true
         }
-        return super.onTouchEvent(event, mapView)
+        return false
     }
 
     private companion object {

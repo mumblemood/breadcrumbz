@@ -89,6 +89,11 @@ data class EntryEntity(
     val sortIndex: Int,
     val createdAt: Long,
     val updatedAt: Long,
+    /** v10: Zeit/Ort stammen aus dem ersten Foto (kursiv mit Hinweis). */
+    @ColumnInfo(defaultValue = "0")
+    val timeFromPhoto: Boolean = false,
+    @ColumnInfo(defaultValue = "0")
+    val placeFromPhoto: Boolean = false,
 )
 
 @Entity(

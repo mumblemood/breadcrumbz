@@ -75,6 +75,8 @@ private data class TimelinePoint(
     val dayKey: String?,
     val item: TimelineItem?,
     val photoId: String?,
+    /** Verknüpfter Eintrag – für die Markierung aller zugehörigen Elemente. */
+    val entryId: String?,
     /** 0 = Tag, 1 = Station, 2 = Eintrag, 3 = Foto, 4 = Foto im Eintrag, 5 = Pin im Eintrag. */
     val kind: Int,
 )
@@ -84,6 +86,7 @@ private val paper = Color(0xFFFBF4E4)
 private val accent = Color(0xFFB8782F)
 private val teal = Color(0xFF2E6B6B)
 private val fieldGray = Color(0xFFE8E8E8)
+private val dayMarker = Color(0xFFCDE3DF)
 
 private fun dayKey(time: Long): String =
     SimpleDateFormat("yyyy-MM-dd", Locale.GERMANY).format(Date(time))
@@ -155,19 +158,19 @@ fun AdventureTimeline(
                 TimelinePoint(
                     key = "day-$key",
                     label = dayLabel(first.time),
-                    detail = "${dayItems.size} Elemente",
+                    detail = "",
                     x = 0f,
                     km = kmOf(first),
                     dayKey = key,
                     item = null,
                     photoId = null,
+                    entryId = null,
                     kind = 0,
                 ),
             )
             if (expandedDay == key) {
                 dayItems.forEach { item ->
                     val photoIds = item.entryId?.let { photosByEntry[it] }.orEmpty()
-                    val photoText = if (photoIds.isEmpty()) "" else " · ${photoIds.size} Fotos"
                     result.add(
                         TimelinePoint(
                             key = item.id,
@@ -177,8 +180,7 @@ fun AdventureTimeline(
                             },
                             detail = when (item.kind) {
                                 TimelineKind.STOP -> "Station"
-                                TimelineKind.ENTRY ->
-                                    if (item.hasLocation) "Tagebuch$photoText" else "Eintrag$photoText"
+                                TimelineKind.ENTRY -> ""
                                 TimelineKind.PHOTO -> "Foto"
                             },
                             x = 0f,
@@ -186,6 +188,7 @@ fun AdventureTimeline(
                             dayKey = key,
                             item = item,
                             photoId = null,
+                            entryId = item.entryId,
                             kind = when (item.kind) {
                                 TimelineKind.STOP -> 1
                                 TimelineKind.ENTRY -> 2
@@ -204,6 +207,7 @@ fun AdventureTimeline(
                                 dayKey = key,
                                 item = null,
                                 photoId = photoId,
+                                entryId = item.entryId,
                                 kind = 4,
                             )
                         }
@@ -229,6 +233,7 @@ fun AdventureTimeline(
                                         hasLocation = true,
                                     ),
                                     photoId = null,
+                                    entryId = item.entryId,
                                     kind = 5,
                                 )
                             }
@@ -291,23 +296,47 @@ fun AdventureTimeline(
                 val yAt = { index: Int ->
                     baseY + (sin(index * 0.85f) * with(density) { 9.dp.toPx() }).toFloat()
                 }
-                val dash = PathEffect.dashPathEffect(floatArrayOf(24f, 16f), 0f)
+                val dash = PathEffect.dashPathEffect(floatArrayOf(30f, 18f), 0f)
 
-                // Aufgeklappte Einträge liegen auf einem hellgrauen Feld.
-                points.forEachIndexed { index, point ->
-                    val children = (point.item?.photoCount ?: 0) +
-                        (point.item?.pinCount ?: 0)
-                    if (point.kind == 2 &&
-                        expandedEntryIds.contains(point.item?.entryId)
-                    ) {
+                // Tage bekommen eine größere Markierung in eigener Farbe. Sie
+                // umschließt den Titel und alle Elemente dieses Tages.
+                val openDay = expandedDay
+                if (openDay != null) {
+                    val indices = points.indices.filter { points[it].dayKey == openDay }
+                    if (indices.isNotEmpty()) {
+                        val minX = indices.minOf { points[it].x }
+                        val maxX = indices.maxOf { points[it].x }
+                        val minY = indices.minOf { yAt(it) }
+                        val maxY = indices.maxOf { yAt(it) }
+                        drawRoundRect(
+                            color = dayMarker,
+                            topLeft = Offset(minX - 100f, minY - 52f),
+                            size = androidx.compose.ui.geometry.Size(
+                                maxX - minX + 200f,
+                                maxY - minY + 172f,
+                            ),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(22f, 22f),
+                        )
+                    }
+                }
+
+                // Einträge bekommen ein hellgraues Feld, das den Eintrag und
+                // alle zugehörigen Fotos und Pins umschließt.
+                expandedEntryIds.forEach { entryId ->
+                    val indices = points.indices.filter { points[it].entryId == entryId }
+                    if (indices.isNotEmpty()) {
+                        val minX = indices.minOf { points[it].x }
+                        val maxX = indices.maxOf { points[it].x }
+                        val minY = indices.minOf { yAt(it) }
+                        val maxY = indices.maxOf { yAt(it) }
                         drawRoundRect(
                             color = fieldGray,
-                            topLeft = Offset(point.x - 76f, yAt(index) - 10f),
+                            topLeft = Offset(minX - 86f, minY - 40f),
                             size = androidx.compose.ui.geometry.Size(
-                                170f,
-                                58f + children * 34f,
+                                maxX - minX + 172f,
+                                maxY - minY + 150f,
                             ),
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(14f, 14f),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(16f, 16f),
                         )
                     }
                 }
@@ -318,9 +347,9 @@ fun AdventureTimeline(
                     val middle = (points[index - 1].x + points[index].x) / 2
                     path.quadraticBezierTo(middle, yAt(index - 1), points[index].x, yAt(index))
                 }
-                // Weißer Rand, darüber die dreifach dicke schwarze gestrichelte Linie.
-                drawPath(path, Color.White, style = Stroke(width = 20f))
-                drawPath(path, ink, style = Stroke(width = 12f, pathEffect = dash))
+                // Dünner weißer Rand, darüber dicke schwarze Striche.
+                drawPath(path, Color.White, style = Stroke(width = 8f))
+                drawPath(path, ink, style = Stroke(width = 20f, pathEffect = dash))
 
                 val centerIndex = points.indexOfFirst { it.key == centerKey }
                 if (centerIndex >= 0) {
@@ -353,18 +382,26 @@ fun AdventureTimeline(
                 val children = (item?.photoCount ?: 0) + (item?.pinCount ?: 0)
                 val dragOffset = remember(point.key) { mutableStateOf(Offset.Zero) }
 
-                // Pin in Kartengröße: die Spitze sitzt auf der Linie.
-                Icon(
-                    painter = painterResource(R.drawable.ic_stop_marker),
-                    contentDescription = null,
-                    tint = Color.Unspecified,
+                // Pin in Kartengröße mit farbigem Rand: die Spitze sitzt auf der Linie.
+                Box(
                     modifier = Modifier
                         .offset(
-                            x = with(density) { (point.x - 14.dp.toPx()).toDp() },
-                            y = lineY - 28.dp,
+                            x = with(density) { (point.x - 17.dp.toPx()).toDp() },
+                            y = lineY - 31.dp,
                         )
-                        .size(28.dp),
-                )
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(paper)
+                        .border(2.dp, accent, RoundedCornerShape(9.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_stop_marker),
+                        contentDescription = null,
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(26.dp),
+                    )
+                }
 
                 Box(
                     modifier = Modifier
@@ -522,12 +559,21 @@ fun AdventureTimeline(
                                 )
                                 .padding(horizontal = 8.dp, vertical = 5.dp),
                         ) {
-                            Text(
-                                text = point.label,
-                                color = ink,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 2,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                PlacePinIcon(
+                                    tint = ink,
+                                    size = with(density) {
+                                        MaterialTheme.typography.bodySmall.fontSize.toDp()
+                                    },
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = point.label,
+                                    color = ink,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 2,
+                                )
+                            }
                             Text(
                                 text = point.detail,
                                 color = Color(0xFF6B4A2A),
@@ -564,12 +610,23 @@ fun AdventureTimeline(
                                     )
                                 }
                             }
-                            Text(
-                                text = point.label,
-                                color = ink,
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 2,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (point.kind == 2 && item?.hasLocation == true) {
+                                    PlacePinIcon(
+                                        tint = ink,
+                                        size = with(density) {
+                                            MaterialTheme.typography.bodyMedium.fontSize.toDp()
+                                        },
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                }
+                                Text(
+                                    text = point.label,
+                                    color = ink,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 2,
+                                )
+                            }
                             if (point.kind == 2 && children > 0 && !expanded) {
                                 val entryPhotos = item?.entryId
                                     ?.let { photosByEntry[it] }.orEmpty()
@@ -606,11 +663,6 @@ fun AdventureTimeline(
                                         }
                                     }
                                 }
-                                Text(
-                                    "▾ Eintrag öffnen · $children Elemente",
-                                    color = ink,
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
                             } else if (point.kind == 2) {
                                 Spacer(modifier = Modifier.height(if (expanded) 12.dp else 6.dp))
                             }

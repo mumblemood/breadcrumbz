@@ -277,6 +277,8 @@ class BackupManager(
         put("sortIndex", sortIndex)
         put("createdAt", createdAt)
         put("updatedAt", updatedAt)
+        put("timeFromPhoto", timeFromPhoto)
+        put("placeFromPhoto", placeFromPhoto)
     }
 
     private fun JSONObject.toEntry() = EntryEntity(
@@ -289,6 +291,8 @@ class BackupManager(
         sortIndex = optInt("sortIndex", 0),
         createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
         updatedAt = longOrNull("updatedAt") ?: System.currentTimeMillis(),
+        timeFromPhoto = optBoolean("timeFromPhoto", false),
+        placeFromPhoto = optBoolean("placeFromPhoto", false),
     )
 
     private fun PhotoEntity.toJson() = JSONObject().apply {

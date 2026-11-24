@@ -98,7 +98,9 @@ class PinInteractionOverlay(
                 pendingStopId = null
                 createdStop = false
                 gestureMoved = false
-                if (ignoreTapsUntilRelease || event.pointerCount > 1) return true
+                multiTouch = false
+                ignoreTapsUntilRelease = false
+                if (event.pointerCount > 1) return false
 
                 downGeo = mapView.projection.fromPixels(
                     event.x.toInt(),
@@ -113,14 +115,12 @@ class PinInteractionOverlay(
                         pendingStopId = hit.id
                         handler.postDelayed(unlock, 2_000L)
                     }
-                    return true
-                }
-
-                if (allowCreate) {
+                } else if (allowCreate) {
                     pendingCreate = true
                     handler.postDelayed(create, 2_000L)
                 }
-                // Freie Fläche: Scrollen und Pinch müssen möglich bleiben.
+                // Wichtig: DOWN nie verbrauchen. Sonst bekommt der
+                // MultiTouchController von osmdroid kein Pinch-Zoom.
                 return false
             }
 
@@ -131,7 +131,8 @@ class PinInteractionOverlay(
                 pendingCreate = false
                 cancel(restoreMarker = true)
                 candidateStopId = null
-                return true
+                // Zweiter Finger: ebenfalls durchreichen für Pinch-Zoom.
+                return false
             }
 
             MotionEvent.ACTION_MOVE -> {
@@ -139,7 +140,7 @@ class PinInteractionOverlay(
                     cancel(restoreMarker = true)
                     handler.removeCallbacks(create)
                     pendingCreate = false
-                    return true
+                    return false
                 }
                 val id = draggingStopId
                 if (id != null) {
@@ -159,12 +160,12 @@ class PinInteractionOverlay(
                     handler.removeCallbacks(create)
                     pendingCreate = false
                 }
-                return candidateStopId != null
+                return false
             }
 
             MotionEvent.ACTION_POINTER_UP -> {
                 multiTouch = event.pointerCount > 2
-                return true
+                return false
             }
 
             MotionEvent.ACTION_UP -> {
@@ -176,7 +177,7 @@ class PinInteractionOverlay(
                     cancel(restoreMarker = true)
                     candidateStopId = null
                     pendingCreate = false
-                    return true
+                    return false
                 }
                 val dragging = draggingStopId
                 if (dragging != null) {
@@ -214,10 +215,10 @@ class PinInteractionOverlay(
                 pendingCreate = false
                 cancel(restoreMarker = true)
                 candidateStopId = null
-                return true
+                return false
             }
         }
-        return super.onTouchEvent(event, mapView)
+        return false
     }
 
     private fun hitStop(event: MotionEvent, mapView: MapView): Stop? {

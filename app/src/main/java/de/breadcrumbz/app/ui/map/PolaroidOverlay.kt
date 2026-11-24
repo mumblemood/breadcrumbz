@@ -18,7 +18,8 @@ import org.osmdroid.views.overlay.Overlay
  * Foto-Polaroids auf der Karte. Das Bild wird nie verzogen: Der Rahmen passt
  * sich dem Seitenverhältnis an. Alle Ränder sind gleich breit, nur der untere
  * Rand ist für die Beschriftung dicker. Die Nadelspitze zeigt auf die Mitte
- * des oberen weißen Rahmens.
+ * des oberen weißen Rahmens. Die Größe wächst und schrumpft mit dem Zoom,
+ * damit man auch beim Rauszoomen alle Einträge überblicken kann.
  */
 class PolaroidOverlay(
     private val photos: List<Photo>,
@@ -39,13 +40,6 @@ class PolaroidOverlay(
     private val cache = LruCache<String, Bitmap>(24)
     private val hitAreas = mutableListOf<Pair<RectF, List<String>>>()
 
-    private val scale = 5f
-    private val imageWidth = 88f * scale
-    private val padding = 5f * scale
-    private val captionHeight = 12f * scale
-    private val shadowOffset = 3f * scale
-    private val needleLength = 18f
-
     private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#FBF4E4")
     }
@@ -55,24 +49,20 @@ class PolaroidOverlay(
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         color = Color.parseColor("#3B2B20")
-        strokeWidth = 2f * scale
     }
     private val pinPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#3B2B20")
-        strokeWidth = 3f * scale
     }
     private val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#D99B52")
     }
     private val badgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        textSize = 34f
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true
     }
     private val captionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#3B2B20")
-        textSize = 28f
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create("cursive", Typeface.NORMAL)
     }
@@ -80,6 +70,21 @@ class PolaroidOverlay(
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow) return
         hitAreas.clear()
+
+        // Zoom 14 entspricht der bisherigen Größe. Beim Rauszoomen werden die
+        // Polaroids kleiner, beim Hineinzoomen etwas größer – oben und unten
+        // begrenzt, damit sie nie unlesbar oder überdimensional werden.
+        val zoomFactor = (mapView.zoomLevelDouble / 14.0).coerceIn(0.4, 1.4).toFloat()
+        val scale = 5f * zoomFactor
+        val imageWidth = 88f * scale
+        val padding = 5f * scale
+        val captionHeight = 12f * scale
+        val shadowOffset = 3f * scale
+        val needleLength = 18f * zoomFactor
+        borderPaint.strokeWidth = 2f * scale
+        pinPaint.strokeWidth = 3f * scale
+        badgeTextPaint.textSize = 34f * zoomFactor
+        captionPaint.textSize = 28f * zoomFactor
 
         val projection = mapView.projection
         groups().forEach { group ->
@@ -110,8 +115,8 @@ class PolaroidOverlay(
                 canvas.save()
                 canvas.translate(pinX, pinY)
                 canvas.rotate(tilt + layer * 5f)
-                val dx = layer * 14f
-                val dy = -layer * 12f
+                val dx = layer * 14f * zoomFactor
+                val dy = -layer * 12f * zoomFactor
                 canvas.drawRect(
                     rect.left + dx + shadowOffset,
                     rect.top + dy + shadowOffset,
@@ -154,28 +159,30 @@ class PolaroidOverlay(
             canvas.drawRect(rect, borderPaint)
             val title = group.representative.caption.take(12)
             if (title.isNotBlank()) {
-                canvas.drawText(title, 0f, rect.bottom - 14f, captionPaint)
+                canvas.drawText(title, 0f, rect.bottom - 14f * zoomFactor, captionPaint)
             }
             canvas.restore()
 
             // Nadel von der Koordinate bis zur Mitte des oberen weißen Rahmens.
             canvas.drawLine(pinX, pinY, pinX, pinY + needleLength, pinPaint)
-            canvas.drawCircle(pinX, pinY, 9f, pinPaint)
+            canvas.drawCircle(pinX, pinY, 9f * zoomFactor, pinPaint)
             if (group.ids.size > 1) {
-                val badgeX = pinX + cardWidth / 2f - 12f
-                val badgeY = pinY + needleLength + 28f
-                canvas.drawCircle(badgeX, badgeY, 34f, badgePaint)
+                val badgeRadius = 34f * zoomFactor
+                val badgeX = pinX + cardWidth / 2f - badgeRadius * 0.35f
+                val badgeY = pinY + needleLength + 28f * zoomFactor
+                canvas.drawCircle(badgeX, badgeY, badgeRadius, badgePaint)
                 val label = "×${group.ids.size}"
                 val textY = badgeY - (badgeTextPaint.descent() + badgeTextPaint.ascent()) / 2
                 canvas.drawText(label, badgeX, textY, badgeTextPaint)
             }
 
+            val hitPad = 24f * zoomFactor
             hitAreas.add(
                 RectF(
-                    pinX - cardWidth / 2f - 24f,
-                    pinY - 24f,
-                    pinX + cardWidth / 2f + 44f,
-                    pinY + top + cardHeight + 24f,
+                    pinX - cardWidth / 2f - hitPad,
+                    pinY - hitPad,
+                    pinX + cardWidth / 2f + hitPad,
+                    pinY + top + cardHeight + hitPad,
                 ) to group.ids,
             )
         }
@@ -187,7 +194,7 @@ class PolaroidOverlay(
             MotionEvent.ACTION_UP -> {
                 val blocked = ignoreTapsUntilRelease
                 ignoreTapsUntilRelease = false
-                if (blocked) return true
+                if (blocked) return false
                 val hit = hitAreas.firstOrNull { it.first.contains(event.x, event.y) }
                 if (hit != null) {
                     onPhotoClick(hit.second)
@@ -196,7 +203,7 @@ class PolaroidOverlay(
             }
             MotionEvent.ACTION_CANCEL -> ignoreTapsUntilRelease = false
         }
-        return super.onTouchEvent(event, mapView)
+        return false
     }
 
     private fun groups(): List<Group> = photos
