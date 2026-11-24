@@ -563,7 +563,9 @@ fun TripMapScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.saveEntry(activeStopId, editingEntryId, entryTitle, entryBody)
+                        activeStopId?.let { stopId ->
+                            viewModel.saveEntry(stopId, editingEntryId, entryTitle, entryBody)
+                        }
                         showEntryEditor = false
                     },
                 ) {
