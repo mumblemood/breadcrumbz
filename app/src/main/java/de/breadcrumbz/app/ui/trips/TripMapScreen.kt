@@ -193,11 +193,10 @@ fun TripMapScreen(
         photos.associate { it.id to (it.capturedAt ?: it.createdAt) }
     }
     val frontPhotoId = remember(centerKey) {
+        val key = centerKey
         when {
-            centerKey?.startsWith("photo-") == true ->
-                centerKey.removePrefix("photo-")
-            centerKey?.startsWith("entryphoto-") == true ->
-                centerKey.removePrefix("entryphoto-")
+            key?.startsWith("photo-") == true -> key.removePrefix("photo-")
+            key?.startsWith("entryphoto-") == true -> key.removePrefix("entryphoto-")
             else -> null
         }
     }
