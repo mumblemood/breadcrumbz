@@ -368,7 +368,7 @@ class TripMapViewModel(
                     val stop = stopsNow.firstOrNull { it.id == id } ?: return@launch
                     repository.updateStop(stop.copy(entryId = entryId))
                     if (entryId != null && entry?.stopId == null) {
-                        repository.updateEntry(entry.copy(stopId = stop.id))
+                        entry?.copy(stopId = stop.id)?.let { repository.updateEntry(it) }
                     }
                     if (entryId != null) {
                         repository.observePhotos(tripId).first()

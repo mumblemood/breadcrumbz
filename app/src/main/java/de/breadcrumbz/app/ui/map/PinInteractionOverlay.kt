@@ -78,7 +78,7 @@ class PinInteractionOverlay(
                     val marker = markers[id]
                     val geo = mapView.projection.fromPixels(event.x.toInt(), event.y.toInt())
                     if (marker != null && geo != null) {
-                        marker.position = geo
+                        marker.position = GeoPoint(geo.latitude, geo.longitude)
                         mapView.invalidate()
                     }
                     return true

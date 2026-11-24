@@ -266,7 +266,7 @@ fun TripMapScreen(
             override fun onScroll(event: ScrollEvent?): Boolean {
                 if (System.currentTimeMillis() - lastTimelineSync > 700L) {
                     lastTimelineSync = System.currentTimeMillis()
-                    mapCenter = mapView.mapCenter
+                    mapCenter = GeoPoint(mapView.mapCenter.latitude, mapView.mapCenter.longitude)
                 }
                 return false
             }
@@ -274,7 +274,7 @@ fun TripMapScreen(
             override fun onZoom(event: ZoomEvent?): Boolean {
                 lastTimelineSync = System.currentTimeMillis()
                 mapZoom = mapView.zoomLevelDouble.toFloat()
-                mapCenter = mapView.mapCenter
+                mapCenter = GeoPoint(mapView.mapCenter.latitude, mapView.mapCenter.longitude)
                 return false
             }
         }

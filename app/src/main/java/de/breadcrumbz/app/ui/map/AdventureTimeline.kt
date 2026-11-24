@@ -267,7 +267,7 @@ fun AdventureTimeline(
                                 170f,
                                 58f + children * 34f,
                             ),
-                            cornerRadius = androidx.compose.ui.geometry.Radius(14f, 14f),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(14f, 14f),
                         )
                     }
                 }
@@ -359,8 +359,8 @@ fun AdventureTimeline(
                             when {
                                 point.kind == 0 && point.dayKey != null ->
                                     onDayToggle(point.dayKey)
-                                point.kind == 2 && point.item?.entryId != null ->
-                                    onEntryToggle(point.item.entryId)
+                                point.kind == 2 && item?.entryId != null ->
+                                    onEntryToggle(item.entryId)
                                 point.kind == 3 && point.photoId != null ->
                                     onPhotoClick(point.photoId)
                                 point.kind == 4 && point.photoId != null ->

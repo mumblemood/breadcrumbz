@@ -49,7 +49,7 @@ class ClusterOverlay(
                 GeoPoint(element.latitude, element.longitude),
                 null,
             )
-            "${(point.x / cell).roundToInt()}:${(point.y / cell).roundToInt()}"
+            "${Math.round(point.x / cell.toDouble())}:${Math.round(point.y / cell.toDouble())}"
         }
 
         buckets.values.filter { it.size > 1 }.forEach { group ->
