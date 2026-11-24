@@ -42,7 +42,7 @@ interface BreadcrumbzRepository {
     fun observeEntries(stopId: String): Flow<List<Entry>>
     fun observeEntriesForTrip(tripId: String): Flow<List<Entry>>
 
-    suspend fun addEntry(stopId: String, title: String, body: String): Entry
+    suspend fun addEntry(tripId: String, stopId: String?, title: String, body: String): Entry
     suspend fun updateEntry(entry: Entry)
     suspend fun deleteEntry(id: String)
 

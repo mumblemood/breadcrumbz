@@ -46,21 +46,32 @@ data class StopEntity(
     val updatedAt: Long,
 )
 
+/**
+ * Einträge bleiben auch ohne Stopp erhalten. Deshalb gehören sie direkt zur
+ * Reise; der Stopp ist nur eine optionale Verknüpfung.
+ */
 @Entity(
     tableName = "entries",
     foreignKeys = [
         ForeignKey(
+            entity = TripEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["tripId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
             entity = StopEntity::class,
             parentColumns = ["id"],
             childColumns = ["stopId"],
-            onDelete = ForeignKey.CASCADE,
+            onDelete = ForeignKey.SET_NULL,
         ),
     ],
-    indices = [Index("stopId"), Index("stopId", "sortIndex")],
+    indices = [Index("tripId"), Index("stopId"), Index("tripId", "sortIndex")],
 )
 data class EntryEntity(
     @PrimaryKey val id: String,
-    val stopId: String,
+    val tripId: String,
+    val stopId: String?,
     val title: String,
     val body: String,
     val sortIndex: Int,
@@ -97,5 +108,13 @@ data class PhotoEntity(
     val longitude: Double?,
     val caption: String,
     val sortIndex: Int,
+    val createdAt: Long,
+)
+
+/** Lokaler Cache für gefunden Ortsnamen, damit nicht bei jedem Stopp online gefragt wird. */
+@Entity(tableName = "place_names")
+data class PlaceNameEntity(
+    @PrimaryKey val key: String,
+    val name: String,
     val createdAt: Long,
 )

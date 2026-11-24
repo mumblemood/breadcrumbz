@@ -3,21 +3,27 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Meilenstein 5 – Tagebuch und Timeline.**
+**Aktueller Stand: Meilenstein 5 – Tagebuch und Timeline (Update).**
 Zu jedem Stopp können mehrere Tagebucheinträge mit Titel und Text geschrieben,
 bearbeitet und gelöscht werden. Ein Marker-Tipp auf der Karte öffnet die Einträge
-dieses Stopps. Die **Timeline** zeigt Stationen, Einträge und Fotos gemischt in
-einem Zeitstrom; ein Tipp springt zur Stelle auf der Karte bzw. zum Foto.
+dieses Stopps. Die **Timeline** lässt sich im unteren Bereich der Karte als
+horizontal scrollbarer Streifen einblenden; sie zeigt Stationen, Einträge und
+Fotos gemischt in einem Zeitstrom. Ein Tipp springt zur Stelle auf der Karte.
+
+**Neu in diesem Update:** Beim Setzen eines Punkts wird der Ortsname automatisch
+über Nominatim (OpenStreetMap) ermittelt und lokal gecacht; ohne Internet wird
+„Wegpunkt n" verwendet. Fotos werden jetzt auch über mehrere Importe hinweg in
+einen vorhandenen Foto-Stopp einsortiert (Gruppierungs-Bug behoben). Die Foto-Pins
+sind deutlich größer und zeigen bei mehreren Bildern ein Stapel-Symbol mit Anzahl.
+Pins können gelöscht werden: Einträge bleiben ohne Ort in der Timeline erhalten
+und lassen sich dort mit „Ort setzen" neu verorten; Fotos wandern in „Ohne Ort".
+Die Taste **„Ganze Reise"** zoomt auf alle Stationen und Fotos.
 
 Meilenstein 4 hatte den Foto-Import mit EXIF, Gruppierung und Polaroid-Pins
-gebracht. Fotos können aus der Galerie importiert werden. Sie werden als Kopie im
-App-Speicher abgelegt; Aufnahmezeit und GPS kommen aus den EXIF-Daten. Fotos,
-die zeitlich (≤ 30 Minuten) und örtlich (≤ 200 m) zusammenpassen, werden zu
-einem Foto-Stopp gruppiert. Seit Android 10 blendet das System GPS-Daten in
+gebracht. Fotos werden als Kopie im App-Speicher abgelegt; Aufnahmezeit und GPS
+kommen aus den EXIF-Daten. Seit Android 10 blendet das System GPS-Daten in
 Galerie-Fotos aus; die App fragt beim Import die Erlaubnis für Media-Standorte
-an und liest das unveränderte Original. Fotos ohne GPS landen in „Ohne Ort" und können
-durch Antippen und langes Drücken auf die Karte platziert werden. Auf der Karte
-erscheinen sie als kleine Polaroid-Pins.
+an und liest das unveränderte Original.
 
 Meilenstein 3 hatte Karte, Wegpunkte und Live-Kilometer gebracht, Meilenstein 2
 die Reisen-Verwaltung, Meilenstein 1 das Datenfundament, Meilenstein 0 den

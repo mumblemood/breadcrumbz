@@ -100,14 +100,20 @@ class RoomBreadcrumbzRepository(
     override fun observeEntriesForTrip(tripId: String): Flow<List<Entry>> =
         entryDao.observeForTrip(tripId).map { rows -> rows.map { it.toDomain() } }
 
-    override suspend fun addEntry(stopId: String, title: String, body: String): Entry {
+    override suspend fun addEntry(
+        tripId: String,
+        stopId: String?,
+        title: String,
+        body: String,
+    ): Entry {
         val now = System.currentTimeMillis()
         val entry = Entry(
             id = UUID.randomUUID().toString(),
+            tripId = tripId,
             stopId = stopId,
             title = title.trim(),
             body = body.trim(),
-            sortIndex = entryDao.nextSortIndex(stopId),
+            sortIndex = entryDao.nextSortIndex(tripId),
             createdAt = now,
             updatedAt = now,
         )

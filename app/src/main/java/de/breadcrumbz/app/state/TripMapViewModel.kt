@@ -5,12 +5,15 @@ import androidx.lifecycle.viewModelScope
 import de.breadcrumbz.app.data.photo.ImportedPhoto
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
 import de.breadcrumbz.app.data.photo.PhotoImporter
+import de.breadcrumbz.app.data.place.PlaceNameResolver
+import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.StopSource
 import de.breadcrumbz.app.domain.model.TimelineItem
 import de.breadcrumbz.app.domain.model.TimelineKind
 import de.breadcrumbz.app.domain.repository.BreadcrumbzRepository
 import de.breadcrumbz.app.domain.util.clusterPhotos
 import de.breadcrumbz.app.domain.util.haversineMeters
+import de.breadcrumbz.app.domain.util.photoMatchesStop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +37,7 @@ import java.util.UUID
 class TripMapViewModel(
     private val repository: BreadcrumbzRepository,
     private val photoStore: InternalPhotoStore,
+    private val placeNameResolver: PlaceNameResolver,
     private val tripId: String,
 ) : ViewModel() {
 
@@ -72,7 +76,9 @@ class TripMapViewModel(
                         title = stop.title,
                         subtitle = "Station",
                         stopId = stop.id,
+                        entryId = null,
                         photoId = null,
+                        hasLocation = true,
                     ),
                 )
             }
@@ -83,9 +89,11 @@ class TripMapViewModel(
                         time = entry.createdAt,
                         kind = TimelineKind.ENTRY,
                         title = entry.title.ifBlank { "Tagebucheintrag" },
-                        subtitle = entry.body,
+                        subtitle = if (entry.stopId == null) "Ohne Ort" else entry.body,
                         stopId = entry.stopId,
+                        entryId = entry.id,
                         photoId = null,
+                        hasLocation = entry.stopId != null,
                     ),
                 )
             }
@@ -98,7 +106,9 @@ class TripMapViewModel(
                         title = photo.caption.ifBlank { "Foto" },
                         subtitle = "Foto",
                         stopId = photo.stopId,
+                        entryId = null,
                         photoId = photo.id,
+                        hasLocation = photo.latitude != null && photo.longitude != null,
                     ),
                 )
             }
@@ -121,24 +131,28 @@ class TripMapViewModel(
     private val _pendingPhotoId = MutableStateFlow<String?>(null)
     val pendingPhotoId: StateFlow<String?> = _pendingPhotoId.asStateFlow()
 
+    private val _pendingEntryId = MutableStateFlow<String?>(null)
+    val pendingEntryId: StateFlow<String?> = _pendingEntryId.asStateFlow()
+
     fun photoPath(fileName: String): String = photoStore.fileFor(fileName).absolutePath
 
     fun selectStop(stopId: String?) {
         _selectedStopId.value = stopId
     }
 
-    fun saveEntry(stopId: String, entryId: String?, title: String, body: String) {
+    fun saveEntry(stopId: String?, entryId: String?, title: String, body: String) {
         if (title.isBlank() && body.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {
             if (entryId != null) {
-                val entry = repository.observeEntries(stopId).first().firstOrNull { it.id == entryId }
+                val entry = repository.observeEntriesForTrip(tripId)
+                    .first().firstOrNull { it.id == entryId }
                 if (entry != null) {
                     repository.updateEntry(
                         entry.copy(title = title.trim(), body = body.trim()),
                     )
                 }
             } else {
-                repository.addEntry(stopId, title.trim(), body.trim())
+                repository.addEntry(tripId, stopId, title.trim(), body.trim())
             }
         }
     }
@@ -150,20 +164,26 @@ class TripMapViewModel(
     }
 
     fun beginPlacement(photoId: String) {
+        _pendingEntryId.value = null
         _pendingPhotoId.value = photoId
+    }
+
+    fun beginEntryPlacement(entryId: String) {
+        _pendingPhotoId.value = null
+        _pendingEntryId.value = entryId
     }
 
     fun cancelPlacement() {
         _pendingPhotoId.value = null
+        _pendingEntryId.value = null
     }
 
-    /** Langes Drücken: entweder neuer Wegpunkt oder gewartetes Foto platzieren. */
+    /** Langes Drücken: Foto platzieren, Eintrag verorten oder neuen Punkt setzen. */
     fun onMapLongPress(latitude: Double, longitude: Double) {
-        val pending = _pendingPhotoId.value
-        if (pending != null) {
-            placePhoto(pending, latitude, longitude)
-        } else {
-            addStop(latitude, longitude)
+        when {
+            _pendingEntryId.value != null -> placeEntry(_pendingEntryId.value!!, latitude, longitude)
+            _pendingPhotoId.value != null -> placePhoto(_pendingPhotoId.value!!, latitude, longitude)
+            else -> addStop(latitude, longitude)
         }
     }
 
@@ -177,7 +197,7 @@ class TripMapViewModel(
                 val metadata = PhotoImporter.read(item.bytes)
                 val fileName = photoStore.save(item.bytes, item.mimeType)
                 repository.insertPhoto(
-                    de.breadcrumbz.app.domain.model.Photo(
+                    Photo(
                         id = UUID.randomUUID().toString(),
                         tripId = tripId,
                         stopId = null,
@@ -202,10 +222,21 @@ class TripMapViewModel(
         }
     }
 
+    /**
+     * Löscht einen Pin. Einträge und Fotos werden automatisch vom Pin getrennt
+     * (Datenbank-Regel ON DELETE SET NULL) und bleiben erhalten.
+     */
+    fun deleteStop(stopId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.deleteStop(stopId)
+        }
+    }
+
     private fun addStop(latitude: Double, longitude: Double) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             val number = stops.value.size + 1
-            repository.addStop(tripId, "Wegpunkt $number", latitude, longitude)
+            val name = placeNameResolver.resolve(latitude, longitude)
+            repository.addStop(tripId, name ?: "Wegpunkt $number", latitude, longitude)
         }
     }
 
@@ -237,22 +268,64 @@ class TripMapViewModel(
         }
     }
 
-    /** Fotos mit Ort, aber ohne Stopp werden zu Gruppen zusammengefasst. */
+    /** Gibt einem Eintrag ohne Ort einen neuen Pin. */
+    private fun placeEntry(entryId: String, latitude: Double, longitude: Double) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val entry = repository.observeEntriesForTrip(tripId)
+                .first().firstOrNull { it.id == entryId }
+                ?: return@launch
+            val number = stops.value.size + 1
+            val name = placeNameResolver.resolve(latitude, longitude) ?: "Wegpunkt $number"
+            val stop = repository.addStop(tripId, name, latitude, longitude)
+            repository.updateEntry(entry.copy(stopId = stop.id))
+            _pendingEntryId.value = null
+        }
+    }
+
+    /**
+     * Fotos mit Ort werden gruppiert. Wichtig: neue Fotos werden auch in einen
+     * schon vorhandenen Foto-Stopp einsortiert – sonst entstand pro Import ein
+     * eigener Stopp. Das war der Gruppierungs-Bug.
+     */
     private suspend fun clusterUnassigned() {
         val all = repository.observePhotos(tripId).first()
         val loose = all.filter {
             it.stopId == null && it.latitude != null && it.longitude != null
         }
+        if (loose.isEmpty()) return
+
+        val photoStops = repository.observeStops(tripId).first()
+            .filter { it.source == StopSource.PHOTO }
+        val remaining = mutableListOf<Photo>()
 
         withContext(Dispatchers.Default) {
-            clusterPhotos(loose).forEach { cluster ->
+            loose.forEach { photo ->
+                val target = photoStops.firstOrNull { stop ->
+                    photoMatchesStop(
+                        photo.latitude,
+                        photo.longitude,
+                        photo.capturedAt,
+                        stop.latitude,
+                        stop.longitude,
+                        stop.visitedAt,
+                    )
+                }
+                if (target != null) {
+                    repository.updatePhoto(photo.copy(stopId = target.id))
+                } else {
+                    remaining.add(photo)
+                }
+            }
+
+            clusterPhotos(remaining).forEach { cluster ->
                 val latitude = cluster.mapNotNull { it.latitude }.average()
                 val longitude = cluster.mapNotNull { it.longitude }.average()
                 val capturedAt = cluster.first().capturedAt
                 val formatted = capturedAt?.let {
                     SimpleDateFormat("dd.MM. HH:mm", Locale.GERMANY).format(Date(it))
                 } ?: "Ohne Zeit"
-                val title = if (cluster.size > 1) "Fotos · $formatted" else "Foto · $formatted"
+                val place = placeNameResolver.resolve(latitude, longitude)
+                val title = if (place != null) "$place · Fotos" else "Fotos · $formatted"
 
                 val stop = repository.addStop(
                     tripId = tripId,

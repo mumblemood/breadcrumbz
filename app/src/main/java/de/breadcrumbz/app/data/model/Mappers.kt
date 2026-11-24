@@ -69,6 +69,7 @@ fun Stop.toEntity() = StopEntity(
 
 fun EntryEntity.toDomain() = Entry(
     id = id,
+    tripId = tripId,
     stopId = stopId,
     title = title,
     body = body,
@@ -79,6 +80,7 @@ fun EntryEntity.toDomain() = Entry(
 
 fun Entry.toEntity() = EntryEntity(
     id = id,
+    tripId = tripId,
     stopId = stopId,
     title = title,
     body = body,

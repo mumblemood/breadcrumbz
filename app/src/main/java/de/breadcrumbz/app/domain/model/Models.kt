@@ -37,9 +37,14 @@ data class Stop(
     val updatedAt: Long,
 )
 
+/**
+ * Ein Tagebucheintrag gehört zu einer Reise. Der Stopp ist optional:
+ * Wird ein Pin gelöscht, bleibt der Eintrag ohne Ort in der Timeline erhalten.
+ */
 data class Entry(
     val id: String,
-    val stopId: String,
+    val tripId: String,
+    val stopId: String?,
     val title: String,
     val body: String,
     val sortIndex: Int,

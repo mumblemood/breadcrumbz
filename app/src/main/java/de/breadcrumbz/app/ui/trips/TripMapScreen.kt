@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,12 +20,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -56,7 +59,6 @@ import de.breadcrumbz.app.data.photo.ImportedPhoto
 import de.breadcrumbz.app.data.photo.PhotoSourceReader
 import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.Photo
-import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TimelineItem
 import de.breadcrumbz.app.domain.model.TimelineKind
 import de.breadcrumbz.app.state.TripMapViewModel
@@ -65,6 +67,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.tileprovider.tilesource.XYTileSource
+import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
@@ -95,6 +98,12 @@ private fun rememberThumbnail(viewModel: TripMapViewModel, fileName: String): Im
         BitmapFactory.decodeFile(viewModel.photoPath(fileName), options)?.asImageBitmap()
     }
 
+private fun formatDate(time: Long?, withYear: Boolean = false): String {
+    if (time == null) return "Ohne Datum"
+    val pattern = if (withYear) "dd.MM.yyyy HH:mm" else "dd.MM. HH:mm"
+    return SimpleDateFormat(pattern, Locale.GERMANY).format(Date(time))
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TripMapScreen(
@@ -110,6 +119,7 @@ fun TripMapScreen(
     val activeStopId by viewModel.selectedStopId.collectAsStateWithLifecycle()
     val distanceKm by viewModel.distanceKm.collectAsStateWithLifecycle()
     val pendingPhotoId by viewModel.pendingPhotoId.collectAsStateWithLifecycle()
+    val pendingEntryId by viewModel.pendingEntryId.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -118,6 +128,8 @@ fun TripMapScreen(
     var showPhotos by remember { mutableStateOf(false) }
     var showTimeline by remember { mutableStateOf(false) }
     var selectedPhotoId by remember { mutableStateOf<String?>(null) }
+    var stackPhotoIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    var confirmDeleteStopId by remember { mutableStateOf<String?>(null) }
     var showEntryEditor by remember { mutableStateOf(false) }
     var editingEntryId by remember { mutableStateOf<String?>(null) }
     var entryTitle by remember { mutableStateOf("") }
@@ -125,8 +137,10 @@ fun TripMapScreen(
 
     BackHandler {
         when {
-            showTimeline -> showTimeline = false
+            stackPhotoIds.isNotEmpty() -> stackPhotoIds = emptyList()
             selectedPhotoId != null -> selectedPhotoId = null
+            showTimeline -> showTimeline = false
+            pendingPhotoId != null || pendingEntryId != null -> viewModel.cancelPlacement()
             activeStopId != null -> viewModel.selectStop(null)
             else -> onBack()
         }
@@ -247,7 +261,13 @@ fun TripMapScreen(
                         PolaroidOverlay(
                             photos = placedPhotos,
                             filePath = { name -> viewModel.photoPath(name) },
-                            onPhotoClick = { id -> selectedPhotoId = id },
+                            onPhotoClick = { ids ->
+                                if (ids.size == 1) {
+                                    selectedPhotoId = ids.first()
+                                } else {
+                                    stackPhotoIds = ids
+                                }
+                            },
                         ),
                     )
 
@@ -307,7 +327,30 @@ fun TripMapScreen(
                 },
             )
 
-            if (pendingPhotoId != null) {
+            Button(
+                onClick = {
+                    val points = buildList {
+                        stops.forEach { add(GeoPoint(it.latitude, it.longitude)) }
+                        photos.forEach { photo ->
+                            val latitude = photo.latitude
+                            val longitude = photo.longitude
+                            if (latitude != null && longitude != null) {
+                                add(GeoPoint(latitude, longitude))
+                            }
+                        }
+                    }
+                    if (points.isNotEmpty()) {
+                        mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(points), true, 100)
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp),
+            ) {
+                Text("Ganze Reise")
+            }
+
+            if (pendingPhotoId != null || pendingEntryId != null) {
                 Card(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -318,7 +361,13 @@ fun TripMapScreen(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Jetzt lange auf die Karte drücken")
+                        Text(
+                            if (pendingEntryId != null) {
+                                "Eintrag: jetzt lange auf die Karte drücken"
+                            } else {
+                                "Foto: jetzt lange auf die Karte drücken"
+                            },
+                        )
                         TextButton(onClick = { viewModel.cancelPlacement() }) {
                             Text("Abbrechen")
                         }
@@ -332,7 +381,7 @@ fun TripMapScreen(
                     .align(Alignment.BottomCenter)
                     .padding(16.dp)
                     .fillMaxWidth()
-                    .heightIn(max = 400.dp),
+                    .heightIn(max = if (showTimeline) 480.dp else 400.dp),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface,
@@ -343,9 +392,7 @@ fun TripMapScreen(
                         Text(activeStop.title, style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = activeStop.visitedAt?.let {
-                                SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(Date(it))
-                            } ?: "Ohne Zeit",
+                            text = formatDate(activeStop.visitedAt, withYear = true),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Spacer(Modifier.height(8.dp))
@@ -372,6 +419,9 @@ fun TripMapScreen(
                             TextButton(onClick = { openEntryEditor(null) }) {
                                 Text("+ Eintrag")
                             }
+                            TextButton(onClick = { confirmDeleteStopId = activeStop.id }) {
+                                Text("Pin löschen")
+                            }
                             TextButton(onClick = { viewModel.selectStop(null) }) {
                                 Text("Zur Karte")
                             }
@@ -390,14 +440,77 @@ fun TripMapScreen(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Row {
-                            TextButton(onClick = { showTimeline = true }) {
-                                Text("Timeline")
+                            TextButton(onClick = { showTimeline = !showTimeline }) {
+                                Text(if (showTimeline) "Timeline aus" else "Timeline")
                             }
                             TextButton(onClick = { startPhotoImport() }) {
-                                Text("Fotos importieren")
+                                Text("Fotos")
                             }
                             TextButton(onClick = { showPhotos = !showPhotos }) {
-                                Text(if (showPhotos) "Fotos ausblenden" else "Fotos anzeigen")
+                                Text(if (showPhotos) "Bilder aus" else "Bilder")
+                            }
+                        }
+
+                        if (showTimeline) {
+                            Spacer(Modifier.height(8.dp))
+                            Text("Zeitstrom", style = MaterialTheme.typography.labelLarge)
+                            Spacer(Modifier.height(4.dp))
+                            if (timeline.isEmpty()) {
+                                Text("Noch keine Einträge in dieser Reise.")
+                            } else {
+                                LazyRow(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(118.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    items(timeline, key = { it.id }) { item ->
+                                        TimelineCard(
+                                            item = item,
+                                            onClick = {
+                                                when (item.kind) {
+                                                    TimelineKind.PHOTO -> {
+                                                        selectedPhotoId = item.photoId
+                                                    }
+                                                    TimelineKind.STOP -> {
+                                                        val stop = stops.firstOrNull {
+                                                            it.id == item.stopId
+                                                        }
+                                                        if (stop != null) {
+                                                            focusStop(mapView, stop.latitude, stop.longitude)
+                                                            viewModel.selectStop(stop.id)
+                                                            showTimeline = false
+                                                        }
+                                                    }
+                                                    TimelineKind.ENTRY -> {
+                                                        val entryId = item.entryId
+                                                        if (item.hasLocation) {
+                                                            val stop = stops.firstOrNull {
+                                                                it.id == item.stopId
+                                                            }
+                                                            if (stop != null) {
+                                                                focusStop(
+                                                                    mapView,
+                                                                    stop.latitude,
+                                                                    stop.longitude,
+                                                                )
+                                                                viewModel.selectStop(stop.id)
+                                                                showTimeline = false
+                                                            }
+                                                        } else if (entryId != null) {
+                                                            viewModel.beginEntryPlacement(entryId)
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            onPlaceLocation = if (!item.hasLocation && item.entryId != null) {
+                                                { item.entryId?.let(viewModel::beginEntryPlacement) }
+                                            } else {
+                                                null
+                                            },
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -446,59 +559,6 @@ fun TripMapScreen(
                     }
                 }
             }
-
-            if (showTimeline) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background)
-                        .padding(16.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("Timeline", style = MaterialTheme.typography.headlineSmall)
-                        Spacer(Modifier.weight(1f))
-                        TextButton(onClick = { showTimeline = false }) { Text("Karte") }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    if (timeline.isEmpty()) {
-                        Text("Noch keine Einträge in dieser Reise.")
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            items(timeline, key = { it.id }) { item ->
-                                TimelineRow(
-                                    item = item,
-                                    onClick = {
-                                        showTimeline = false
-                                        when (item.kind) {
-                                            TimelineKind.PHOTO -> {
-                                                selectedPhotoId = item.photoId
-                                            }
-                                            TimelineKind.STOP, TimelineKind.ENTRY -> {
-                                                val stop = stops.firstOrNull {
-                                                    it.id == item.stopId
-                                                }
-                                                if (stop != null) {
-                                                    mapView.controller.setCenter(
-                                                        GeoPoint(stop.latitude, stop.longitude),
-                                                    )
-                                                    mapView.controller.setZoom(16.0)
-                                                    viewModel.selectStop(stop.id)
-                                                }
-                                            }
-                                        }
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -521,11 +581,7 @@ fun TripMapScreen(
                         )
                     }
                     Spacer(Modifier.height(8.dp))
-                    Text(
-                        selectedPhoto.capturedAt?.let {
-                            SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(Date(it))
-                        } ?: "Kein Aufnahmedatum",
-                    )
+                    Text(formatDate(selectedPhoto.capturedAt, withYear = true))
                     if (selectedPhoto.caption.isNotBlank()) {
                         Text(selectedPhoto.caption)
                     }
@@ -533,6 +589,74 @@ fun TripMapScreen(
             },
             confirmButton = {
                 TextButton(onClick = { selectedPhotoId = null }) { Text("Schließen") }
+            },
+        )
+    }
+
+    if (stackPhotoIds.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { stackPhotoIds = emptyList() },
+            title = { Text("${stackPhotoIds.size} Fotos an diesem Ort") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    stackPhotoIds.forEach { id ->
+                        val photo = photos.firstOrNull { it.id == id } ?: return@forEach
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedPhotoId = id
+                                    stackPhotoIds = emptyList()
+                                }
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            val thumbnail = rememberThumbnail(viewModel, photo.fileName)
+                            if (thumbnail != null) {
+                                Image(
+                                    bitmap = thumbnail,
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(RoundedCornerShape(8.dp)),
+                                )
+                            }
+                            Spacer(Modifier.size(10.dp))
+                            Text(formatDate(photo.capturedAt))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { stackPhotoIds = emptyList() }) { Text("Schließen") }
+            },
+        )
+    }
+
+    if (confirmDeleteStopId != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteStopId = null },
+            title = { Text("Pin löschen?") },
+            text = {
+                Text(
+                    "Der Pin wird entfernt. Tagebucheinträge bleiben ohne Ort in der " +
+                        "Timeline erhalten und können dort neu verortet werden. " +
+                        "Fotos kommen zurück in „Ohne Ort“.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeleteStopId?.let { viewModel.deleteStop(it) }
+                        viewModel.selectStop(null)
+                        confirmDeleteStopId = null
+                    },
+                ) {
+                    Text("Löschen")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteStopId = null }) { Text("Abbrechen") }
             },
         )
     }
@@ -579,6 +703,11 @@ fun TripMapScreen(
     }
 }
 
+private fun focusStop(mapView: MapView, latitude: Double, longitude: Double) {
+    mapView.controller.setCenter(GeoPoint(latitude, longitude))
+    mapView.controller.setZoom(16.0)
+}
+
 @Composable
 private fun PhotoRow(
     photo: Photo,
@@ -604,9 +733,7 @@ private fun PhotoRow(
         Spacer(Modifier.size(8.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = photo.capturedAt?.let {
-                    SimpleDateFormat("dd.MM. HH:mm", Locale.GERMANY).format(Date(it))
-                } ?: "Ohne Datum",
+                text = formatDate(photo.capturedAt),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
@@ -652,29 +779,50 @@ private fun EntryRow(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimelineRow(
+private fun TimelineCard(
     item: TimelineItem,
     onClick: () -> Unit,
+    onPlaceLocation: (() -> Unit)?,
 ) {
     val label = when (item.kind) {
         TimelineKind.STOP -> "Station"
         TimelineKind.ENTRY -> "Tagebuch"
         TimelineKind.PHOTO -> "Foto"
     }
-    val date = SimpleDateFormat("dd.MM. HH:mm", Locale.GERMANY).format(Date(item.time))
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .width(190.dp)
+            .height(118.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
         ),
         onClick = onClick,
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Text("$label · $date", style = MaterialTheme.typography.labelMedium)
-            Text(item.title, style = MaterialTheme.typography.bodyLarge)
-            if (item.subtitle.isNotBlank() && item.kind == TimelineKind.ENTRY) {
-                Text(item.subtitle, style = MaterialTheme.typography.bodySmall)
+        Column(modifier = Modifier.padding(10.dp)) {
+            Text(
+                "$label · ${formatDate(item.time)}",
+                style = MaterialTheme.typography.labelSmall,
+            )
+            Text(
+                item.title,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+            )
+            if (item.kind == TimelineKind.ENTRY && item.subtitle.isNotBlank()) {
+                Text(
+                    item.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                )
+            }
+            if (!item.hasLocation && onPlaceLocation != null) {
+                TextButton(
+                    onClick = onPlaceLocation,
+                    modifier = Modifier.height(30.dp),
+                ) {
+                    Text("Ort setzen")
+                }
             }
         }
     }

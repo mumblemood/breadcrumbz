@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import de.breadcrumbz.app.data.model.EntryEntity
 import de.breadcrumbz.app.data.model.PhotoEntity
+import de.breadcrumbz.app.data.model.PlaceNameEntity
 import de.breadcrumbz.app.data.model.StopEntity
 import de.breadcrumbz.app.data.model.TripEntity
 import kotlinx.coroutines.flow.Flow
@@ -45,10 +46,8 @@ interface EntryDao {
     @Query("SELECT * FROM entries WHERE stopId = :stopId ORDER BY sortIndex ASC")
     fun observeForStop(stopId: String): Flow<List<EntryEntity>>
 
-    @Query(
-        "SELECT entries.* FROM entries INNER JOIN stops ON entries.stopId = stops.id " +
-            "WHERE stops.tripId = :tripId ORDER BY entries.createdAt ASC",
-    )
+    /** Alle Einträge der Reise – auch die ohne Stopp. */
+    @Query("SELECT * FROM entries WHERE tripId = :tripId ORDER BY createdAt ASC")
     fun observeForTrip(tripId: String): Flow<List<EntryEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -57,8 +56,8 @@ interface EntryDao {
     @Query("DELETE FROM entries WHERE id = :id")
     suspend fun deleteById(id: String)
 
-    @Query("SELECT COALESCE(MAX(sortIndex), -1) + 1 FROM entries WHERE stopId = :stopId")
-    suspend fun nextSortIndex(stopId: String): Int
+    @Query("SELECT COALESCE(MAX(sortIndex), -1) + 1 FROM entries WHERE tripId = :tripId")
+    suspend fun nextSortIndex(tripId: String): Int
 }
 
 @Dao
@@ -77,4 +76,13 @@ interface PhotoDao {
 
     @Query("SELECT COALESCE(MAX(sortIndex), -1) + 1 FROM photos WHERE tripId = :tripId")
     suspend fun nextSortIndex(tripId: String): Int
+}
+
+@Dao
+interface PlaceNameDao {
+    @Query("SELECT * FROM place_names WHERE `key` = :key")
+    suspend fun find(key: String): PlaceNameEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(place: PlaceNameEntity)
 }

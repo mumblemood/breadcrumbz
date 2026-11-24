@@ -10,5 +10,7 @@ data class TimelineItem(
     val title: String,
     val subtitle: String,
     val stopId: String?,
+    val entryId: String?,
     val photoId: String?,
+    val hasLocation: Boolean,
 )

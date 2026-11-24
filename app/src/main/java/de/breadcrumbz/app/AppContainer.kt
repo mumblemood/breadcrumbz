@@ -3,7 +3,9 @@ package de.breadcrumbz.app
 import android.content.Context
 import androidx.room.Room
 import de.breadcrumbz.app.data.db.BreadcrumbzDatabase
+import de.breadcrumbz.app.data.db.MIGRATION_1_2
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
+import de.breadcrumbz.app.data.place.PlaceNameResolver
 import de.breadcrumbz.app.data.repository.RoomBreadcrumbzRepository
 import de.breadcrumbz.app.domain.repository.BreadcrumbzRepository
 import org.osmdroid.config.Configuration
@@ -21,7 +23,7 @@ class AppContainer(context: Context) {
         mapBase.mkdirs()
         tileCache.mkdirs()
         Configuration.getInstance().apply {
-            userAgentValue = "Breadcrumbz/0.3.0 (+https://github.com/mumblemood/breadcrumbz)"
+            userAgentValue = "Breadcrumbz/0.5.0 (+https://github.com/mumblemood/breadcrumbz)"
             osmdroidBasePath = mapBase
             osmdroidTileCache = tileCache
         }
@@ -31,9 +33,11 @@ class AppContainer(context: Context) {
         appContext,
         BreadcrumbzDatabase::class.java,
         "breadcrumbz.db",
-    ).build()
+    ).addMigrations(MIGRATION_1_2).build()
 
     val photoStore = InternalPhotoStore(appContext)
+
+    val placeNameResolver = PlaceNameResolver(database.placeNameDao())
 
     val repository: BreadcrumbzRepository = RoomBreadcrumbzRepository(
         tripDao = database.tripDao(),

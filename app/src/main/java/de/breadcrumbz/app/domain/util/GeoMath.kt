@@ -25,9 +25,32 @@ fun haversineMeters(
     )
 }
 
+/** Zeitlicher und örtlicher Abstand, der für eine Foto-Gruppe gilt. */
+object PhotoGroupRule {
+    const val TIME_MS = CLUSTER_TIME_MS
+    const val DISTANCE_METERS = CLUSTER_DISTANCE_METERS
+}
+
+/** Passt ein Foto zu einem bereits vorhandenen Foto-Stopp? */
+fun photoMatchesStop(
+    photoLatitude: Double?,
+    photoLongitude: Double?,
+    photoTime: Long?,
+    stopLatitude: Double,
+    stopLongitude: Double,
+    stopTime: Long?,
+): Boolean {
+    if (photoLatitude == null || photoLongitude == null || photoTime == null || stopTime == null) {
+        return false
+    }
+    return abs(photoTime - stopTime) <= CLUSTER_TIME_MS &&
+        haversineMeters(photoLatitude, photoLongitude, stopLatitude, stopLongitude) <=
+        CLUSTER_DISTANCE_METERS
+}
+
 /**
  * Fasst Fotos zusammen, die zeitlich und örtlich nah beieinander liegen.
- * Fotos ohne Zeit oder ohne GPS werden einzeln betrachtet.
+ * Es wird gegen alle bestehenden Gruppen geprüft – nicht nur gegen die letzte.
  */
 fun clusterPhotos(photos: List<Photo>): List<List<Photo>> {
     val sorted = photos.sortedBy { it.capturedAt ?: Long.MAX_VALUE }
@@ -38,25 +61,20 @@ fun clusterPhotos(photos: List<Photo>): List<List<Photo>> {
         val longitude = photo.longitude
         if (latitude == null || longitude == null) return@forEach
 
-        val current = clusters.lastOrNull()
-        val anchor = current?.firstOrNull()
-        val fits = if (current != null && anchor != null &&
-            anchor.latitude != null && anchor.longitude != null &&
-            photo.capturedAt != null && anchor.capturedAt != null
-        ) {
-            abs(photo.capturedAt - anchor.capturedAt) <= CLUSTER_TIME_MS &&
-                haversineMeters(
-                    anchor.latitude,
-                    anchor.longitude,
-                    latitude,
-                    longitude,
-                ) <= CLUSTER_DISTANCE_METERS
-        } else {
-            false
+        val target = clusters.firstOrNull { cluster ->
+            val anchor = cluster.first()
+            photoMatchesStop(
+                photoLatitude = latitude,
+                photoLongitude = longitude,
+                photoTime = photo.capturedAt,
+                stopLatitude = anchor.latitude ?: return@firstOrNull false,
+                stopLongitude = anchor.longitude ?: return@firstOrNull false,
+                stopTime = anchor.capturedAt,
+            )
         }
 
-        if (fits && current != null) {
-            current.add(photo)
+        if (target != null) {
+            target.add(photo)
         } else {
             clusters.add(mutableListOf(photo))
         }
