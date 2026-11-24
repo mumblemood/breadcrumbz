@@ -19,7 +19,20 @@ android {
         versionName = "0.2.0-m1"
     }
 
+    // Fester Test-Schlüssel: jeder Build bekommt dadurch dieselbe Signatur.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(

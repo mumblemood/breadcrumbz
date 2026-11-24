@@ -48,6 +48,11 @@ Pro Station können mehrere Tagebucheinträge gespeichert werden.
 Der Build läuft in der Cloud (GitHub Actions), weil ein Android-Build direkt
 auf einem ARM-Handy nicht verlässlich funktioniert.
 
+Die Datei `app/debug.keystore` liegt absichtlich im Repository: Sie ist der
+gemeinsame Test-Schlüssel, damit jede neue APK dieselbe Signatur hat und über
+eine bestehende Installation installiert werden kann. Für eine echte
+Veröffentlichung später wird ein separater, geheimer Release-Schlüssel nötig.
+
 1. Änderungen in den Hauptzweig `main` hochladen (`git push`).
 2. GitHub baut automatisch eine Test-APK.
 3. Die APK liegt unter **Releases → neueste Testversion** als Download bereit.
