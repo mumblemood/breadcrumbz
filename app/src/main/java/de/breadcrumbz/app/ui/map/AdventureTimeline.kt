@@ -94,25 +94,6 @@ private fun dayKey(time: Long): String =
 private fun dayLabel(time: Long): String =
     SimpleDateFormat("dd.MM.yyyy", Locale.GERMANY).format(Date(time))
 
-/** Vereinigt die tatsächlich gemessenen Rechtecke der gezeichneten Elemente. */
-private fun unionBounds(rects: List<Rect>): Rect? {
-    if (rects.isEmpty()) return null
-    return Rect(
-        left = rects.minOf { it.left },
-        top = rects.minOf { it.top },
-        right = rects.maxOf { it.right },
-        bottom = rects.maxOf { it.bottom },
-    )
-}
-
-/** Sichtbarer Abstand zwischen Elementen und Rahmen. */
-private fun expandBounds(rect: Rect, padX: Float, padY: Float): Rect = Rect(
-    left = rect.left - padX,
-    top = rect.top - padY,
-    right = rect.right + padX,
-    bottom = rect.bottom + padY,
-)
-
 /** Rahmen hinter den Kindern: ein Rechteck pro Tag bzw. pro Eintrag. */
 @Composable
 private fun TimelineFrame(
@@ -166,23 +147,17 @@ fun AdventureTimeline(
 ) {
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
+    // Kleine Schritte zeigen mehr Überblick; auch beim Hineinzoomen bleibt der
+    // Abstand begrenzt. Die Einheit ist dp und wird erst hier in Pixel umgerechnet.
     val stepPx = with(density) {
-        (220f * (mapZoom / 14f)).coerceIn(220f, 400f).dp.toPx()
+        (200f * (mapZoom / 14f)).coerceIn(190f, 260f).dp.toPx()
     }
     val scrollState = rememberScrollState()
     var timelineBounds by remember { mutableStateOf(Rect.Zero) }
-    // Nur die Höhen der Karten werden gemessen. Die x-Positionen stehen fest,
-    // dadurch bleiben die Rahmen beim Scrollen stabil.
-    var cardHeights by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
+    // Beim Auf-/Zuklappen merken wir uns das Element in der Bildschirmmitte.
+    var anchorKey by remember { mutableStateOf<String?>(null) }
     val startPx = with(density) { 48.dp.toPx() }
-    val baseY = with(density) { 58.dp.toPx() }
-
-    fun updateCardHeight(key: String, height: Float) {
-        val old = cardHeights[key]
-        if (old == null || abs(old - height) > 1f) {
-            cardHeights = cardHeights + (key to height)
-        }
-    }
+    val baseY = with(density) { 88.dp.toPx() }
 
     val orderedStops = remember(stops) { stops.sortedBy { it.sortIndex } }
     val stopKm = remember(orderedStops) {
@@ -309,66 +284,13 @@ fun AdventureTimeline(
 
     val contentWidth = with(density) { (startPx + points.size * stepPx + 72.dp.toPx()).toDp() }
 
-    // Rahmen aus den festen Layout-Positionen plus gemessenen Kartenhöhen.
-    // Scrollen verändert diese Werte nicht – die Rahmen bleiben daher stehen.
-    val pinSizePx = with(density) { 34.dp.toPx() }
-    val pinOffsetPx = with(density) { 17.dp.toPx() }
-    val pinTopOffsetPx = with(density) { 31.dp.toPx() }
-    val cardHalfPx = with(density) { 84.dp.toPx() }
-    val cardGapPx = with(density) { 30.dp.toPx() }
-    val wavePx = with(density) { 9.dp.toPx() }
-    val rotationPadPx = with(density) { 10.dp.toPx() }
-    val defaultCardHeightPx = with(density) { 76.dp.toPx() }
-
-    val pointBounds = remember(points, cardHeights) {
-        points.mapIndexed { index, point ->
-            val y = baseY + (sin(index * 0.85f) * wavePx).toFloat()
-            val pinLeft = point.x - pinOffsetPx
-            val cardLeft = point.x - cardHalfPx
-            val pinTop = y - pinTopOffsetPx
-            val cardTop = y + cardGapPx
-            val height = cardHeights[point.key] ?: defaultCardHeightPx
-            val rect = Rect(
-                left = minOf(pinLeft, cardLeft) - rotationPadPx,
-                top = minOf(pinTop, cardTop) - rotationPadPx,
-                right = maxOf(pinLeft + pinSizePx, cardLeft + cardHalfPx * 2f) + rotationPadPx,
-                bottom = maxOf(pinTop + pinSizePx, cardTop + height) + rotationPadPx,
-            )
-            point.key to rect
-        }.toMap()
-    }
-
-    // Der Tagesrahmen ist deutlich größer als die Eintragsrahmen, damit beide
-    // gut lesbar sind und sich nicht überschneiden.
-    val dayPadX = with(density) { 18.dp.toPx() }
-    val dayPadY = with(density) { 18.dp.toPx() }
-    val entryPadX = with(density) { 8.dp.toPx() }
-    val entryPadY = with(density) { 7.dp.toPx() }
-
-    val dayFrames = remember(points, pointBounds, dayPadX, dayPadY) {
-        points.filter { it.kind == 0 && it.dayKey != null }.mapNotNull { day ->
-            val key = day.dayKey ?: return@mapNotNull null
-            val bounds = unionBounds(
-                points.filter { it.dayKey == key }.mapNotNull { pointBounds[it.key] },
-            )
-            bounds?.let { key to expandBounds(it, dayPadX, dayPadY) }
-        }.toMap()
-    }
-    val entryFrames = remember(points, pointBounds, entryPadX, entryPadY) {
-        points.filter { it.kind == 2 && it.item?.entryId != null }.mapNotNull { entry ->
-            val id = entry.item?.entryId ?: return@mapNotNull null
-            val bounds = unionBounds(
-                points.filter { it.entryId == id }.mapNotNull { pointBounds[it.key] },
-            )
-            bounds?.let { id to expandBounds(it, entryPadX, entryPadY) }
-        }.toMap()
-    }
-
     LaunchedEffect(scrollState.value, contentWidth) {
         val widthPx = with(density) { contentWidth.toPx() }
         if (widthPx > 0f) onScrollFraction(scrollState.value / widthPx)
     }
     LaunchedEffect(externalKey) {
+        // Während der Anker-Korrektur nach dem Auf-/Zuklappen nicht eingreifen.
+        if (anchorKey != null) return@LaunchedEffect
         val index = points.indexOfFirst { it.key == externalKey }
         if (index >= 0) {
             scrollState.animateScrollTo((index * stepPx).roundToInt())
@@ -399,6 +321,56 @@ fun AdventureTimeline(
         val centerPhotoId = centerPoint?.photoId
         LaunchedEffect(centerKey) { onCenterKeyChange(centerKey) }
 
+        val frameHalf = with(density) { 92.dp.toPx() }
+        val dayPad = with(density) { 18.dp.toPx() }
+        val entryPad = with(density) { 8.dp.toPx() }
+        val dayTopPx = with(density) { 42.dp.toPx() }
+        val entryTopPx = with(density) { 52.dp.toPx() }
+        val dayBottomPx = with(density) { minOf(276.dp, maxHeight - 6.dp).toPx() }
+        val entryBottomPx = with(density) { minOf(266.dp, maxHeight - 14.dp).toPx() }
+
+        // Rahmen haben feste Höhen: Auf-/Zuklappen ändert nur ihre Breite.
+        val dayFrames = remember(points, frameHalf, dayPad, dayTopPx, dayBottomPx) {
+            points.filter { it.kind == 0 && it.dayKey != null }.mapNotNull { day ->
+                val key = day.dayKey ?: return@mapNotNull null
+                val xs = points.filter { it.dayKey == key }.map { it.x }
+                if (xs.isEmpty()) return@mapNotNull null
+                key to Rect(
+                    xs.minOf { it } - frameHalf - dayPad,
+                    dayTopPx,
+                    xs.maxOf { it } + frameHalf + dayPad,
+                    dayBottomPx,
+                )
+            }.toMap()
+        }
+        val entryFrames = remember(points, frameHalf, entryPad, entryTopPx, entryBottomPx) {
+            points.filter { it.kind == 2 && it.item?.entryId != null }.mapNotNull { entry ->
+                val id = entry.item?.entryId ?: return@mapNotNull null
+                val xs = points.filter { it.entryId == id }.map { it.x }
+                if (xs.isEmpty()) return@mapNotNull null
+                id to Rect(
+                    xs.minOf { it } - frameHalf - entryPad,
+                    entryTopPx,
+                    xs.maxOf { it } + frameHalf + entryPad,
+                    entryBottomPx,
+                )
+            }.toMap()
+        }
+
+        // Nach dem Auf-/Zuklappen bleibt dasselbe Element in der Bildschirmmitte.
+        LaunchedEffect(points, stepPx) {
+            val key = anchorKey
+            if (key != null) {
+                val index = points.indexOfFirst { it.key == key }
+                if (index >= 0) {
+                    val target = (index * stepPx + stepPx / 2f - viewportPx / 2f)
+                        .roundToInt().coerceAtLeast(0)
+                    scrollState.animateScrollTo(target)
+                }
+                anchorKey = null
+            }
+        }
+
         Box(
             modifier = Modifier
                 .width(contentWidth)
@@ -407,10 +379,16 @@ fun AdventureTimeline(
             // Tag-Rahmen außen, Eintragsrahmen darüber – beide liegen hinter
             // der Linie und hinter den Elementen.
             dayFrames.forEach { (key, rect) ->
-                TimelineFrame(rect = rect, fill = dayMarker) { onDayToggle(key) }
+                TimelineFrame(rect = rect, fill = dayMarker) {
+                    anchorKey = centerKey
+                    onDayToggle(key)
+                }
             }
             entryFrames.forEach { (id, rect) ->
-                TimelineFrame(rect = rect, fill = fieldGray) { onEntryToggle(id) }
+                TimelineFrame(rect = rect, fill = fieldGray) {
+                    anchorKey = centerKey
+                    onEntryToggle(id)
+                }
             }
 
             androidx.compose.foundation.Canvas(
@@ -419,7 +397,7 @@ fun AdventureTimeline(
                 if (points.isEmpty()) return@Canvas
 
                 val yAt = { index: Int ->
-                    baseY + (sin(index * 0.85f) * with(density) { 9.dp.toPx() }).toFloat()
+                    baseY + (sin(index * 0.85f) * with(density) { 6.dp.toPx() }).toFloat()
                 }
                 val dash = PathEffect.dashPathEffect(floatArrayOf(30f, 18f), 0f)
 
@@ -440,8 +418,9 @@ fun AdventureTimeline(
                     drawCircle(accent, radius = 27f, center = center, style = Stroke(width = 3f))
                 }
 
-                val markerTop = with(density) { 18.dp.toPx() }
-                val markerBottom = with(density) { 138.dp.toPx() }
+                // Kilometerleiste oben; die Pins beginnen erst darunter.
+                val markerTop = with(density) { 42.dp.toPx() }
+                val markerBottom = with(density) { 172.dp.toPx() }
                 kmTargets.forEach { target ->
                     val index = points.indexOfFirst { it.km >= target }
                         .let { if (it < 0) points.lastIndex else it }
@@ -457,32 +436,25 @@ fun AdventureTimeline(
 
             points.forEachIndexed { index, point ->
                 val item = point.item
-                val lineY = with(density) { (baseY + sin(index * 0.85f) * 9f).toDp() }
-                val cardY = lineY + 30.dp
+                val lineY = with(density) { (baseY + sin(index * 0.85f) * 6f).toDp() }
+                val cardY = lineY + 28.dp
                 val highlighted = point.key == centerKey
                 val expanded = item?.entryId?.let { expandedEntryIds.contains(it) } == true
                 val dragOffset = remember(point.key) { mutableStateOf(Offset.Zero) }
 
-                // Pin in Kartengröße mit farbigem Rand: die Spitze sitzt auf der Linie.
-                Box(
+                // Pin mit Nadel wie auf der Karte, ohne zusätzlichen Rahmen.
+                Icon(
+                    painter = painterResource(R.drawable.ic_stop_marker),
+                    contentDescription = null,
+                    tint = Color.Unspecified,
                     modifier = Modifier
                         .offset(
                             x = with(density) { (point.x - 17.dp.toPx()).toDp() },
-                            y = lineY - 31.dp,
+                            y = lineY - 32.dp,
                         )
                         .size(34.dp)
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(paper)
-                        .border(2.dp, accent, RoundedCornerShape(9.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_stop_marker),
-                        contentDescription = null,
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(26.dp),
-                    )
-                }
+                        .scale(if (highlighted) 1.15f else 1f),
+                )
 
                 Box(
                     modifier = Modifier
@@ -557,8 +529,10 @@ fun AdventureTimeline(
                             if (point.kind != 2) {
                                 Modifier.clickable {
                                     when {
-                                        point.kind == 0 && point.dayKey != null ->
+                                        point.kind == 0 && point.dayKey != null -> {
+                                            anchorKey = centerKey
                                             onDayToggle(point.dayKey)
+                                        }
                                         point.kind == 3 && point.photoId != null ->
                                             onPhotoClick(point.photoId)
                                         point.kind == 4 && point.photoId != null ->
@@ -569,11 +543,7 @@ fun AdventureTimeline(
                             } else {
                                 Modifier
                             },
-                        )
-                        .onGloballyPositioned { coordinates ->
-                            // Nur die Höhe interessiert – sie bleibt beim Scrollen gleich.
-                            updateCardHeight(point.key, coordinates.size.height.toFloat())
-                        },
+                        ),
                     contentAlignment = Alignment.TopCenter,
                 ) {
                     when (point.kind) {
@@ -596,7 +566,7 @@ fun AdventureTimeline(
                             } else {
                                 4f / 3f
                             }
-                            val photoWidth = if (point.kind == 4) 92.dp else 116.dp
+                            val photoWidth = if (point.kind == 4) 124.dp else 116.dp
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
@@ -749,6 +719,7 @@ fun AdventureTimeline(
                                         text = body,
                                         color = ink,
                                         style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 3,
                                         modifier = Modifier.fillMaxWidth(),
                                     )
                                 }
@@ -764,7 +735,7 @@ fun AdventureTimeline(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
-                    .offset(x = contentWidth - 156.dp, y = 4.dp)
+                    .offset(x = 8.dp, y = 2.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(paper)
                     .padding(horizontal = 8.dp, vertical = 3.dp),
@@ -785,7 +756,7 @@ fun AdventureTimeline(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
-                        .offset(x = x, y = 22.dp)
+                        .offset(x = x, y = 20.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(paper)
                         .padding(horizontal = 6.dp, vertical = 2.dp),

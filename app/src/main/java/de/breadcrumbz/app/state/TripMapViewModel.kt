@@ -426,6 +426,12 @@ class TripMapViewModel(
         }
     }
 
+    fun clearCoverPhoto() {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.clearCoverPhoto(tripId)
+        }
+    }
+
     /**
      * Der Ort eines Fotos wird in dessen Eintrag übernommen: Der Eintrag
      * bekommt genau diesen Pin, und alle Bilder des Eintrags wandern dorthin.
@@ -488,6 +494,15 @@ class TripMapViewModel(
             val current = repository.observeTrips().first().firstOrNull { it.id == tripId }
                 ?: return@launch
             repository.updateTrip(current.copy(overlayMode = mode))
+        }
+    }
+
+    /** Standard-Verkehrsmittel der Reise aus dem Reise-Menü. */
+    fun setDefaultTransportMode(mode: TransportMode) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = repository.observeTrips().first().firstOrNull { it.id == tripId }
+                ?: return@launch
+            repository.updateTrip(current.copy(defaultTransportMode = mode))
         }
     }
 

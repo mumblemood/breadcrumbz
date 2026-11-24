@@ -58,6 +58,8 @@ interface BreadcrumbzRepository {
     fun observePhotos(tripId: String): Flow<List<Photo>>
     fun observeAllPhotos(): Flow<List<Photo>>
     suspend fun setCoverPhoto(tripId: String, photoId: String)
+    /** Titelbild entfernen, ohne die Reise selbst zu ändern. */
+    suspend fun clearCoverPhoto(tripId: String)
     suspend fun insertPhoto(photo: Photo)
     suspend fun updatePhoto(photo: Photo)
     suspend fun deletePhoto(id: String)

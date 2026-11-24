@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -44,8 +46,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
@@ -97,12 +101,10 @@ fun TripsScreen(
     var showEditor by rememberSaveable { mutableStateOf(false) }
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var titleInput by rememberSaveable { mutableStateOf("") }
-    var descriptionInput by rememberSaveable { mutableStateOf("") }
     var startDateInput by rememberSaveable { mutableStateOf("") }
     var endDateInput by rememberSaveable { mutableStateOf("") }
-    var transportMode by rememberSaveable { mutableStateOf(TransportMode.CAR) }
-    var showModePicker by remember { mutableStateOf(false) }
     var deleteCandidate by remember { mutableStateOf<Trip?>(null) }
+    val editingTrip = overviews.firstOrNull { it.trip.id == editingId }?.trip
 
     fun toast(message: String) {
         Toast.makeText(context, message, Toast.LENGTH_LONG).show()
@@ -132,10 +134,8 @@ fun TripsScreen(
     fun openEditor(trip: Trip) {
         editingId = trip.id
         titleInput = trip.title
-        descriptionInput = trip.description
         startDateInput = formatDate(trip.startDate)
         endDateInput = formatDate(trip.endDate)
-        transportMode = trip.defaultTransportMode
         showEditor = true
     }
 
@@ -296,14 +296,6 @@ fun TripsScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = descriptionInput,
-                        onValueChange = { descriptionInput = it },
-                        label = { Text("Kurze Beschreibung") },
-                        minLines = 2,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(8.dp))
                     Row {
                         OutlinedTextField(
                             value = startDateInput,
@@ -321,18 +313,6 @@ fun TripsScreen(
                             modifier = Modifier.weight(1f),
                         )
                     }
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = transportMode.label,
-                        onValueChange = {},
-                        label = { Text("Standard-Verkehrsmittel") },
-                        readOnly = true,
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    TextButton(onClick = { showModePicker = true }) {
-                        Text("Verkehrsmittel ändern")
-                    }
                 }
             },
             confirmButton = {
@@ -341,10 +321,12 @@ fun TripsScreen(
                         viewModel.saveTrip(
                             id = editingId,
                             title = titleInput,
-                            description = descriptionInput,
+                            // Nicht angezeigte Felder unverändert weitergeben.
+                            description = editingTrip?.description.orEmpty(),
                             startDate = parseGermanDate(startDateInput),
                             endDate = parseGermanDate(endDateInput),
-                            transportMode = transportMode,
+                            transportMode = editingTrip?.defaultTransportMode
+                                ?: TransportMode.CAR,
                         )
                         showEditor = false
                     },
@@ -355,34 +337,6 @@ fun TripsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showEditor = false }) { Text("Abbrechen") }
-            },
-        )
-    }
-
-    if (showModePicker) {
-        AlertDialog(
-            onDismissRequest = { showModePicker = false },
-            title = { Text("Verkehrsmittel") },
-            text = {
-                Column {
-                    TransportMode.entries.forEach { mode ->
-                        TextButton(
-                            onClick = {
-                                transportMode = mode
-                                showModePicker = false
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                if (mode == transportMode) "✓ ${mode.label}" else mode.label,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showModePicker = false }) { Text("Schließen") }
             },
         )
     }
@@ -432,55 +386,46 @@ private fun TripCard(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
         ),
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            val range = listOfNotNull(
-                overview.startDate?.let { formatDate(it) },
-                overview.endDate?.let { formatDate(it) },
-            ).joinToString(" - ")
-            val headline = listOfNotNull(
-                overview.trip.title,
-                range.ifBlank { null },
-                overview.place?.takeIf { it.isNotBlank() },
-            ).joinToString(" · ")
-            Text(
-                text = headline,
-                style = MaterialTheme.typography.titleLarge,
-            )
-            if (overview.trip.description.isNotBlank()) {
-                Spacer(Modifier.height(6.dp))
-                Text(overview.trip.description, style = MaterialTheme.typography.bodyMedium)
+        // Ein festgelegtes Titelbild liegt nur ganz leicht sichtbar hinter den Feldern.
+        val coverBitmap = remember(coverPath) {
+            val options = BitmapFactory.Options().apply { inSampleSize = 4 }
+            coverPath?.let { BitmapFactory.decodeFile(it, options) }?.asImageBitmap()
+        }
+        Box {
+            if (coverBitmap != null) {
+                Image(
+                    bitmap = coverBitmap,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(RoundedCornerShape(24.dp))
+                        .alpha(0.35f),
+                )
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f),
+                        ),
+                )
             }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "Verkehrsmittel: ${overview.trip.defaultTransportMode.label}",
-                style = MaterialTheme.typography.bodySmall,
-            )
-
-            if (coverPath != null) {
-                val bitmap = remember(coverPath) {
-                    val options = BitmapFactory.Options().apply { inSampleSize = 4 }
-                    coverPath?.let { BitmapFactory.decodeFile(it, options) }?.asImageBitmap()
-                }
-                if (bitmap != null) {
-                    Spacer(Modifier.height(10.dp))
-                    Image(
-                        bitmap = bitmap,
-                        contentDescription = "Titelbild",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(140.dp)
-                            .clip(RoundedCornerShape(12.dp)),
-                    )
-                }
+            Column(modifier = Modifier.padding(20.dp)) {
+                val range = listOfNotNull(
+                    overview.startDate?.let { formatDate(it) },
+                    overview.endDate?.let { formatDate(it) },
+                ).joinToString(" - ")
+                val headline = listOfNotNull(
+                    overview.trip.title,
+                    range.ifBlank { null },
+                ).joinToString(" · ")
+                Text(
+                    text = headline,
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                Spacer(Modifier.height(12.dp))
+                TextButton(onClick = onDelete) { Text("Löschen") }
             }
-
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "Tippen: öffnen · Lange drücken: bearbeiten",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            TextButton(onClick = onDelete) { Text("Löschen") }
         }
     }
 }

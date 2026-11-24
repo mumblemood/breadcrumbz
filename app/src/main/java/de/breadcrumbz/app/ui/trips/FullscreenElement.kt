@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -38,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,16 +48,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -105,12 +112,8 @@ private fun dateText(time: Long?): String =
     time?.let { SimpleDateFormat("dd.MM.yyyy · HH:mm", Locale.GERMANY).format(Date(it)) }
         ?: "Ohne Zeit"
 
-private fun coordText(latitude: Double?, longitude: Double?): String =
-    if (latitude != null && longitude != null) {
-        String.format(Locale.GERMANY, "%.5f, %.5f", latitude, longitude)
-    } else {
-        "Noch kein Ort"
-    }
+private fun placeText(name: String?): String =
+    name?.takeIf { it.isNotBlank() } ?: "Kein Ort"
 
 /** Zeit und Ort stehen klein unter dem Bild und haben ggf. einen Pin davor. */
 @Composable
@@ -139,7 +142,6 @@ fun FullscreenElement(
     onClose: () -> Unit,
     onOpenElement: (String) -> Unit,
     onAddPhotos: (String) -> Unit,
-    onEditPhoto: (String) -> Unit,
     onAdoptPhotoLocation: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -203,6 +205,26 @@ fun FullscreenElement(
                                     MissingElement(onClose)
                                 } else {
                                     val bitmap = rememberBigImage(viewModel, photo.fileName)
+                                    var editingCaption by remember(photo.id) {
+                                        mutableStateOf(false)
+                                    }
+                                    var captionDraft by remember(photo.id) {
+                                        mutableStateOf(photo.caption)
+                                    }
+                                    val captionFocus = remember { FocusRequester() }
+                                    val keyboard = LocalSoftwareKeyboardController.current
+                                    LaunchedEffect(editingCaption) {
+                                        if (editingCaption) captionFocus.requestFocus()
+                                    }
+                                    val captionColors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = ink,
+                                        unfocusedTextColor = ink,
+                                        cursorColor = ink,
+                                        focusedBorderColor = ink,
+                                        unfocusedBorderColor = frame,
+                                        focusedContainerColor = paper,
+                                        unfocusedContainerColor = paper,
+                                    )
                                     Column(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -239,38 +261,72 @@ fun FullscreenElement(
                                                 }
                                             }
                                             Spacer(Modifier.height(16.dp))
-                                            Text(
-                                                text = photo.caption.ifBlank { "Foto" },
-                                                color = ink,
-                                                fontFamily = comic,
-                                                style = MaterialTheme.typography.titleMedium,
-                                                textAlign = TextAlign.Center,
-                                            )
+                                            if (editingCaption) {
+                                                OutlinedTextField(
+                                                    value = captionDraft,
+                                                    onValueChange = {
+                                                        captionDraft = it.take(12)
+                                                        viewModel.updatePhotoCaption(
+                                                            photo.id,
+                                                            captionDraft,
+                                                        )
+                                                    },
+                                                    label = { Text("Titel", color = ink) },
+                                                    singleLine = true,
+                                                    textStyle = MaterialTheme.typography.titleMedium.copy(
+                                                        fontFamily = comic,
+                                                        textAlign = TextAlign.Center,
+                                                    ),
+                                                    colors = captionColors,
+                                                    keyboardOptions = KeyboardOptions(
+                                                        imeAction = ImeAction.Done,
+                                                    ),
+                                                    keyboardActions = KeyboardActions(
+                                                        onDone = {
+                                                            keyboard?.hide()
+                                                            editingCaption = false
+                                                        },
+                                                    ),
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .focusRequester(captionFocus),
+                                                )
+                                            } else {
+                                                Text(
+                                                    text = if (photo.caption.isBlank()) {
+                                                        "Titel"
+                                                    } else {
+                                                        photo.caption
+                                                    },
+                                                    color = ink,
+                                                    fontFamily = comic,
+                                                    fontStyle = if (photo.caption.isBlank()) {
+                                                        FontStyle.Italic
+                                                    } else {
+                                                        FontStyle.Normal
+                                                    },
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    textAlign = TextAlign.Center,
+                                                    modifier = Modifier.clickable {
+                                                        captionDraft = photo.caption
+                                                        editingCaption = true
+                                                    },
+                                                )
+                                            }
                                             Spacer(Modifier.height(18.dp))
                                         }
                                         Spacer(Modifier.height(12.dp))
                                         SmallMeta(dateText(photo.capturedAt))
-                                        SmallMeta(
-                                            coordText(photo.latitude, photo.longitude),
-                                            withPin = true,
-                                        )
+                                        val photoPlace = stops.firstOrNull {
+                                            it.id == photo.stopId
+                                        }?.title
+                                        SmallMeta(placeText(photoPlace), withPin = true)
                                         val entry = entries.firstOrNull { it.id == photo.entryId }
                                         if (entry != null) {
                                             InkTextButton(onClick = {
                                                 onOpenElement("entry-${entry.id}")
                                             }) {
                                                 Text(entry.title.ifBlank { "Eintrag" })
-                                            }
-                                        }
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            InkTextButton(onClick = { viewModel.setCoverPhoto(photo.id) }) {
-                                                Text("Titelbild")
-                                            }
-                                            InkTextButton(onClick = { onEditPhoto(photo.id) }) {
-                                                Text("Titel bearbeiten")
                                             }
                                         }
                                         Row(
@@ -328,10 +384,6 @@ fun FullscreenElement(
                                             )
                                         }
                                         if (stop.visitedAt != null) SmallMeta(dateText(stop.visitedAt))
-                                        SmallMeta(
-                                            coordText(stop.latitude, stop.longitude),
-                                            withPin = true,
-                                        )
                                         Text(
                                             "Verkehrsmittel hierher: " +
                                                 (stop.transportMode?.label ?: "Standard der Reise"),

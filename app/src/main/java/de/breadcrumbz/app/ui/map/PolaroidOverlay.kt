@@ -10,9 +10,11 @@ import android.graphics.Typeface
 import android.util.LruCache
 import android.view.MotionEvent
 import de.breadcrumbz.app.domain.model.Photo
+import de.breadcrumbz.app.domain.util.haversineMeters
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Overlay
+import kotlin.math.pow
 
 /**
  * Foto-Polaroids auf der Karte. Das Bild wird nie verzogen: Der Rahmen passt
@@ -26,6 +28,8 @@ class PolaroidOverlay(
     private val filePath: (String) -> String,
     private val onPhotoClick: (List<String>) -> Unit,
     private val frontPhotoId: String? = null,
+    /** Fotos eines aufgeklappten Eintrags liegen einzeln an ihrem Originalort. */
+    private val expandedPhotoIds: Set<String> = emptySet(),
 ) : Overlay() {
 
     private var ignoreTapsUntilRelease = false
@@ -87,7 +91,7 @@ class PolaroidOverlay(
         captionPaint.textSize = 28f * zoomFactor
 
         val projection = mapView.projection
-        groups().forEach { group ->
+        groups(mapView.zoomLevelDouble).forEach { group ->
             val bitmap = bitmapFor(group.representative.fileName) ?: return@forEach
             val ratio = bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1)
             val naturalHeight = imageWidth / ratio.coerceAtLeast(0.01f)
@@ -206,10 +210,35 @@ class PolaroidOverlay(
         return false
     }
 
-    private fun groups(): List<Group> = photos
-        .groupBy { it.stopId ?: "solo-${it.id}" }
-        .values
-        .map { items ->
+    /**
+     * Stapel entstehen nach der Entfernung der Originalorte, nicht nach dem Pin.
+     * Beim Rauszoomen wächst der Abstand, bis zu dem Fotos zusammenwandern.
+     */
+    private fun groups(zoom: Double): List<Group> {
+        val thresholdMeters = 25.0 * 2.0.pow((14.0 - zoom).coerceIn(0.0, 7.0))
+        val placed = photos.filter { it.latitude != null && it.longitude != null }
+            .sortedBy { it.capturedAt ?: Long.MAX_VALUE }
+        val buckets = mutableListOf<MutableList<Photo>>()
+
+        placed.forEach { photo ->
+            // Aufgeklappte Einträge zeigen jedes Bild einzeln an seinem eigenen Ort.
+            if (photo.id in expandedPhotoIds) {
+                buckets.add(mutableListOf(photo))
+                return@forEach
+            }
+            val neighbour = buckets.firstOrNull { bucket ->
+                bucket.none { it.id in expandedPhotoIds } &&
+                    bucket.any { other ->
+                        haversineMeters(
+                            photo.latitude!!, photo.longitude!!,
+                            other.latitude!!, other.longitude!!,
+                        ) <= thresholdMeters
+                    }
+            }
+            if (neighbour != null) neighbour.add(photo) else buckets.add(mutableListOf(photo))
+        }
+
+        return buckets.map { items ->
             val sorted = items.sortedBy { it.capturedAt ?: Long.MAX_VALUE }
             // Das gerade in der Mitte der Timeline liegende Bild kommt nach vorn.
             val front = frontPhotoId?.let { id -> sorted.firstOrNull { it.id == id } }
@@ -224,8 +253,8 @@ class PolaroidOverlay(
                 latitude = sorted.mapNotNull { it.latitude }.average(),
                 longitude = sorted.mapNotNull { it.longitude }.average(),
             )
-        }
-        .sortedBy { it.representative.capturedAt ?: Long.MAX_VALUE }
+        }.sortedBy { it.representative.capturedAt ?: Long.MAX_VALUE }
+    }
 
     private fun bitmapFor(fileName: String): Bitmap? {
         cache.get(fileName)?.let { return it }

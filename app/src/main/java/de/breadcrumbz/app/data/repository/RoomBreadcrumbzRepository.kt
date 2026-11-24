@@ -159,6 +159,11 @@ class RoomBreadcrumbzRepository(
         updateTrip(trip.copy(coverPhotoId = photoId))
     }
 
+    override suspend fun clearCoverPhoto(tripId: String) {
+        val trip = tripDao.observeById(tripId).firstOrNull()?.toDomain() ?: return
+        updateTrip(trip.copy(coverPhotoId = null))
+    }
+
     override suspend fun insertPhoto(photo: Photo) = photoDao.upsert(photo.toEntity())
 
     override suspend fun updatePhoto(photo: Photo) = photoDao.upsert(photo.toEntity())

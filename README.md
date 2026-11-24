@@ -3,24 +3,26 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Version 0.12.0 – Foto-GPS, Zeitleisten-Rahmen, Pin-Markierung und Gesamtansicht korrigiert.**
+**Aktueller Stand: Version 0.13.0 – Foto-Titel direkt bearbeitbar, Post-its entfernt, Zeitleiste und Foto-Stapel überarbeitet.**
 
-Die **Startseite** zeigt alle Reisen chronologisch, die neueste oben. Das **App-Logo**
-steht oben links. Das **„+"** sitzt mittig oben **innerhalb der Liste** und legt
-sofort eine neue Reise an und öffnet direkt die Karte – ohne Dialog. Zeitraum und
-Ort einer Reise werden aus ihren Fotos, Pins und Einträgen abgeleitet und auf der
-Karte angezeigt; manuell gesetzte Werte behalten Vorrang. Das **Dreistrich-Menü**
-oben rechts enthält Einstellungen sowie
+Die **Reisenliste** (Startseite) zeigt alle Reisen chronologisch, die neueste oben.
+Das **App-Logo** steht oben links. Das **„+"** sitzt mittig oben **innerhalb der Liste**
+und legt sofort eine neue Reise an und öffnet direkt die Reisekarte – ohne Dialog.
+Jede Reisekarte zeigt nur **Titel und Zeitraum**; der Zeitraum wird aus Fotos,
+Pins und Einträgen abgeleitet, manuell gesetzte Werte behalten Vorrang. Ist ein
+Titelbild festgelegt, liegt es leicht sichtbar im Hintergrund der Karte. Das
+**Dreistrich-Menü** oben rechts enthält Einstellungen sowie
 **Backup erstellen** und **Backup einspielen**. Ein Tippen auf eine Reise öffnet
-sie, langes Drücken öffnet die Bearbeitung.
+sie, langes Drücken öffnet die Reisebearbeitung mit genau diesen zwei Feldern.
 
 Der Reisetitel steht in der Kartenkopfleiste. Solange er automatisch ist, steht
 dort kursiv **„neue Reise"**; ein Tippen öffnet ein direktes Textfeld (kein
 Pop-up). Ein Tippen woandershin (auf die Karte) oder die Eingabetaste beendet die
 Bearbeitung und speichert den Titel. Sobald der erste Ort, Pin oder Eintrag
 bekannt ist, übernimmt die App ihn automatisch als Titel – weiterhin kursiv, bis
-du den Titel selbst tippst. Danach bleibt er fest. Das Dreistrich-Menü in der Karte enthält die
-Reise-Einstellungen für Linienstil und Kartenstil. Die Zähler und der alte
+du den Titel selbst tippst. Danach bleibt er fest. Das Dreistrich-Menü in der Karte öffnet die
+**Reise-Einstellungen** mit Linienstil, Kartenstil, Standard-Verkehrsmittel und
+**Titelbild wählen** (alle Fotos der Reise als Vorschau). Die Zähler und der alte
 Knopf **„Linie:auto"** sind entfernt.
 
 **Pins:** Zwei Sekunden Halten auf freier Karte erzeugt einen Pin. Ein Tippen
@@ -34,16 +36,23 @@ Polaroids werden mit dem Zoom größer und kleiner. Pinch-Zoom funktioniert
 farbigen Ring um den Kopf. Der kleinste Zoom ist Stufe 1: Mit dem Knopf für die
 **Gesamtansicht** zoomt die App auf die ganze Welt, solange es noch keine Fotos
 und Pins gibt. Danach passt sie die Karte mit sicherem Rand an alle Punkte an.
+Foto-Stapel entstehen nach dem **Abstand der Originalorte**: nahe Fotos stapeln
+sich, entfernte liegen einzeln. Klappst du einen Eintrag in der Zeitleiste auf,
+wandern seine Fotos vorübergehend einzeln an ihre Originalorte und bekommen
+jeweils eigene Pins.
 
 **Timeline:** Sie lässt sich überall wischen; Ziehen eines Elements startet erst
 nach längerem Halten. Die schwarze gestrichelte Linie ist dick und hat nur einen
 dünnen weißen Rand. Ein Klick auf den Rahmen öffnet oder schließt Tag bzw.
-Eintrag – Pfeile gibt es nicht. Der größere **Tagesrahmen** umschließt alle
-Einträge des Tages; der kleinere **Eintragsrahmen** umschließt Titel, alle Fotos,
-Pins und den Tagebuchtext. Die Rahmen bleiben beim Scrollen stabil und
-überschneiden sich nicht. Eingeklappt erscheinen mehrere Fotos als kleiner
-Stapel, ausgeklappt einzeln. Pins haben einen farbigen Rand; vor Ortsnamen steht
-immer ein einfarbiges Pin-Symbol in Textgröße.
+Eintrag – Pfeile gibt es nicht. Alle **Tagesrahmen** liegen auf derselben Höhe
+mit sinnvollem Abstand zum oberen Rand, alle **Eintragsrahmen** ebenso. Ihre
+Höhe bleibt beim Auf-/Zuklappen gleich, nur die Breite ändert sich. Das Element
+in der **Bildschirmmitte bleibt dabei stehen**; automatische Bewegungen laufen
+weich. Die **Kilometerleiste** liegt oben und überlappt keine Pins. Die
+Zeitleiste nutzt die unteren zwei Fünftel des Bildschirms; Fotos aufgeklappter
+Einträge sind größer. Pins erscheinen als **Nadel** wie auf der Karte, ohne
+zusätzlichen Rahmen; vor Ortsnamen steht ein einfarbiges Pin-Symbol in
+Textgröße.
 
 **Ortsnamen** werden automatisch als **„Stadt, Staat"** aus den Koordinaten
 ermittelt. Vorhandene alte Namen werden beim ersten Start dieser Version einmalig
@@ -72,9 +81,11 @@ Galerie-Auswahl sonst nur eine GPS-lose Kopie liefert. Zeit und Ort stehen
 direkt unterm Titel. Wurden sie aus dem ersten
 Foto übernommen, stehen sie kursiv mit **„(aus erstem Foto)"**; ein Tippen
 öffnet eine bequeme Auswahl und entfernt den Kursiv-Hinweis. Das Foto selbst hat
-einen großen Polaroid-Rahmen mit dem Titel im unteren Rand (Comic-Schrift);
-Ort und Zeit stehen darunter klein. Die festen Papier-/Tintafarben bleiben bei
-**hell und dunkel** gleich gut lesbar.
+einen großen Polaroid-Rahmen mit dem Titel im unteren Rand (Comic-Schrift).
+Ein Tippen auf den Titel öffnet ein direktes Textfeld – ohne Extra-Knopf. Der
+Standardtext **„Titel"** ist kursiv, dein eigener Titel steht aufrecht.
+Koordinaten werden nicht angezeigt; der **Ortsname** genügt. Die festen
+Papier-/Tintafarben bleiben bei **hell und dunkel** gleich gut lesbar.
 
 **Aus früheren Meilensteinen:** Foto-Import mit EXIF, Gruppierung, Polaroid-Pins,
 Karte mit osmdroid und lokalem Karten-Cache, Live-Luftlinie in km, Einträge mit
@@ -82,6 +93,21 @@ Datum/Uhrzeit und Bildern, Vollbild-Details, Clustering und Routing pro
 Verkehrsmittel. Ohne Internet wird beim Ortsnamen „Wegpunkt n" verwendet.
 Fotos werden als Kopie im App-Speicher abgelegt; seit Android 10 fragt die App
 beim Import die Erlaubnis für Media-Standorte an und liest das Original.
+
+## Begriffe: Ansichten und Fenster
+
+| Begriff | Was gemeint ist |
+| --- | --- |
+| **Reisenliste** | Die Startseite mit allen Reisen, neueste oben. |
+| **Reisekarte** | Der Kartenbereich einer geöffneten Reise, mit Pins und Fotos. |
+| **Zeitleiste** | Der untere Bereich mit Linie, Rahmen und Elementen. |
+| **Kilometerleiste** | Die obere Zeile der Zeitleiste mit km-Marken und „Gesamt". |
+| **Elementfenster** | Das Pop-up für ein Foto, einen Pin oder einen Eintrag. |
+| **Foto-Stapel-Fenster** | Die Liste, wenn mehrere Fotos an einem Ort liegen. |
+| **Reise-Einstellungen** | Das Dreistrich-Menü oben rechts in der Reisekarte. |
+| **Titelbild-Auswahl** | Der Dialog aus den Reise-Einstellungen mit allen Fotos der Reise. |
+| **Reisebearbeitung** | Der Dialog nach langem Drücken auf eine Reise in der Reisenliste. |
+| **Verortung** | Einen Pin setzen/ziehen oder den Fotoort in einen Eintrag übernehmen. |
 
 ## Grundsätze
 
