@@ -143,22 +143,23 @@ fun FullscreenElement(
     onAdoptPhotoLocation: (String) -> Unit,
 ) {
     val context = LocalContext.current
-    val view = LocalView.current
     val density = LocalDensity.current
-
-    // Nur leicht dimmen, damit Karte und Timeline darunter erkennbar bleiben.
-    val dialogWindow = (view.parent as? DialogWindowProvider)?.window
-    if (dialogWindow != null) {
-        val params = dialogWindow.attributes
-        params.dimAmount = 0.18f
-        dialogWindow.attributes = params
-        dialogWindow.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-    }
 
     Dialog(
         onDismissRequest = onClose,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        // Nur leicht dimmen, damit Karte und Timeline darunter erkennbar bleiben.
+        // Muss im Dialog-Fenster selbst gesetzt werden, nicht im Hauptfenster.
+        val dialogView = LocalView.current
+        val dialogWindow = (dialogView.parent as? DialogWindowProvider)?.window
+        if (dialogWindow != null) {
+            val params = dialogWindow.attributes
+            params.dimAmount = 0.18f
+            dialogWindow.attributes = params
+            dialogWindow.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
