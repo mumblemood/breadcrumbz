@@ -149,7 +149,6 @@ fun FullscreenElement(
         onDismissRequest = onClose,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            dismissOnOutsideClick = true,
             dismissOnBackPress = true,
         ),
     ) {
