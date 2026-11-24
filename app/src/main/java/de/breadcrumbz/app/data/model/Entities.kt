@@ -106,6 +106,7 @@ data class PhotoEntity(
     @PrimaryKey val id: String,
     val tripId: String,
     val stopId: String?,
+    val entryId: String?,
     val fileName: String,
     val mimeType: String,
     val capturedAt: Long?,

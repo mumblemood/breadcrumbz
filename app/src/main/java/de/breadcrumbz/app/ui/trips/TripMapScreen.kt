@@ -1,16 +1,21 @@
 package de.breadcrumbz.app.ui.trips
 
 import android.Manifest
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.graphics.BitmapFactory
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -67,7 +72,10 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
+import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -98,6 +106,12 @@ private fun formatDate(time: Long?, withYear: Boolean = false): String {
     return SimpleDateFormat(pattern, Locale.GERMANY).format(Date(time))
 }
 
+private fun formatTime(time: Long): String =
+    SimpleDateFormat("HH:mm", Locale.GERMANY).format(Date(time))
+
+private fun dayKeyOf(time: Long): String =
+    SimpleDateFormat("yyyy-MM-dd", Locale.GERMANY).format(Date(time))
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TripMapScreen(
@@ -112,7 +126,6 @@ fun TripMapScreen(
     val allEntries by viewModel.allEntries.collectAsStateWithLifecycle()
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
     val activeStopId by viewModel.selectedStopId.collectAsStateWithLifecycle()
-    val distanceKm by viewModel.distanceKm.collectAsStateWithLifecycle()
     val pendingPhotoId by viewModel.pendingPhotoId.collectAsStateWithLifecycle()
     val pendingEntryId by viewModel.pendingEntryId.collectAsStateWithLifecycle()
 
@@ -120,8 +133,8 @@ fun TripMapScreen(
     val scope = rememberCoroutineScope()
 
     var didCenter by remember { mutableStateOf(false) }
-    var showTimeline by rememberSaveable { mutableStateOf(true) }
     var expandedDay by remember { mutableStateOf<String?>(null) }
+    var expandedEntryIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedPhotoId by remember { mutableStateOf<String?>(null) }
     var stackPhotoIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var confirmDeleteStopId by remember { mutableStateOf<String?>(null) }
@@ -131,11 +144,23 @@ fun TripMapScreen(
     var entryTitle by remember { mutableStateOf("") }
     var entryBody by remember { mutableStateOf("") }
 
+    var showNewEntryDialog by rememberSaveable { mutableStateOf(false) }
+    var newEntryTitle by rememberSaveable { mutableStateOf("") }
+    var newEntryBody by rememberSaveable { mutableStateOf("") }
+    var newEntryTime by rememberSaveable { mutableStateOf(System.currentTimeMillis()) }
+    var newEntryImages by remember { mutableStateOf<List<ImportedPhoto>>(emptyList()) }
+
     val thumbnails = photos.map { it.id to rememberThumbnail(viewModel, it.fileName) }.toMap()
+    val photosByEntry = remember(photos) {
+        photos.filter { it.entryId != null }
+            .groupBy { it.entryId.orEmpty() }
+            .mapValues { entry -> entry.value.map { it.id } }
+    }
 
     BackHandler {
         when {
             showEntryEditor -> showEntryEditor = false
+            showNewEntryDialog -> showNewEntryDialog = false
             stackPhotoIds.isNotEmpty() -> stackPhotoIds = emptyList()
             selectedPhotoId != null -> selectedPhotoId = null
             pendingPhotoId != null || pendingEntryId != null -> viewModel.cancelPlacement()
@@ -152,7 +177,7 @@ fun TripMapScreen(
         showEntryEditor = true
     }
 
-    val importLauncher = rememberLauncherForActivityResult(
+    val dialogImageLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
         if (uris.isNotEmpty()) {
@@ -163,18 +188,18 @@ fun TripMapScreen(
                     val bytes = PhotoSourceReader.read(context, uri) ?: return@mapNotNull null
                     ImportedPhoto(bytes, mimeType)
                 }
-                viewModel.importPhotos(imported)
+                newEntryImages = newEntryImages + imported
             }
         }
     }
 
-    val requestImportPermissions = rememberLauncherForActivityResult(
+    val requestGalleryPermissions = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
-        importLauncher.launch(arrayOf("image/*"))
+        dialogImageLauncher.launch(arrayOf("image/*"))
     }
 
-    fun startPhotoImport() {
+    fun startGalleryPick() {
         val permissions = buildList {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.READ_MEDIA_IMAGES)
@@ -186,9 +211,9 @@ fun TripMapScreen(
             }
         }
         if (permissions.isEmpty()) {
-            importLauncher.launch(arrayOf("image/*"))
+            dialogImageLauncher.launch(arrayOf("image/*"))
         } else {
-            requestImportPermissions.launch(permissions.toTypedArray())
+            requestGalleryPermissions.launch(permissions.toTypedArray())
         }
     }
 
@@ -201,10 +226,45 @@ fun TripMapScreen(
         }
     }
 
+    val locationOverlay = remember {
+        MyLocationNewOverlay(GpsMyLocationProvider(context), mapView)
+    }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { results ->
+        if (results.values.any { it }) {
+            locationOverlay.enableMyLocation()
+            val fix = locationOverlay.lastFix
+            if (fix != null) {
+                mapView.controller.setCenter(GeoPoint(fix.latitude, fix.longitude))
+                mapView.controller.setZoom(16.0)
+            } else {
+                locationOverlay.runOnFirstFix {
+                    mapView.post {
+                        val first = locationOverlay.myLocation
+                        if (first != null) {
+                            mapView.controller.setCenter(first)
+                            mapView.controller.setZoom(16.0)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun showMyLocation() {
+        locationPermissionLauncher.launch(
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ),
+        )
+    }
+
     val tapOverlay = remember {
         MapEventsOverlay(object : MapEventsReceiver {
             override fun singleTapConfirmedHelper(point: GeoPoint?): Boolean = false
-
             override fun longPressHelper(point: GeoPoint?): Boolean {
                 if (point != null) {
                     viewModel.onMapLongPress(point.latitude, point.longitude)
@@ -220,6 +280,39 @@ fun TripMapScreen(
             mapView.onPause()
             mapView.onDetach()
         }
+    }
+
+    fun pickDate() {
+        val calendar = Calendar.getInstance().apply { timeInMillis = newEntryTime }
+        DatePickerDialog(
+            context,
+            { _, year, month, day ->
+                newEntryTime = Calendar.getInstance().apply {
+                    timeInMillis = newEntryTime
+                    set(year, month, day)
+                }.timeInMillis
+            },
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH),
+            calendar.get(Calendar.DAY_OF_MONTH),
+        ).show()
+    }
+
+    fun pickTime() {
+        val calendar = Calendar.getInstance().apply { timeInMillis = newEntryTime }
+        TimePickerDialog(
+            context,
+            { _, hour, minute ->
+                newEntryTime = Calendar.getInstance().apply {
+                    timeInMillis = newEntryTime
+                    set(Calendar.HOUR_OF_DAY, hour)
+                    set(Calendar.MINUTE, minute)
+                }.timeInMillis
+            },
+            calendar.get(Calendar.HOUR_OF_DAY),
+            calendar.get(Calendar.MINUTE),
+            true,
+        ).show()
     }
 
     fun handleTimelineClick(item: TimelineItem) {
@@ -275,242 +368,248 @@ fun TripMapScreen(
             )
         },
     ) { padding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            AndroidView(
-                factory = { mapView },
-                modifier = Modifier.fillMaxSize(),
-                update = { view ->
-                    if (stops.isNotEmpty() && !didCenter) {
-                        view.controller.setCenter(
-                            GeoPoint(stops.first().latitude, stops.first().longitude),
-                        )
-                        view.controller.setZoom(16.0)
-                        didCenter = true
-                    }
-
-                    view.overlays.clear()
-                    view.overlays.add(tapOverlay)
-
-                    val placedPhotos = photos.filter {
-                        it.latitude != null && it.longitude != null
-                    }
-                    view.overlays.add(
-                        PolaroidOverlay(
-                            photos = placedPhotos,
-                            filePath = { name -> viewModel.photoPath(name) },
-                            onPhotoClick = { ids ->
-                                if (ids.size == 1) {
-                                    selectedPhotoId = ids.first()
-                                } else {
-                                    stackPhotoIds = ids
-                                }
-                            },
-                        ),
-                    )
-
-                    val stickyEntries = allEntries.filter { entry ->
-                        entry.stopId != null &&
-                            (entry.title.isNotBlank() || entry.body.isNotBlank())
-                    }
-                    view.overlays.add(
-                        StickyNoteOverlay(
-                            entries = stickyEntries,
-                            stops = stops,
-                            onEntryClick = { id ->
-                                openEntryEditor(
-                                    allEntries.firstOrNull { it.id == id },
-                                )
-                            },
-                        ),
-                    )
-
-                    if (stops.size > 1) {
-                        val route = Polyline(view)
-                        route.setPoints(stops.map { GeoPoint(it.latitude, it.longitude) })
-                        route.color = 0xFF3B2B20.toInt()
-                        route.width = 6f
-                        view.overlays.add(route)
-                    }
-
-                    stops.forEach { stop ->
-                        val marker = Marker(view)
-                        marker.position = GeoPoint(stop.latitude, stop.longitude)
-                        marker.title = stop.title
-                        marker.snippet = "Ziehen verschiebt den Punkt"
-                        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-
-                        val icon = ContextCompat.getDrawable(context, R.drawable.ic_stop_marker)
-                            ?.mutate()
-                        icon?.let {
-                            it.setBounds(
-                                -it.intrinsicWidth / 2,
-                                -it.intrinsicHeight,
-                                it.intrinsicWidth / 2,
-                                0,
+            // Karte: zwei Drittel des Bildschirms.
+            Box(modifier = Modifier.fillMaxWidth().weight(2f)) {
+                AndroidView(
+                    factory = { mapView },
+                    modifier = Modifier.fillMaxSize(),
+                    update = { view ->
+                        if (stops.isNotEmpty() && !didCenter) {
+                            view.controller.setCenter(
+                                GeoPoint(stops.first().latitude, stops.first().longitude),
                             )
-                            marker.icon = it
+                            view.controller.setZoom(16.0)
+                            didCenter = true
                         }
 
-                        marker.isDraggable = true
-                        val stopId = stop.id
-                        marker.setOnMarkerClickListener { _, _ ->
-                            selectedPhotoId = null
-                            viewModel.selectStop(stopId)
-                            true
+                        view.overlays.clear()
+                        view.overlays.add(tapOverlay)
+                        view.overlays.add(locationOverlay)
+
+                        val placedPhotos = photos.filter {
+                            it.latitude != null && it.longitude != null
                         }
-                        marker.setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
-                            override fun onMarkerDrag(marker: Marker?) = Unit
-                            override fun onMarkerDragStart(marker: Marker?) = Unit
-                            override fun onMarkerDragEnd(marker: Marker?) {
-                                if (marker != null) {
-                                    viewModel.moveStop(
-                                        stopId,
-                                        marker.position.latitude,
-                                        marker.position.longitude,
-                                    )
+                        view.overlays.add(
+                            PolaroidOverlay(
+                                photos = placedPhotos,
+                                filePath = { name -> viewModel.photoPath(name) },
+                                onPhotoClick = { ids ->
+                                    if (ids.size == 1) {
+                                        selectedPhotoId = ids.first()
+                                    } else {
+                                        stackPhotoIds = ids
+                                    }
+                                },
+                            ),
+                        )
+
+                        val stickyEntries = allEntries.filter { entry ->
+                            entry.stopId != null &&
+                                (entry.title.isNotBlank() || entry.body.isNotBlank())
+                        }
+                        view.overlays.add(
+                            StickyNoteOverlay(
+                                entries = stickyEntries,
+                                stops = stops,
+                                onEntryClick = { id ->
+                                    openEntryEditor(allEntries.firstOrNull { it.id == id })
+                                },
+                            ),
+                        )
+
+                        if (stops.size > 1) {
+                            val route = Polyline(view)
+                            route.setPoints(stops.map { GeoPoint(it.latitude, it.longitude) })
+                            route.color = 0xFF3B2B20.toInt()
+                            route.width = 6f
+                            view.overlays.add(route)
+                        }
+
+                        stops.forEach { stop ->
+                            val marker = Marker(view)
+                            marker.position = GeoPoint(stop.latitude, stop.longitude)
+                            marker.title = stop.title
+                            marker.snippet = "Ziehen verschiebt den Punkt"
+                            marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+
+                            val icon = ContextCompat.getDrawable(
+                                context,
+                                R.drawable.ic_stop_marker,
+                            )?.mutate()
+                            icon?.let {
+                                it.setBounds(
+                                    -it.intrinsicWidth / 2,
+                                    -it.intrinsicHeight,
+                                    it.intrinsicWidth / 2,
+                                    0,
+                                )
+                                marker.icon = it
+                            }
+
+                            marker.isDraggable = true
+                            val stopId = stop.id
+                            marker.setOnMarkerClickListener { _, _ ->
+                                selectedPhotoId = null
+                                viewModel.selectStop(stopId)
+                                true
+                            }
+                            marker.setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
+                                override fun onMarkerDrag(marker: Marker?) = Unit
+                                override fun onMarkerDragStart(marker: Marker?) = Unit
+                                override fun onMarkerDragEnd(marker: Marker?) {
+                                    if (marker != null) {
+                                        viewModel.moveStop(
+                                            stopId,
+                                            marker.position.latitude,
+                                            marker.position.longitude,
+                                        )
+                                    }
+                                }
+                            })
+                            view.overlays.add(marker)
+                        }
+                        view.invalidate()
+                    },
+                )
+
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Button(onClick = {
+                        newEntryTitle = ""
+                        newEntryBody = ""
+                        newEntryTime = System.currentTimeMillis()
+                        newEntryImages = emptyList()
+                        showNewEntryDialog = true
+                    }) {
+                        Text("+")
+                    }
+                    Button(onClick = { showMyLocation() }) {
+                        Text("Standort")
+                    }
+                    Button(onClick = {
+                        val points = buildList {
+                            stops.forEach { add(GeoPoint(it.latitude, it.longitude)) }
+                            photos.forEach { photo ->
+                                val latitude = photo.latitude
+                                val longitude = photo.longitude
+                                if (latitude != null && longitude != null) {
+                                    add(GeoPoint(latitude, longitude))
                                 }
                             }
-                        })
-                        view.overlays.add(marker)
+                        }
+                        if (points.isNotEmpty()) {
+                            mapView.zoomToBoundingBox(
+                                BoundingBox.fromGeoPoints(points),
+                                true,
+                                100,
+                            )
+                        }
+                    }) {
+                        Text("Ganze Reise")
                     }
-                    view.invalidate()
-                },
-            )
+                }
 
-            Button(
-                onClick = {
-                    val points = buildList {
-                        stops.forEach { add(GeoPoint(it.latitude, it.longitude)) }
-                        photos.forEach { photo ->
-                            val latitude = photo.latitude
-                            val longitude = photo.longitude
-                            if (latitude != null && longitude != null) {
-                                add(GeoPoint(latitude, longitude))
+                if (pendingPhotoId != null || pendingEntryId != null) {
+                    Card(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(8.dp),
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                if (pendingEntryId != null) {
+                                    "Eintrag: jetzt lange auf die Karte drücken"
+                                } else {
+                                    "Foto: jetzt lange auf die Karte drücken"
+                                },
+                            )
+                            TextButton(onClick = { viewModel.cancelPlacement() }) {
+                                Text("Abbrechen")
                             }
                         }
                     }
-                    if (points.isNotEmpty()) {
-                        mapView.zoomToBoundingBox(
-                            BoundingBox.fromGeoPoints(points),
-                            true,
-                            100,
-                        )
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp),
-            ) {
-                Text("Ganze Reise")
-            }
+                }
 
-            if (pendingPhotoId != null || pendingEntryId != null) {
                 Card(
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
+                        .align(Alignment.BottomStart)
                         .padding(8.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                    Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
                         Text(
-                            if (pendingEntryId != null) {
-                                "Eintrag: jetzt lange auf die Karte drücken"
-                            } else {
-                                "Foto: jetzt lange auf die Karte drücken"
-                            },
+                            "${stops.size} Wegpunkte · ${photos.size} Fotos",
+                            style = MaterialTheme.typography.bodySmall,
                         )
-                        TextButton(onClick = { viewModel.cancelPlacement() }) {
-                            Text("Abbrechen")
+                        val activeStop = stops.firstOrNull { it.id == activeStopId }
+                        if (activeStop != null) {
+                            Text(
+                                activeStop.title,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Row {
+                                TextButton(onClick = {
+                                    editorStopId = activeStop.id
+                                    editingEntryId = null
+                                    entryTitle = ""
+                                    entryBody = ""
+                                    showEntryEditor = true
+                                }) {
+                                    Text("+ Eintrag")
+                                }
+                                TextButton(onClick = { confirmDeleteStopId = activeStop.id }) {
+                                    Text("Pin löschen")
+                                }
+                                TextButton(onClick = { viewModel.selectStop(null) }) {
+                                    Text("Zur Karte")
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            Card(
+            // Timeline: festes unteres Drittel, von links nach rechts.
+            Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
-                    .fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .background(MaterialTheme.colorScheme.surface),
             ) {
-                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    val activeStop = stops.firstOrNull { it.id == activeStopId }
-                    if (activeStop != null) {
-                        Text(activeStop.title, style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "${entries.size} Einträge · Zettel auf der Karte öffnen" +
-                                " oder Eintrag in der Timeline antippen",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Row {
-                            TextButton(onClick = {
-                                editorStopId = activeStop.id
-                                editingEntryId = null
-                                entryTitle = ""
-                                entryBody = ""
-                                showEntryEditor = true
-                            }) {
-                                Text("+ Eintrag")
-                            }
-                            TextButton(onClick = { confirmDeleteStopId = activeStop.id }) {
-                                Text("Pin löschen")
-                            }
-                            TextButton(onClick = { viewModel.selectStop(null) }) {
-                                Text("Zur Karte")
-                            }
+                AdventureTimeline(
+                    items = timeline,
+                    stops = stops,
+                    photosByEntry = photosByEntry,
+                    expandedDay = expandedDay,
+                    expandedEntryIds = expandedEntryIds,
+                    onDayToggle = { day ->
+                        expandedDay = if (expandedDay == day) null else day
+                    },
+                    onEntryToggle = { id ->
+                        expandedEntryIds = if (expandedEntryIds.contains(id)) {
+                            expandedEntryIds - id
+                        } else {
+                            expandedEntryIds + id
                         }
-                    } else {
-                        Text(trip?.title ?: "Reise", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            text = "${stops.size} Wegpunkte · ${photos.size} Fotos · " +
-                                String.format(Locale.GERMANY, "%.1f", distanceKm) +
-                                " km (Luftlinie)",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Row {
-                            TextButton(onClick = { showTimeline = !showTimeline }) {
-                                Text(if (showTimeline) "Timeline aus" else "Timeline")
-                            }
-                            TextButton(onClick = { startPhotoImport() }) {
-                                Text("Fotos")
-                            }
-                            TextButton(onClick = {
-                                expandedDay = if (expandedDay == null) {
-                                    timeline.firstOrNull()?.time?.let(::dayKeyOf)
-                                } else {
-                                    null
-                                }
-                            }) {
-                                Text(if (expandedDay == null) "Tage öffnen" else "Tage zu")
-                            }
-                        }
-                    }
-
-                    if (showTimeline) {
-                        AdventureTimeline(
-                            items = timeline,
-                            stops = stops,
-                            expandedDay = expandedDay,
-                            onDayToggle = { day ->
-                                expandedDay = if (expandedDay == day) null else day
-                            },
-                            onItemClick = { item -> handleTimelineClick(item) },
-                            photoBitmap = { id -> thumbnails[id] },
-                        )
-                    }
-                }
+                    },
+                    onItemClick = { item -> handleTimelineClick(item) },
+                    onPhotoClick = { id -> selectedPhotoId = id },
+                    photoBitmap = { id -> thumbnails[id] },
+                    modifier = Modifier.fillMaxHeight(),
+                )
             }
         }
     }
@@ -532,7 +631,7 @@ fun TripMapScreen(
                             contentDescription = null,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(180.dp)
+                                .height(160.dp)
                                 .clip(RoundedCornerShape(12.dp)),
                         )
                     }
@@ -545,8 +644,18 @@ fun TripMapScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    TextButton(onClick = { viewModel.setCoverPhoto(selectedPhoto.id) }) {
-                        Text("Als Titelbild setzen")
+                    Row {
+                        TextButton(onClick = { viewModel.setCoverPhoto(selectedPhoto.id) }) {
+                            Text("Titelbild")
+                        }
+                        if (selectedPhoto.latitude == null || selectedPhoto.longitude == null) {
+                            TextButton(onClick = {
+                                viewModel.beginPlacement(selectedPhoto.id)
+                                selectedPhotoId = null
+                            }) {
+                                Text("Ort setzen")
+                            }
+                        }
                     }
                 }
             },
@@ -573,9 +682,7 @@ fun TripMapScreen(
                     stackPhotoIds.forEach { id ->
                         val photo = photos.firstOrNull { it.id == id } ?: return@forEach
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             val thumbnail = thumbnails[id]
@@ -607,6 +714,69 @@ fun TripMapScreen(
             },
             confirmButton = {
                 TextButton(onClick = { stackPhotoIds = emptyList() }) { Text("Schließen") }
+            },
+        )
+    }
+
+    if (showNewEntryDialog) {
+        AlertDialog(
+            onDismissRequest = { showNewEntryDialog = false },
+            title = { Text("Neuer Eintrag") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = newEntryTitle,
+                        onValueChange = { newEntryTitle = it },
+                        label = { Text("Titel") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = newEntryBody,
+                        onValueChange = { newEntryBody = it },
+                        label = { Text("Tagebuch") },
+                        minLines = 3,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { pickDate() }) {
+                            Text(formatDate(newEntryTime))
+                        }
+                        Button(onClick = { pickTime() }) {
+                            Text(formatTime(newEntryTime))
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Der Ort wird automatisch aus GPS und Zeit der Bilder " +
+                            "bzw. vorhandenen Stationen bestimmt.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(onClick = { startGalleryPick() }) {
+                        Text("Bilder hinzufügen (${newEntryImages.size})")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val chosenTime = newEntryTime
+                    val chosenImages = newEntryImages
+                    viewModel.createEntryFromDialog(
+                        title = newEntryTitle,
+                        body = newEntryBody,
+                        time = chosenTime,
+                        images = chosenImages,
+                    )
+                    expandedDay = dayKeyOf(chosenTime)
+                    showNewEntryDialog = false
+                }) {
+                    Text("Speichern")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNewEntryDialog = false }) { Text("Abbrechen") }
             },
         )
     }
@@ -676,9 +846,6 @@ fun TripMapScreen(
         )
     }
 }
-
-private fun dayKeyOf(time: Long): String =
-    SimpleDateFormat("yyyy-MM-dd", Locale.GERMANY).format(Date(time))
 
 private fun focusStop(mapView: MapView, latitude: Double, longitude: Double) {
     mapView.controller.setCenter(GeoPoint(latitude, longitude))

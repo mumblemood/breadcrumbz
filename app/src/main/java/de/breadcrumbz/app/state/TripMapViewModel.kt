@@ -11,6 +11,7 @@ import de.breadcrumbz.app.domain.model.StopSource
 import de.breadcrumbz.app.domain.model.TimelineItem
 import de.breadcrumbz.app.domain.model.TimelineKind
 import de.breadcrumbz.app.domain.repository.BreadcrumbzRepository
+import de.breadcrumbz.app.domain.util.PhotoGroupRule
 import de.breadcrumbz.app.domain.util.clusterPhotos
 import de.breadcrumbz.app.domain.util.haversineMeters
 import de.breadcrumbz.app.domain.util.photoMatchesStop
@@ -98,10 +99,12 @@ class TripMapViewModel(
                         entryId = entry.id,
                         photoId = null,
                         hasLocation = entry.stopId != null,
+                        photoCount = allPhotos.count { it.entryId == entry.id },
                     ),
                 )
             }
-            allPhotos.forEach { photo ->
+            // Fotos mit Eintrag erscheinen aufgeklappt im Eintrag, nicht doppelt.
+            allPhotos.filter { it.entryId == null }.forEach { photo ->
                 add(
                     TimelineItem(
                         id = "photo-${photo.id}",
@@ -205,6 +208,7 @@ class TripMapViewModel(
                         id = UUID.randomUUID().toString(),
                         tripId = tripId,
                         stopId = null,
+                        entryId = null,
                         fileName = fileName,
                         mimeType = item.mimeType,
                         capturedAt = metadata.capturedAt,
@@ -217,6 +221,87 @@ class TripMapViewModel(
                 )
             }
             clusterUnassigned()
+        }
+    }
+
+    /**
+     * Neuer Eintrag aus dem „+"-Dialog: Bilder werden direkt importiert und
+     * gemeinsam mit dem Text gespeichert. Der Ort wird automatisch aus GPS und
+     * Aufnahmezeit der Bilder bzw. aus der Zeit vorhandener Stationen gewählt.
+     */
+    fun createEntryFromDialog(
+        title: String,
+        body: String,
+        time: Long,
+        images: List<ImportedPhoto>,
+    ) {
+        if (title.isBlank() && body.isBlank() && images.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val allStops = repository.observeStops(tripId).first()
+            val startIndex = repository.observePhotos(tripId).first().size
+            val now = System.currentTimeMillis()
+            val createdPhotos = mutableListOf<Photo>()
+
+            images.forEachIndexed { index, item ->
+                val metadata = PhotoImporter.read(item.bytes)
+                val fileName = photoStore.save(item.bytes, item.mimeType)
+                val photo = Photo(
+                    id = UUID.randomUUID().toString(),
+                    tripId = tripId,
+                    stopId = null,
+                    entryId = null,
+                    fileName = fileName,
+                    mimeType = item.mimeType,
+                    capturedAt = metadata.capturedAt,
+                    latitude = metadata.latitude,
+                    longitude = metadata.longitude,
+                    caption = "",
+                    sortIndex = startIndex + index,
+                    createdAt = now + index,
+                )
+                repository.insertPhoto(photo)
+                createdPhotos.add(photo)
+            }
+
+            var resolvedStopId = createdPhotos.firstOrNull {
+                it.latitude != null && it.longitude != null
+            }?.let { photo ->
+                allStops.firstOrNull { stop ->
+                    photoMatchesStop(
+                        photo.latitude,
+                        photo.longitude,
+                        photo.capturedAt,
+                        stop.latitude,
+                        stop.longitude,
+                        stop.visitedAt,
+                    )
+                }?.id
+            } ?: allStops
+                .filter { it.visitedAt != null }
+                .minByOrNull { kotlin.math.abs((it.visitedAt ?: time) - time) }
+                ?.takeIf { stop ->
+                    kotlin.math.abs((stop.visitedAt ?: time) - time) <=
+                        PhotoGroupRule.TIME_MS
+                }?.id
+
+            // Noch kein passender Pin, aber GPS in den Bildern: Foto-Stopp erzeugen.
+            if (resolvedStopId == null && createdPhotos.any {
+                    it.latitude != null && it.longitude != null
+                }
+            ) {
+                clusterUnassigned()
+                val ids = createdPhotos.map { it.id }.toSet()
+                resolvedStopId = repository.observePhotos(tripId).first()
+                    .firstOrNull { it.id in ids && it.stopId != null }?.stopId
+            }
+
+            val entry = repository.addEntry(tripId, resolvedStopId, title.trim(), body.trim())
+            repository.updateEntry(entry.copy(createdAt = time))
+            createdPhotos.forEach { photo ->
+                repository.updatePhoto(
+                    photo.copy(entryId = entry.id, stopId = resolvedStopId ?: photo.stopId),
+                )
+            }
         }
     }
 
@@ -297,6 +382,17 @@ class TripMapViewModel(
             val name = placeNameResolver.resolve(latitude, longitude) ?: "Wegpunkt $number"
             val stop = repository.addStop(tripId, name, latitude, longitude)
             repository.updateEntry(entry.copy(stopId = stop.id))
+            repository.observePhotos(tripId).first()
+                .filter { it.entryId == entryId }
+                .forEach { photo ->
+                    repository.updatePhoto(
+                        photo.copy(
+                            stopId = stop.id,
+                            latitude = latitude,
+                            longitude = longitude,
+                        ),
+                    )
+                }
             _pendingEntryId.value = null
         }
     }

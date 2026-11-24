@@ -18,7 +18,7 @@ import de.breadcrumbz.app.data.model.TripEntity
         PhotoEntity::class,
         PlaceNameEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class BreadcrumbzDatabase : RoomDatabase() {
@@ -89,5 +89,12 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
         db.execSQL(
             "ALTER TABLE `trips` ADD COLUMN `routeMode` TEXT NOT NULL DEFAULT 'AUTO'",
         )
+    }
+}
+
+/** Version 4: Fotos können an einem Tagebucheintrag hängen. */
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `photos` ADD COLUMN `entryId` TEXT")
     }
 }

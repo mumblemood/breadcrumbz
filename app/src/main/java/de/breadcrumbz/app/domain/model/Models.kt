@@ -60,6 +60,8 @@ data class Photo(
     val id: String,
     val tripId: String,
     val stopId: String?,
+    /** Fotos eines Tagebucheintrags; normale Importe bleiben ohne Eintrag. */
+    val entryId: String?,
     /** Dateiname relativ zum Foto-Ordner der App. */
     val fileName: String,
     val mimeType: String,

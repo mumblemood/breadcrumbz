@@ -3,18 +3,20 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Build A des Meilensteins 6 – Paper-Adventure-Timeline.**
-Zu jedem Stopp können mehrere Tagebucheinträge mit Titel und Text geschrieben,
-bearbeitet und gelöscht werden. Die **Timeline** läuft über die volle Fensterbreite
-als leicht geschwungene, gestrichelte Linie. Stationen, Einträge und Fotos hängen
-als Pins daran; Tagesmarken lassen sich einklappen. Eine senkrechte Linie markiert
-jeweils 100 km und die Gesamtdistanz – die Beschriftung liegt über den Bildern
-und bleibt daher lesbar. Text-Einträge erscheinen zusätzlich als gelbe Zettel
-auf der Karte, Fotos als große Polaroids unter dem Marker (Stapel mit Anzahl).
-Foto-Titel werden handschriftlich im Rahmen angezeigt (maximal 12 Zeichen) und
-ein Foto kann als Titelbild der Reise gesetzt werden. Der Standard-Verkehrsmittel
-wird beim Anlegen oder Bearbeiten einer Reise gewählt; die Linien-Stile pro
-Abschnitt folgen in Build B.
+**Aktueller Stand: Meilenstein 6 – dauerhafte Timeline und Einträge mit Bildern.**
+Die Karte nimmt die oberen zwei Drittel ein, die **Timeline** ist ein festes
+unteres Drittel über die gesamte Fensterbreite. Sie zeigt eine geschwungene,
+gestrichelte Linie mit Pin-Nadeln. Tagesmarken und Einträge mit mehreren Bildern
+lassen sich aufklappen; die Distanz ist immer als Beschriftung sichtbar und
+alle 100 km senkrecht markiert. Der **„+"**-Knopf öffnet einen Dialog für Titel,
+Tagebuch, Datum, Uhrzeit und mehrere neue Bilder aus der Galerie. Der Ort wird
+automatisch aus GPS und Aufnahmezeit der Bilder bzw. vorhandenen Stationen
+bestimmt. Text-Einträge erscheinen als gelbe Zettel auf der Karte, Fotos als
+große Polaroids unter dem Marker. Mit **„Standort"** wird die eigene Position
+angezeigt und die Karte dorthin zentriert. Foto-Titel sind handschriftlich
+(maximal 12 Zeichen), ein Foto kann als Titelbild gesetzt werden. Das
+Standard-Verkehrsmittel wird beim Anlegen oder Bearbeiten einer Reise gewählt;
+die Linien-Stile pro Abschnitt folgen in einem späteren Schritt.
 
 **Aus Meilenstein 5:** Beim Setzen eines Punkts wird der Ortsname automatisch
 über Nominatim (OpenStreetMap) ermittelt und lokal gecacht; ohne Internet wird

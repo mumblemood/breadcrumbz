@@ -13,4 +13,6 @@ data class TimelineItem(
     val entryId: String?,
     val photoId: String?,
     val hasLocation: Boolean,
+    /** Anzahl Bilder, die an diesem Eintrag hängen. */
+    val photoCount: Int = 0,
 )
