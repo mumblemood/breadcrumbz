@@ -75,6 +75,18 @@ class TripMapViewModel(
         repository.observeEntriesForTrip(tripId),
         photos,
     ) { allStops, allEntries, allPhotos ->
+        // Die Reihenfolge kommt aus den Foto-Daten: Einträge mit automatisch
+        // übernommener Zeit richten sich nach dem frühesten Bild des Eintrags.
+        // Manuell gesetzte Zeiten bleiben davon unberührt.
+        fun entrySortTime(entry: Entry): Long {
+            val fromPhoto = allPhotos.filter { it.entryId == entry.id }
+                .mapNotNull { it.capturedAt }.minOrNull()
+            return if (entry.timeFromPhoto || entry.entryAt == null) {
+                fromPhoto ?: entry.entryAt ?: entry.createdAt
+            } else {
+                entry.entryAt ?: entry.createdAt
+            }
+        }
         buildList {
             // Pins in Einträgen erscheinen nur im Eintrag, nicht noch einmal allein.
             allStops.filter { it.entryId == null }.forEach { stop ->
@@ -96,7 +108,7 @@ class TripMapViewModel(
                 add(
                     TimelineItem(
                         id = "entry-${entry.id}",
-                        time = entry.entryAt ?: entry.createdAt,
+                        time = entrySortTime(entry),
                         kind = TimelineKind.ENTRY,
                         title = entry.title.ifBlank { "Tagebucheintrag" },
                         subtitle = if (entry.stopId == null) "Ohne Ort" else entry.body,
@@ -378,6 +390,10 @@ class TripMapViewModel(
      */
     fun assignElementToEntry(elementKey: String, entryId: String?) {
         viewModelScope.launch(Dispatchers.IO) {
+            fun sameDay(a: Long, b: Long): Boolean =
+                SimpleDateFormat("yyyy-MM-dd", Locale.GERMANY).format(Date(a)) ==
+                    SimpleDateFormat("yyyy-MM-dd", Locale.GERMANY).format(Date(b))
+
             val stopsNow = repository.observeStops(tripId).first()
             val entry = entryId?.let { id ->
                 repository.observeEntriesForTrip(tripId).first().firstOrNull { it.id == id }
@@ -393,6 +409,13 @@ class TripMapViewModel(
                     val id = elementKey.removePrefix("photo-")
                     val photo = repository.observePhotos(tripId).first()
                         .firstOrNull { it.id == id } ?: return@launch
+                    // Ein Bild darf nur in einen Eintrag am selben Tag.
+                    val entryTime = entry?.entryAt ?: entry?.createdAt
+                    if (entryTime != null &&
+                        !sameDay(photo.capturedAt ?: photo.createdAt, entryTime)
+                    ) {
+                        return@launch
+                    }
                     repository.updatePhoto(
                         photo.copy(
                             entryId = entryId,

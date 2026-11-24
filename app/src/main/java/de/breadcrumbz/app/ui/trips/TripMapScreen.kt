@@ -396,6 +396,28 @@ fun TripMapScreen(
         )
     }
 
+    // Nur neu bauen, wenn sich Pins oder Verkehrsmittel ändern – nicht bei
+    // jeder Kartenbewegung. So bleiben die Striche der Reiselinie stabil.
+    val routeLines = remember(stops, trip?.defaultTransportMode, trip?.routeMode) {
+        RouteStyling.build(
+            mapView = mapView,
+            stops = stops,
+            defaultMode = trip?.defaultTransportMode ?: TransportMode.CAR,
+            routeMode = trip?.routeMode ?: RouteMode.AUTO,
+            // Tippen auf die Linie öffnet die Verkehrsmittelwahl,
+            // keine Sprechblase (InfoWindow ist in RouteStyling null).
+            onLineClick = { clicked ->
+                val nearest = stops.minByOrNull { stop ->
+                    haversineMeters(
+                        stop.latitude, stop.longitude,
+                        clicked.latitude, clicked.longitude,
+                    )
+                }
+                segmentModeStopId = nearest?.id
+            },
+        )
+    }
+
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { results ->
@@ -707,24 +729,10 @@ fun TripMapScreen(
                             )
                         }
 
-                        RouteStyling.build(
-                            mapView = view,
-                            stops = stops,
-                            defaultMode = trip?.defaultTransportMode
-                                ?: TransportMode.CAR,
-                            routeMode = trip?.routeMode ?: RouteMode.AUTO,
-                            // Tippen auf die Linie öffnet die Verkehrsmittelwahl,
-                            // keine Sprechblase (InfoWindow ist in RouteStyling null).
-                            onLineClick = { clicked ->
-                                val nearest = stops.minByOrNull { stop ->
-                                    haversineMeters(
-                                        stop.latitude, stop.longitude,
-                                        clicked.latitude, clicked.longitude,
-                                    )
-                                }
-                                segmentModeStopId = nearest?.id
-                            },
-                        ).forEach { view.overlays.add(it) }
+                        // Dieselben Polyline-Objekte bleiben erhalten – beim
+                        // Verschieben der Karte werden die Striche nicht neu
+                        // aufgebaut und springen dadurch nicht.
+                        routeLines.forEach { view.overlays.add(it) }
 
                         markers.clear()
                         stops.forEach { stop ->

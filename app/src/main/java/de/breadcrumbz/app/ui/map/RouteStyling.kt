@@ -9,6 +9,8 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
 import kotlin.math.ceil
+import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
@@ -66,7 +68,7 @@ object RouteStyling {
                         GeoPoint(to.latitude, to.longitude),
                         wave = true,
                     )
-                    TransportMode.CAR, TransportMode.CAMPER -> approximateRoad(
+                    TransportMode.CAR, TransportMode.CAMPER -> handDrawnRoad(
                         GeoPoint(from.latitude, from.longitude),
                         GeoPoint(to.latitude, to.longitude),
                     )
@@ -115,16 +117,39 @@ object RouteStyling {
         paint.pathEffect = dash
     }
 
-    /** Ungefähre Straßenführung: ein Zwischenpunkt pro Kilometer Luftlinie. */
-    private fun approximateRoad(from: GeoPoint, to: GeoPoint): List<GeoPoint> {
+    /**
+     * Ungefähre Straßenführung, ganz offline: als würde man die Route mit einem
+     * Stift auf der Karte nachziehen. Ein Zwischenpunkt pro Kilometer reicht;
+     * kleine, deterministische Seitenschwünge lassen sie wie eine Straße wirken.
+     */
+    private fun handDrawnRoad(from: GeoPoint, to: GeoPoint): List<GeoPoint> {
         val meters = haversineMeters(from.latitude, from.longitude, to.latitude, to.longitude)
         val steps = maxOf(1, ceil(meters / 1_000.0).toInt())
         if (steps == 1) return listOf(from, to)
+
+        val meanLat = Math.toRadians((from.latitude + to.latitude) / 2.0)
+        val cosLat = cos(meanLat).coerceAtLeast(0.01)
+        val dLat = to.latitude - from.latitude
+        val dLonScaled = (to.longitude - from.longitude) * cosLat
+        val length = hypot(dLat, dLonScaled)
+        if (length == 0.0) return listOf(from, to)
+        val perpLat = -dLonScaled / length
+        val perpLon = dLat / length
+        // Aus den Koordinaten abgeleitet: gleiche Strecke sieht immer gleich aus.
+        val phase = ((from.latitude * 1_000.0).toLong() xor
+            (to.longitude * 1_000.0).toLong()).toDouble() / 1_000.0
+
         return (0..steps).map { index ->
             val t = index.toDouble() / steps
+            val envelope = sin(t * Math.PI)
+            val wobbleMeters = (
+                sin(t * Math.PI * 4.0 + phase) * 0.7 +
+                    sin(t * Math.PI * 9.0 + phase * 0.5) * 0.3
+                ) * 90.0 * envelope
             GeoPoint(
-                from.latitude + (to.latitude - from.latitude) * t,
-                from.longitude + (to.longitude - from.longitude) * t,
+                from.latitude + dLat * t + perpLat * wobbleMeters / 111_320.0,
+                from.longitude + (to.longitude - from.longitude) * t +
+                    perpLon * wobbleMeters / (111_320.0 * cosLat),
             )
         }
     }

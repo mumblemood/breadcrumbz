@@ -3,7 +3,7 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Version 0.15.0 – Ort direkt aus Fotos, Linien und Rahmen vereinheitlicht, Zeitleiste zuverlässig synchron.**
+**Aktueller Stand: Version 0.16.0 – Foto-Detail als Polaroid, ein Pin je Ereignis, handgezeichnete Route, sortierte Zeitleiste.**
 
 Die **Reisenliste** (Startseite) zeigt alle Reisen chronologisch, die neueste oben.
 Das **App-Logo** steht oben links. Das **„+"** sitzt mittig oben **innerhalb der Liste**
@@ -30,9 +30,10 @@ Zähler und der alte Knopf **„Linie:auto"** sind entfernt.
 **Linie:** Karte und Zeitleiste zeigen denselben Stil: weißer Unterzug und eine
 schwarze gestrichelte Linie darüber. Ein Tippen auf die Linie öffnet keine
 Sprechblase, sondern die **Auswahl des Verkehrsmittels** für diesen Abschnitt.
-Mit Auto oder Campingbus wird die Route nur ungefähr über Straßen geführt – ein
-Zwischenpunkt pro Kilometer genügt. Flugzeug und Kajak werden als Bogen
-gezeichnet.
+Mit Auto oder Campingbus wird die Route **offline handgezeichnet** entlang der
+Straßen geführt – als würdest du sie mit einem Stift auf der Karte nachziehen;
+ein Zwischenpunkt pro Kilometer genügt. Die Striche bleiben beim Verschieben der
+Karte unverändert. Flugzeug und Kajak werden als Bogen gezeichnet.
 
 **Pins:** Zwei Sekunden Halten auf freier Karte erzeugt einen Pin. Ein Tippen
 wählt ihn aus; der ausgewählte Pin wird **1,5× größer**. Nur ein Element ist
@@ -48,11 +49,14 @@ wird nur so weit rausgezoomt, dass sie den Bildschirm in der Höhe füllt. Danac
 passt sie die Karte mit sicherem Rand an alle Punkte an.
 Foto-Stapel entstehen nach dem **Abstand der Originalorte**: nahe Fotos stapeln
 sich, entfernte liegen einzeln. Klappst du einen Eintrag in der Zeitleiste auf,
-wandern seine Fotos vorübergehend einzeln an ihre Originalorte und bekommen
-jeweils eigene Pins.
+wandern seine Fotos vorübergehend einzeln an ihre Originalorte – ein zusätzlicher
+Pin entsteht dadurch nicht.
 
-**Timeline:** Sie lässt sich überall wischen; Ziehen eines Elements startet erst
-nach längerem Halten. Die Linie sieht genauso aus wie auf der Karte. Ein Tippen
+**Timeline:** Die Reihenfolge von Elementen und Einträgen richtet sich
+automatisch nach den **Foto-Daten**; manuell gesetzte Zeiten bleiben erhalten.
+Sie lässt sich überall wischen; Ziehen eines Elements startet erst
+nach längerem Halten. Am Bildschirmrand scrollt die Zeitleiste beim Ziehen mit.
+Ein Bild darf nur in einen Eintrag **desselben Tages** gezogen werden. Die Linie sieht genauso aus wie auf der Karte. Ein Tippen
 auf den Rahmen **oder auf die Eintragskarte** öffnet bzw. schließt Tag und Eintrag
 – Pfeile gibt es nicht. Beim Ziehen leuchtet der Eintrag auf, dem du das Element
 zuordnen willst. **Tagesrahmen überlappen sich nicht mehr**: ihre Grenzen liegen
@@ -63,10 +67,13 @@ Element in der **Bildschirmmitte bleibt dabei stehen**; automatische Bewegungen
 laufen weich. Wischen in der Zeitleiste zentriert das Element auf der Karte und
 zoomt nötigenfalls auf Stufe 15; bewegt man die Karte, folgt die Zeitleiste. Die
 **Kilometerleiste** liegt oben und überlappt keine Pins. Die
-Zeitleiste nutzt die unteren zwei Fünftel des Bildschirms; Fotos aufgeklappter
-Einträge sind größer. Pins erscheinen als **Nadel** wie auf der Karte, ohne
-zusätzlichen Rahmen; vor Ortsnamen steht ein einfarbiges Pin-Symbol in
-Textgröße.
+Zeitleiste nutzt die unteren zwei Fünftel des Bildschirms. Unter dem Pin eines
+Eintrags stehen **Titel, dann der Text**, darunter der Fotostapel; aufgeklappt
+werden die Fotos **rechts daneben aufgereiht**. Das **Datum (dd.MM.yyyy)** steht
+über der Nadel. Es gibt genau **einen Pin je Ereignis** (Eintrag oder einzelner
+Pin), nie einen zusätzlichen für ein Foto. Eingeklappte Einträge sind schmal und
+ihr Rahmen bleibt innerhalb des Tagesrahmens. Bei geschlossenen Tagen siehst du
+eine kleine Vorschau aus Fotos und Titeln im Tagesrahmen.
 
 **Ortsnamen** werden automatisch als **„Stadt, Staat"** aus den Koordinaten
 ermittelt. Vorhandene alte Namen werden beim ersten Start dieser Version einmalig
@@ -83,8 +90,8 @@ Tag und mehrere Elemente pro Eintrag möglich. Elemente öffnen sich beim Antipp
 und werden dort direkt bearbeitet – auch das Löschen gibt es nur dort. Fotos
 übergeben **Datum, Uhrzeit und Ort** direkt an den Eintrag – der Ort steht also
 sofort im Detailfenster, nicht nur als Hinweis. Felder, die du selbst gesetzt
-hast, bleiben erhalten. In der Zeitleiste gibt es genau **einen Pin je Foto mit
-Ort und einen Pin für den Eintrag selbst**, keine zusätzlichen Pins. Ein Eintrag aus der Zeitleiste kann nach langem
+hast, bleiben erhalten. In der Zeitleiste gibt es genau **einen Pin je Ereignis**,
+keinen zusätzlichen für Fotos. Ein Eintrag aus der Zeitleiste kann nach langem
 Halten auf einen Pin oder auf freie Karte gezogen werden – dort entsteht dann
 ein neuer Pin. Beim Ziehen eines Pins verschieben sich Eintrag und Bilder mit.
 Alte Einzelbilder wurden bereits in eigene Einträge überführt – nichts ging
@@ -92,7 +99,10 @@ verloren. Während des Pinch-Zooms wird nichts ausgewählt. Ein schlechtes Foto
 überspringt der Import, statt die App abzustürzen.
 
 Die Detailansichten öffnen sich als **Pop-up** über leicht abgedunkeltem
-Hauptbereich; ein Klick daneben schließt es. Im Eintrag siehst du auch die
+Hauptbereich; ein Klick daneben schließt es. Die **Foto-Detailansicht zeigt nur
+das Polaroid mit Bild und Titel**, bei jedem Öffnen in einem neuen leichten
+Schrägwinkel. Das ganze Polaroid lässt sich mit zwei Fingern **pinch-zoomen**
+ und verschieben; der Titel ist dort nur zu lesen. Im Eintrag siehst du auch die
 angehängten Fotos, aber **keine Liste der Pins** mehr. Foto-Orte werden aus dem
 unveränderten Original ausgelesen und notfalls aus den GPS-Spalten des
 MediaStore ergänzt – bei SAF-Kopien zusätzlich über den Dateinamen, auch wenn die

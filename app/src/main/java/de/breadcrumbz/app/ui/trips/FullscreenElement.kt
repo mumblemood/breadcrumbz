@@ -8,6 +8,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,8 +25,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -40,7 +39,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,20 +46,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -112,9 +109,6 @@ private fun dateText(time: Long?): String =
     time?.let { SimpleDateFormat("dd.MM.yyyy · HH:mm", Locale.GERMANY).format(Date(it)) }
         ?: "Ohne Zeit"
 
-private fun placeText(name: String?): String =
-    name?.takeIf { it.isNotBlank() } ?: "Kein Ort"
-
 /** Zeit und Ort stehen klein unter dem Bild und haben ggf. einen Pin davor. */
 @Composable
 private fun SmallMeta(text: String, withPin: Boolean = false) {
@@ -147,6 +141,8 @@ fun FullscreenElement(
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
+    // Die Foto-Detailansicht zeigt wirklich nur das Polaroid – kein Extra-Kartenform.
+    val photoOnly = elementKey.startsWith("photo-")
 
     Dialog(
         onDismissRequest = onClose,
@@ -175,7 +171,12 @@ fun FullscreenElement(
         ) {
             Card(
                 shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = paper),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (photoOnly) Color.Transparent else paper,
+                ),
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = if (photoOnly) 0.dp else 4.dp,
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 620.dp)
@@ -189,14 +190,17 @@ fun FullscreenElement(
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                     ) {
-                        Button(
-                            onClick = onClose,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = ink,
-                                contentColor = paper,
-                            ),
-                        ) { Text("← Zurück", color = paper) }
-                        Spacer(Modifier.height(8.dp))
+                        // Foto-Detail: nur das Polaroid, kein Zurück-Knopf.
+                        if (!photoOnly) {
+                            Button(
+                                onClick = onClose,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = ink,
+                                    contentColor = paper,
+                                ),
+                            ) { Text("← Zurück", color = paper) }
+                            Spacer(Modifier.height(8.dp))
+                        }
 
                         when {
                             elementKey.startsWith("photo-") -> {
@@ -206,38 +210,50 @@ fun FullscreenElement(
                                     MissingElement(onClose)
                                 } else {
                                     val bitmap = rememberBigImage(viewModel, photo.fileName)
-                                    var editingCaption by remember(photo.id) {
-                                        mutableStateOf(false)
+                                    // Bei jedem Öffnen ein neuer, kleiner Schrägwinkel.
+                                    val tilt = remember(photo.id) {
+                                        (-9..9).random().toFloat()
                                     }
-                                    var captionDraft by remember(photo.id) {
-                                        mutableStateOf(photo.caption)
+                                    var scale by remember(photo.id) { mutableStateOf(1f) }
+                                    var pan by remember(photo.id) {
+                                        mutableStateOf(Offset.Zero)
                                     }
-                                    val captionFocus = remember { FocusRequester() }
-                                    val keyboard = LocalSoftwareKeyboardController.current
-                                    LaunchedEffect(editingCaption) {
-                                        if (editingCaption) captionFocus.requestFocus()
-                                    }
-                                    val captionColors = OutlinedTextFieldDefaults.colors(
-                                        focusedTextColor = ink,
-                                        unfocusedTextColor = ink,
-                                        cursorColor = ink,
-                                        focusedBorderColor = ink,
-                                        unfocusedBorderColor = frame,
-                                        focusedContainerColor = paper,
-                                        unfocusedContainerColor = paper,
-                                    )
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(420.dp)
+                                            .pointerInput(photo.id) {
+                                                detectTransformGestures { _, panChange, zoom, _ ->
+                                                    scale = (scale * zoom).coerceIn(1f, 4f)
+                                                    val limitX = 180f * scale
+                                                    val limitY = 210f * scale
+                                                    pan = Offset(
+                                                        (pan.x + panChange.x)
+                                                            .coerceIn(-limitX, limitX),
+                                                        (pan.y + panChange.y)
+                                                            .coerceIn(-limitY, limitY),
+                                                    )
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center,
                                     ) {
-                                        // Großer Polaroid-Rahmen, Titel im dicken unteren Rand.
+                                        // Nur das Polaroid: Bild, dicker Rand, Titel.
                                         Column(
                                             modifier = Modifier
                                                 .width(280.dp)
+                                                .graphicsLayer(
+                                                    scaleX = scale,
+                                                    scaleY = scale,
+                                                    rotationZ = tilt,
+                                                    translationX = pan.x,
+                                                    translationY = pan.y,
+                                                )
                                                 .clip(RoundedCornerShape(4.dp))
                                                 .background(paper)
                                                 .border(3.dp, ink, RoundedCornerShape(4.dp))
-                                                .padding(start = 12.dp, end = 12.dp, top = 12.dp),
+                                                .padding(
+                                                    start = 12.dp, end = 12.dp, top = 12.dp,
+                                                ),
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                         ) {
                                             Box(
@@ -250,7 +266,8 @@ fun FullscreenElement(
                                                 if (bitmap != null) {
                                                     Image(
                                                         bitmap = bitmap,
-                                                        contentDescription = photo.caption.ifBlank { "Foto" },
+                                                        contentDescription =
+                                                            photo.caption.ifBlank { "Foto" },
                                                         contentScale = ContentScale.Fit,
                                                         modifier = Modifier.fillMaxSize(),
                                                     )
@@ -262,96 +279,19 @@ fun FullscreenElement(
                                                 }
                                             }
                                             Spacer(Modifier.height(16.dp))
-                                            if (editingCaption) {
-                                                OutlinedTextField(
-                                                    value = captionDraft,
-                                                    onValueChange = {
-                                                        captionDraft = it.take(12)
-                                                        viewModel.updatePhotoCaption(
-                                                            photo.id,
-                                                            captionDraft,
-                                                        )
-                                                    },
-                                                    label = { Text("Titel", color = ink) },
-                                                    singleLine = true,
-                                                    textStyle = MaterialTheme.typography.titleMedium.copy(
-                                                        fontFamily = comic,
-                                                        textAlign = TextAlign.Center,
-                                                    ),
-                                                    colors = captionColors,
-                                                    keyboardOptions = KeyboardOptions(
-                                                        imeAction = ImeAction.Done,
-                                                    ),
-                                                    keyboardActions = KeyboardActions(
-                                                        onDone = {
-                                                            keyboard?.hide()
-                                                            editingCaption = false
-                                                        },
-                                                    ),
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .focusRequester(captionFocus),
-                                                )
-                                            } else {
-                                                Text(
-                                                    text = if (photo.caption.isBlank()) {
-                                                        "Titel"
-                                                    } else {
-                                                        photo.caption
-                                                    },
-                                                    color = ink,
-                                                    fontFamily = comic,
-                                                    fontStyle = if (photo.caption.isBlank()) {
-                                                        FontStyle.Italic
-                                                    } else {
-                                                        FontStyle.Normal
-                                                    },
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    textAlign = TextAlign.Center,
-                                                    modifier = Modifier.clickable {
-                                                        captionDraft = photo.caption
-                                                        editingCaption = true
-                                                    },
-                                                )
-                                            }
+                                            Text(
+                                                text = photo.caption.ifBlank { "Titel" },
+                                                color = ink,
+                                                fontFamily = comic,
+                                                fontStyle = if (photo.caption.isBlank()) {
+                                                    FontStyle.Italic
+                                                } else {
+                                                    FontStyle.Normal
+                                                },
+                                                style = MaterialTheme.typography.titleMedium,
+                                                textAlign = TextAlign.Center,
+                                            )
                                             Spacer(Modifier.height(18.dp))
-                                        }
-                                        Spacer(Modifier.height(12.dp))
-                                        SmallMeta(dateText(photo.capturedAt))
-                                        val photoPlace = stops.firstOrNull {
-                                            it.id == photo.stopId
-                                        }?.title
-                                        SmallMeta(placeText(photoPlace), withPin = true)
-                                        val entry = entries.firstOrNull { it.id == photo.entryId }
-                                        if (entry != null) {
-                                            InkTextButton(onClick = {
-                                                onOpenElement("entry-${entry.id}")
-                                            }) {
-                                                Text(entry.title.ifBlank { "Eintrag" })
-                                            }
-                                        }
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            if (photo.latitude != null && photo.longitude != null &&
-                                                entry != null
-                                            ) {
-                                                InkTextButton(onClick = {
-                                                    onAdoptPhotoLocation(photo.id)
-                                                    onClose()
-                                                }) {
-                                                    Text("Ort in Eintrag übernehmen")
-                                                }
-                                            }
-                                            if (photo.latitude == null || photo.longitude == null) {
-                                                InkTextButton(onClick = {
-                                                    viewModel.beginPlacement(photo.id)
-                                                    onClose()
-                                                }) {
-                                                    Text("Ort setzen")
-                                                }
-                                            }
                                         }
                                     }
                                 }
