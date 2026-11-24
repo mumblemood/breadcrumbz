@@ -3,19 +3,23 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Version 0.10.0 – Bedienung, Pop-up-Details und Zeitleiste verfeinert.**
+**Aktueller Stand: Version 0.11.0 – Startseite, Foto-Ort, Pop-up und Zeitleiste korrigiert.**
 
-Die **Startseite** zeigt alle Reisen chronologisch, die neueste oben. Das **„+"**
-ganz oben legt sofort eine neue Reise an und öffnet direkt die Karte – ohne
-Dialog. Das **Dreistrich-Menü** oben rechts enthält Einstellungen sowie
+Die **Startseite** zeigt alle Reisen chronologisch, die neueste oben. Das **App-Logo**
+steht oben links. Das **„+"** sitzt mittig oben **innerhalb der Liste** und legt
+sofort eine neue Reise an und öffnet direkt die Karte – ohne Dialog. Zeitraum und
+Ort einer Reise werden aus ihren Fotos, Pins und Einträgen abgeleitet und auf der
+Karte angezeigt; manuell gesetzte Werte behalten Vorrang. Das **Dreistrich-Menü**
+oben rechts enthält Einstellungen sowie
 **Backup erstellen** und **Backup einspielen**. Ein Tippen auf eine Reise öffnet
 sie, langes Drücken öffnet die Bearbeitung.
 
 Der Reisetitel steht in der Kartenkopfleiste. Solange er automatisch ist, steht
 dort kursiv **„neue Reise"**; ein Tippen öffnet ein direktes Textfeld (kein
-Pop-up). Sobald der erste Ort, Pin oder Eintrag bekannt ist, übernimmt die App
-ihn automatisch als Titel – weiterhin kursiv, bis du den Titel selbst tippst.
-Danach bleibt er fest. Das Dreistrich-Menü in der Karte enthält die
+Pop-up). Ein Tippen woandershin (auf die Karte) oder die Eingabetaste beendet die
+Bearbeitung und speichert den Titel. Sobald der erste Ort, Pin oder Eintrag
+bekannt ist, übernimmt die App ihn automatisch als Titel – weiterhin kursiv, bis
+du den Titel selbst tippst. Danach bleibt er fest. Das Dreistrich-Menü in der Karte enthält die
 Reise-Einstellungen für Linienstil und Kartenstil. Die Zähler und der alte
 Knopf **„Linie:auto"** sind entfernt.
 
@@ -31,8 +35,10 @@ eingestellt.
 
 **Timeline:** Sie lässt sich überall wischen; Ziehen eines Elements startet erst
 nach längerem Halten. Die schwarze gestrichelte Linie ist dick und hat nur einen
-dünnen weißen Rand. Ein aufgeklappter Tag hat eine größere grüne Markierung, ein
-aufgeklappter Eintrag eine hellgraue, die alle zugehörigen Elemente umschließt.
+dünnen weißen Rand. Ein Klick auf den Rahmen öffnet oder schließt Tag bzw.
+Eintrag – Pfeile gibt es nicht. Der Tagesrahmen umschließt alles des Tages; der
+Eintragsrahmen umschließt Titel, alle Fotos, Pins und den Tagebuchtext.
+Eingeklappt erscheinen mehrere Fotos als kleiner Stapel, ausgeklappt einzeln.
 Pins haben einen farbigen Rand; vor Ortsnamen steht immer ein einfarbiges Pin-
 Symbol in Textgröße.
 
@@ -56,7 +62,10 @@ Bilder mit. Alte Einzelbilder wurden bereits in eigene Einträge überführt –
 nichts ging verloren. Während des Pinch-Zooms wird nichts ausgewählt.
 
 Die Detailansichten öffnen sich als **Pop-up** über leicht abgedunkeltem
-Hauptbereich. Zeit und Ort stehen direkt unterm Titel. Wurden sie aus dem ersten
+Hauptbereich; ein Klick daneben schließt es. Im Eintrag siehst du auch die
+angehängten Fotos. Foto-Orte werden aus dem unveränderten Original ausgelesen,
+auch wenn die Galerie-Auswahl sonst nur eine GPS-lose Kopie liefert. Zeit und
+Ort stehen direkt unterm Titel. Wurden sie aus dem ersten
 Foto übernommen, stehen sie kursiv mit **„(aus erstem Foto)"**; ein Tippen
 öffnet eine bequeme Auswahl und entfernt den Kursiv-Hinweis. Das Foto selbst hat
 einen großen Polaroid-Rahmen mit dem Titel im unteren Rand (Comic-Schrift);

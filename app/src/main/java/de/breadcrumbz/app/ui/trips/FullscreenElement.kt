@@ -147,7 +147,11 @@ fun FullscreenElement(
 
     Dialog(
         onDismissRequest = onClose,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnOutsideClick = true,
+            dismissOnBackPress = true,
+        ),
     ) {
         // Nur leicht dimmen, damit Karte und Timeline darunter erkennbar bleiben.
         // Muss im Dialog-Fenster selbst gesetzt werden, nicht im Hauptfenster.
@@ -163,7 +167,8 @@ fun FullscreenElement(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(20.dp),
+                .padding(20.dp)
+                .clickable { onClose() },
             contentAlignment = Alignment.Center,
         ) {
             Card(
@@ -171,7 +176,9 @@ fun FullscreenElement(
                 colors = CardDefaults.cardColors(containerColor = paper),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 620.dp),
+                    .heightIn(max = 620.dp)
+                    // Klicks im Kartenkartenbereich nicht nach außen durchreichen.
+                    .clickable { },
             ) {
                 CompositionLocalProvider(LocalContentColor provides ink) {
                     Column(
@@ -533,6 +540,45 @@ fun FullscreenElement(
                                             colors = fieldColors,
                                             modifier = Modifier.fillMaxWidth(),
                                         )
+
+                                        // Angehängte Fotos direkt im Eintrag zeigen.
+                                        val entryPhotos = photos.filter {
+                                            it.entryId == entry.id
+                                        }
+                                        if (entryPhotos.isNotEmpty()) {
+                                            Spacer(Modifier.height(10.dp))
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .horizontalScroll(rememberScrollState()),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            ) {
+                                                entryPhotos.forEach { photo ->
+                                                    val bitmap = photoBitmap(photo.id)
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(84.dp)
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .background(frame)
+                                                            .clickable {
+                                                                onOpenElement("photo-${photo.id}")
+                                                            },
+                                                        contentAlignment = Alignment.Center,
+                                                    ) {
+                                                        if (bitmap != null) {
+                                                            Image(
+                                                                bitmap = bitmap,
+                                                                contentDescription =
+                                                                    photo.caption.ifBlank { "Foto" },
+                                                                contentScale = ContentScale.Crop,
+                                                                modifier = Modifier.fillMaxSize(),
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
                                         Spacer(Modifier.height(10.dp))
                                         Row(
                                             horizontalArrangement = Arrangement.spacedBy(4.dp),

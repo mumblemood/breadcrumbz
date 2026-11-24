@@ -31,6 +31,8 @@ interface BreadcrumbzRepository {
     suspend fun deleteTrip(id: String)
 
     fun observeStops(tripId: String): Flow<List<Stop>>
+    /** Alle Pins aller Reisen – für automatisch abgeleitete Reise-Infos. */
+    fun observeAllStops(): Flow<List<Stop>>
 
     suspend fun addStop(
         tripId: String,
@@ -46,6 +48,8 @@ interface BreadcrumbzRepository {
 
     fun observeEntries(stopId: String): Flow<List<Entry>>
     fun observeEntriesForTrip(tripId: String): Flow<List<Entry>>
+    /** Alle Einträge aller Reisen – für automatisch abgeleitete Reise-Infos. */
+    fun observeAllEntries(): Flow<List<Entry>>
 
     suspend fun addEntry(tripId: String, stopId: String?, title: String, body: String): Entry
     suspend fun updateEntry(entry: Entry)

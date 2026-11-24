@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -52,9 +53,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.breadcrumbz.app.R
 import de.breadcrumbz.app.data.backup.BackupManager
-import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.Trip
+import de.breadcrumbz.app.state.TripOverview
 import de.breadcrumbz.app.state.TripsViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -83,9 +84,10 @@ fun TripsScreen(
     onRefreshPlaces: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val trips by viewModel.trips.collectAsStateWithLifecycle()
-    val photosByTrip by viewModel.photosByTrip.collectAsStateWithLifecycle()
-    val sortedTrips = remember(trips) { trips.sortedByDescending { it.createdAt } }
+    val overviews by viewModel.overviews.collectAsStateWithLifecycle()
+    val sortedTrips = remember(overviews) {
+        overviews.sortedByDescending { it.trip.createdAt }
+    }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -142,13 +144,15 @@ fun TripsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Breadcrumbz") },
-                actions = {
-                    IconButton(onClick = { viewModel.createTrip(onOpenTrip) }) {
+                navigationIcon = {
+                    IconButton(onClick = {}) {
                         Icon(
-                            painter = painterResource(R.drawable.ic_add),
-                            contentDescription = "Neue Reise anlegen",
+                            painter = painterResource(R.mipmap.ic_launcher),
+                            contentDescription = "Breadcrumbz",
                         )
                     }
+                },
+                actions = {
                     Box {
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(
@@ -195,36 +199,50 @@ fun TripsScreen(
                 .padding(padding)
                 .padding(20.dp),
         ) {
-            Text("Deine Reisen", style = MaterialTheme.typography.headlineSmall)
-            Spacer(Modifier.height(16.dp))
-
-            if (sortedTrips.isEmpty()) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                ) {
-                    Text(
-                        text = "Noch keine Reise angelegt.\nTippe oben auf „+\".",
-                        style = MaterialTheme.typography.bodyLarge,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(28.dp),
-                    )
-                }
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(sortedTrips, key = { it.id }) { trip ->
-                        val coverPhoto: Photo? = trip.coverPhotoId?.let { id ->
-                            photosByTrip[trip.id]?.firstOrNull { it.id == id }
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Plus oben mittig innerhalb der Liste.
+                item(key = "add-trip") {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = androidx.compose.ui.Alignment.Center,
+                    ) {
+                        IconButton(onClick = { viewModel.createTrip(onOpenTrip) }) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_add),
+                                contentDescription = "Neue Reise anlegen",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(48.dp),
+                            )
                         }
-                        val coverPath = coverPhoto?.let { viewModel.photoPath(it.fileName) }
+                    }
+                }
+                if (sortedTrips.isEmpty()) {
+                    item(key = "empty") {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(24.dp),
+                        ) {
+                            Text(
+                                text = "Noch keine Reise angelegt.\nTippe auf „+“ über der Liste.",
+                                style = MaterialTheme.typography.bodyLarge,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(28.dp),
+                            )
+                        }
+                    }
+                } else {
+                    items(sortedTrips, key = { it.trip.id }) { overview ->
+                        val coverPath = overview.coverPhoto?.let {
+                            viewModel.photoPath(it.fileName)
+                        }
                         TripCard(
-                            trip = trip,
+                            overview = overview,
                             coverPath = coverPath,
-                            onOpen = { onOpenTrip(trip.id) },
-                            onEdit = { openEditor(trip) },
-                            onDelete = { deleteCandidate = trip },
+                            onOpen = { onOpenTrip(overview.trip.id) },
+                            onEdit = { openEditor(overview.trip) },
+                            onDelete = { deleteCandidate = overview.trip },
                         )
                     }
                 }
@@ -395,7 +413,7 @@ fun TripsScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TripCard(
-    trip: Trip,
+    overview: TripOverview,
     coverPath: String?,
     onOpen: () -> Unit,
     onEdit: () -> Unit,
@@ -415,20 +433,25 @@ private fun TripCard(
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             val range = listOfNotNull(
-                trip.startDate?.let { formatDate(it) },
-                trip.endDate?.let { formatDate(it) },
+                overview.startDate?.let { formatDate(it) },
+                overview.endDate?.let { formatDate(it) },
             ).joinToString(" - ")
+            val headline = listOfNotNull(
+                overview.trip.title,
+                range.ifBlank { null },
+                overview.place?.takeIf { it.isNotBlank() },
+            ).joinToString(" · ")
             Text(
-                text = if (range.isBlank()) trip.title else "${trip.title} · $range",
+                text = headline,
                 style = MaterialTheme.typography.titleLarge,
             )
-            if (trip.description.isNotBlank()) {
+            if (overview.trip.description.isNotBlank()) {
                 Spacer(Modifier.height(6.dp))
-                Text(trip.description, style = MaterialTheme.typography.bodyMedium)
+                Text(overview.trip.description, style = MaterialTheme.typography.bodyMedium)
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                "Verkehrsmittel: ${trip.defaultTransportMode.label}",
+                "Verkehrsmittel: ${overview.trip.defaultTransportMode.label}",
                 style = MaterialTheme.typography.bodySmall,
             )
 

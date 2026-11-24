@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -698,6 +699,16 @@ fun TripMapScreen(
                     },
                 )
 
+                // Während der Titelbearbeitung beendet ein Tap auf die Karte
+                // die Bearbeitung und speichert den eingegebenen Titel.
+                if (editingTitle) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clickable { commitTitle() },
+                    )
+                }
+
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -817,6 +828,7 @@ fun TripMapScreen(
                     items = timeline,
                     stops = stops,
                     photosByEntry = photosByEntry,
+                    entryBodies = allEntries.associate { it.id to it.body },
                     expandedDay = expandedDay,
                     expandedEntryIds = expandedEntryIds,
                     onDayToggle = { day ->

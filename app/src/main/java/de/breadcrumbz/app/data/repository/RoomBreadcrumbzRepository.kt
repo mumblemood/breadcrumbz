@@ -69,6 +69,9 @@ class RoomBreadcrumbzRepository(
     override fun observeStops(tripId: String): Flow<List<Stop>> =
         stopDao.observeForTrip(tripId).map { rows -> rows.map { it.toDomain() } }
 
+    override fun observeAllStops(): Flow<List<Stop>> =
+        stopDao.observeAll().map { rows -> rows.map { it.toDomain() } }
+
     override suspend fun addStop(
         tripId: String,
         title: String,
@@ -113,6 +116,9 @@ class RoomBreadcrumbzRepository(
 
     override fun observeEntriesForTrip(tripId: String): Flow<List<Entry>> =
         entryDao.observeForTrip(tripId).map { rows -> rows.map { it.toDomain() } }
+
+    override fun observeAllEntries(): Flow<List<Entry>> =
+        entryDao.observeAll().map { rows -> rows.map { it.toDomain() } }
 
     override suspend fun addEntry(
         tripId: String,
