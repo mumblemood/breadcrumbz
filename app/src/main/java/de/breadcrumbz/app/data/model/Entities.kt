@@ -19,6 +19,9 @@ data class TripEntity(
     val defaultTransportMode: String,
     @ColumnInfo(defaultValue = "AUTO")
     val routeMode: String,
+    /** true = Titel wurde noch nicht vom Nutzer gesetzt („neue Reise“). */
+    @ColumnInfo(defaultValue = "0")
+    val titleIsAuto: Boolean = false,
     val createdAt: Long,
     val updatedAt: Long,
 )

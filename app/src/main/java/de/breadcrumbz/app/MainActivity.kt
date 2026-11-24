@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,13 +41,16 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier,
                     color = MaterialTheme.colorScheme.background,
                 ) {
+                    LaunchedEffect(Unit) { container.refreshPlaceNamesOnce() }
                     var openTripId by rememberSaveable { mutableStateOf<String?>(null) }
 
                     val tripId = openTripId
                     if (tripId == null) {
                         TripsScreen(
                             viewModel = tripsViewModel,
+                            backupManager = container.backupManager,
                             onOpenTrip = { openTripId = it },
+                            onRefreshPlaces = { container.refreshPlaceNamesNow() },
                         )
                     } else {
                         val mapFactory = remember(tripId) {

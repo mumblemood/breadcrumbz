@@ -6,6 +6,7 @@ import de.breadcrumbz.app.data.photo.ImportedPhoto
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
 import de.breadcrumbz.app.data.photo.PhotoImporter
 import de.breadcrumbz.app.data.place.PlaceNameResolver
+import de.breadcrumbz.app.domain.model.OverlayMode
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.StopSource
@@ -151,6 +152,26 @@ class TripMapViewModel(
         _selectedStopId.value = stopId
     }
 
+    /** Solange der Titel automatisch ist, übernimmt er den ersten bekannten Ort. */
+    private suspend fun autoNameTripFrom(place: String?) {
+        if (place.isNullOrBlank()) return
+        val current = repository.observeTrips().first().firstOrNull { it.id == tripId }
+            ?: return
+        if (current.titleIsAuto) {
+            repository.updateTrip(current.copy(title = place.trim()))
+        }
+    }
+
+    /** Titel direkt in der Kopfleiste ändern – danach bleibt er fest. */
+    fun setTripTitle(title: String) {
+        if (title.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = repository.observeTrips().first().firstOrNull { it.id == tripId }
+                ?: return@launch
+            repository.updateTrip(current.copy(title = title.trim(), titleIsAuto = false))
+        }
+    }
+
     fun saveEntry(stopId: String?, entryId: String?, title: String, body: String) {
         if (title.isBlank() && body.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {
@@ -205,12 +226,15 @@ class TripMapViewModel(
             val now = System.currentTimeMillis()
 
             val stopsNow = repository.observeStops(tripId).first()
+            var firstPlace: String? = null
             items.forEachIndexed { index, item ->
                 val metadata = PhotoImporter.read(item.bytes)
                 val fileName = photoStore.save(item.bytes, item.mimeType)
                 val capturedAt = metadata.capturedAt ?: (now + index)
                 var stopId: String? = null
                 if (metadata.latitude != null && metadata.longitude != null) {
+                    val place = placeNameResolver.resolve(metadata.latitude, metadata.longitude)
+                    if (firstPlace == null) firstPlace = place
                     stopId = stopsNow.firstOrNull { stop ->
                         photoMatchesStop(
                             metadata.latitude,
@@ -222,8 +246,7 @@ class TripMapViewModel(
                         )
                     }?.id ?: repository.addStop(
                         tripId = tripId,
-                        title = placeNameResolver.resolve(metadata.latitude, metadata.longitude)
-                            ?: "Foto · ${startIndex + index + 1}",
+                        title = place ?: "Foto · ${startIndex + index + 1}",
                         latitude = metadata.latitude,
                         longitude = metadata.longitude,
                         visitedAt = capturedAt,
@@ -255,6 +278,7 @@ class TripMapViewModel(
                         ?.let { repository.updateStop(it) }
                 }
             }
+            autoNameTripFrom(firstPlace)
         }
     }
 
@@ -324,8 +348,9 @@ class TripMapViewModel(
                     val photoTime = primaryPhoto?.capturedAt ?: time
                     val stamp = SimpleDateFormat("dd.MM. HH:mm", Locale.GERMANY)
                         .format(Date(photoTime))
-                    val name = placeNameResolver.resolve(latitude, longitude)
-                        ?: "Fotos · $stamp"
+                    val place = placeNameResolver.resolve(latitude, longitude)
+                    val name = place ?: "Fotos · $stamp"
+                    autoNameTripFrom(place)
                     repository.addStop(
                         tripId = tripId,
                         title = name,
@@ -380,6 +405,7 @@ class TripMapViewModel(
                 repository.observeEntriesForTrip(tripId).first().firstOrNull { it.id == id }
             }
             val targetStop = entry?.stopId?.let { id -> stopsNow.firstOrNull { it.id == id } }
+            autoNameTripFrom(targetStop?.title)
             if (targetStop != null && entryId != null) {
                 repository.updateStop(targetStop.copy(entryId = entryId))
             }
@@ -468,6 +494,7 @@ class TripMapViewModel(
                 source = StopSource.PHOTO,
             )
 
+            autoNameTripFrom(stop.title)
             repository.updateStop(stop.copy(entryId = entry.id))
             repository.updateEntry(entry.copy(stopId = stop.id))
             repository.observePhotos(tripId).first()
@@ -481,6 +508,15 @@ class TripMapViewModel(
                         ),
                     )
                 }
+        }
+    }
+
+    /** Kartenstil aus dem Reise-Menü. */
+    fun setOverlayMode(mode: OverlayMode) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = repository.observeTrips().first().firstOrNull { it.id == tripId }
+                ?: return@launch
+            repository.updateTrip(current.copy(overlayMode = mode))
         }
     }
 
@@ -517,6 +553,7 @@ class TripMapViewModel(
             val number = stops.value.size + 1
             val name = placeNameResolver.resolve(latitude, longitude)
             repository.addStop(tripId, name ?: "Wegpunkt $number", latitude, longitude)
+            autoNameTripFrom(name)
         }
     }
 
@@ -578,8 +615,9 @@ class TripMapViewModel(
                 .first().firstOrNull { it.id == entryId }
                 ?: return@launch
             val number = stops.value.size + 1
-            val name = placeNameResolver.resolve(latitude, longitude) ?: "Wegpunkt $number"
-            val stop = repository.addStop(tripId, name, latitude, longitude)
+            val name = placeNameResolver.resolve(latitude, longitude)
+            val stop = repository.addStop(tripId, name ?: "Wegpunkt $number", latitude, longitude)
+            autoNameTripFrom(name)
             repository.updateEntry(entry.copy(stopId = stop.id))
             repository.observePhotos(tripId).first()
                 .filter { it.entryId == entryId }
@@ -641,6 +679,7 @@ class TripMapViewModel(
                 } ?: "Ohne Zeit"
                 val place = placeNameResolver.resolve(latitude, longitude)
                 val title = if (place != null) "$place · Fotos" else "Fotos · $formatted"
+                autoNameTripFrom(place)
 
                 val stop = repository.addStop(
                     tripId = tripId,

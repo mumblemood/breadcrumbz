@@ -26,6 +26,17 @@ class TripsViewModel(
 
     fun photoPath(fileName: String): String = photoStore.fileFor(fileName).absolutePath
 
+    /** Neue Reise direkt anlegen und sofort die Karte öffnen – ohne Dialog. */
+    fun createTrip(onCreated: (String) -> Unit) {
+        viewModelScope.launch {
+            val trip = repository.createTrip(
+                title = "neue Reise",
+                titleIsAuto = true,
+            )
+            onCreated(trip.id)
+        }
+    }
+
     fun saveTrip(
         id: String?,
         title: String,
@@ -54,6 +65,7 @@ class TripsViewModel(
                             startDate = startDate,
                             endDate = endDate,
                             defaultTransportMode = transportMode,
+                            titleIsAuto = title.trim() == trip.title && trip.titleIsAuto,
                         ),
                     )
                 }

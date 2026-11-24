@@ -4,12 +4,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,7 +19,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,9 +39,11 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -74,6 +77,7 @@ private val ink = Color(0xFF3B2B20)
 private val paper = Color(0xFFFBF4E4)
 private val accent = Color(0xFFB8782F)
 private val teal = Color(0xFF2E6B6B)
+private val fieldGray = Color(0xFFE8E8E8)
 
 private fun dayKey(time: Long): String =
     SimpleDateFormat("yyyy-MM-dd", Locale.GERMANY).format(Date(time))
@@ -82,8 +86,8 @@ private fun dayLabel(time: Long): String =
     SimpleDateFormat("dd.MM.yyyy", Locale.GERMANY).format(Date(time))
 
 /**
- * Dauerhaft sichtbarer Zeitstrom: geschwungenene Linien, Pins, Tagesmarken,
- * große Polaroids und Einträge, die zum Aufklappen einladen.
+ * Zeitstrom: schwarze gestrichelte Linie mit weißem Rand. Pins und Elemente
+ * hängen auf der Linie. Wischen scrollt; erst langes Halten startet das Ziehen.
  */
 @Composable
 fun AdventureTimeline(
@@ -106,6 +110,7 @@ fun AdventureTimeline(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
     val stepPx = with(density) {
         (168f * (mapZoom / 14f)).coerceIn(100f, 300f).dp.toPx()
     }
@@ -277,17 +282,17 @@ fun AdventureTimeline(
                 val yAt = { index: Int ->
                     baseY + (sin(index * 0.85f) * with(density) { 9.dp.toPx() }).toFloat()
                 }
-                val dash = PathEffect.dashPathEffect(floatArrayOf(18f, 13f), 0f)
+                val dash = PathEffect.dashPathEffect(floatArrayOf(24f, 16f), 0f)
 
-                // Geldes Feld: zeigt sichtbar, welche Elemente im Eintrag stecken.
+                // Aufgeklappte Einträge liegen auf einem hellgrauen Feld.
                 points.forEachIndexed { index, point ->
                     val children = (point.item?.photoCount ?: 0) +
                         (point.item?.pinCount ?: 0)
-                    if (point.kind == 2 && children > 0 &&
+                    if (point.kind == 2 &&
                         expandedEntryIds.contains(point.item?.entryId)
                     ) {
                         drawRoundRect(
-                            color = Color(0xFFF6E27A).copy(alpha = 0.42f),
+                            color = fieldGray,
                             topLeft = Offset(point.x - 76f, yAt(index) - 10f),
                             size = androidx.compose.ui.geometry.Size(
                                 170f,
@@ -304,19 +309,15 @@ fun AdventureTimeline(
                     val middle = (points[index - 1].x + points[index].x) / 2
                     path.quadraticBezierTo(middle, yAt(index - 1), points[index].x, yAt(index))
                 }
-                drawPath(path, ink, style = Stroke(width = 4f, pathEffect = dash))
+                // Weißer Rand, darüber die dreifach dicke schwarze gestrichelte Linie.
+                drawPath(path, Color.White, style = Stroke(width = 20f))
+                drawPath(path, ink, style = Stroke(width = 12f, pathEffect = dash))
 
-                // Half-markiertes Element in der Mitte der Zeitleiste.
                 val centerIndex = points.indexOfFirst { it.key == centerKey }
                 if (centerIndex >= 0) {
                     val center = Offset(points[centerIndex].x, yAt(centerIndex))
                     drawCircle(Color(0xFFF6E27A).copy(alpha = 0.55f), radius = 27f, center = center)
-                    drawCircle(
-                        accent,
-                        radius = 27f,
-                        center = center,
-                        style = Stroke(width = 3f),
-                    )
+                    drawCircle(accent, radius = 27f, center = center, style = Stroke(width = 3f))
                 }
 
                 val markerTop = with(density) { 18.dp.toPx() }
@@ -332,68 +333,64 @@ fun AdventureTimeline(
                         strokeWidth = 3f,
                     )
                 }
-
-                // Pin-Nadeln unter jedem Element.
-                points.forEachIndexed { index, point ->
-                    val color = when (point.kind) {
-                        0 -> teal
-                        1, 5 -> ink
-                        2 -> accent
-                        else -> Color(0xFF8A5A3B)
-                    }
-                    val y = yAt(index)
-                    val needleLength = if (point.kind == 2) 34f else 26f
-                    drawLine(
-                        color = color,
-                        start = Offset(point.x, y),
-                        end = Offset(point.x, y + needleLength),
-                        strokeWidth = 4f,
-                    )
-                    val triangle = Path().apply {
-                        moveTo(point.x - 7f, y + needleLength)
-                        lineTo(point.x + 7f, y + needleLength)
-                        lineTo(point.x, y + needleLength + 11f)
-                        close()
-                    }
-                    drawPath(triangle, color)
-                    drawCircle(color, radius = 11f, center = Offset(point.x, y))
-                    drawCircle(paper, radius = 5f, center = Offset(point.x, y))
-                }
             }
 
             points.forEachIndexed { index, point ->
                 val item = point.item
-                val wobble = (sin(index * 0.85f) * 9f).toInt()
+                val lineY = with(density) { (baseY + sin(index * 0.85f) * 9f).toDp() }
                 val x = with(density) { (point.x - 84.dp.toPx()).toDp() }
-                val y = with(density) { (baseY + wobble + 46.dp.toPx()).toDp() }
+                val cardY = lineY + 30.dp
                 val highlighted = point.key == centerKey
                 val expanded = item?.entryId?.let { expandedEntryIds.contains(it) } == true
                 val children = (item?.photoCount ?: 0) + (item?.pinCount ?: 0)
 
+                // Pin in Kartengröße: die Spitze sitzt auf der Linie.
+                Icon(
+                    painter = painterResource(R.drawable.ic_stop_marker),
+                    contentDescription = null,
+                    tint = Color.Unspecified,
+                    modifier = Modifier
+                        .offset(
+                            x = with(density) { (point.x - 14.dp.toPx()).toDp() },
+                            y = lineY - 28.dp,
+                        )
+                        .size(28.dp),
+                )
+
                 Box(
                     modifier = Modifier
-                        .offset(x = x, y = y)
+                        .offset(x = x, y = cardY)
                         .width(168.dp)
                         .scale(if (highlighted) 1.08f else 1f)
                         .pointerInput(point.key) {
                             var dragX = 0f
-                            detectDragGestures(onDragEnd = {
-                                val source = when {
-                                    point.kind == 3 || point.kind == 4 ->
-                                        point.photoId?.let { "photo-$it" }
-                                    point.kind == 1 || point.kind == 5 ->
-                                        point.item?.stopId?.let { "stop-$it" }
-                                    else -> null
-                                }
-                                if (source != null) {
-                                    val finalX = point.x + dragX
-                                    val target = points.firstOrNull { candidate ->
-                                        candidate.kind == 2 &&
-                                            abs(candidate.x - finalX) < 170f
-                                    }?.item?.entryId
-                                    onDropElement(source, target)
-                                }
-                            }) { _, amount -> dragX += amount.x }
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    dragX += amount.x
+                                },
+                                onDragEnd = {
+                                    val source = when {
+                                        point.kind == 3 || point.kind == 4 ->
+                                            point.photoId?.let { "photo-$it" }
+                                        point.kind == 1 || point.kind == 5 ->
+                                            point.item?.stopId?.let { "stop-$it" }
+                                        else -> null
+                                    }
+                                    if (source != null) {
+                                        val finalX = point.x + dragX
+                                        val target = points.firstOrNull { candidate ->
+                                            candidate.kind == 2 &&
+                                                abs(candidate.x - finalX) < 170f
+                                        }?.item?.entryId
+                                        onDropElement(source, target)
+                                    }
+                                },
+                                onDragCancel = {},
+                            )
                         }
                         .clickable {
                             when {
@@ -424,27 +421,31 @@ fun AdventureTimeline(
 
                         3, 4 -> {
                             val bitmap = point.photoId?.let(photoBitmap)
+                            val ratio = if (bitmap != null && bitmap.height > 0) {
+                                (bitmap.width.toFloat() / bitmap.height.toFloat())
+                                    .coerceIn(0.7f, 1.6f)
+                            } else {
+                                4f / 3f
+                            }
                             val photoWidth = if (point.kind == 4) 92.dp else 116.dp
-                            val photoHeight = if (point.kind == 4) 70.dp else 90.dp
-                            val tilt = if (point.photoId == centerPhotoId) -4f else -8f
-                            Box(
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
-                                    .rotate(tilt)
                                     .width(photoWidth)
-                                    .height(photoHeight)
+                                    .rotate(if (point.photoId == centerPhotoId) -4f else -8f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(paper)
                                     .border(
                                         if (highlighted) 2.dp else 1.dp,
                                         if (highlighted) accent else Color(0xFFDCCDB4),
                                         RoundedCornerShape(4.dp),
                                     )
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(paper)
-                                    .padding(5.dp),
-                                contentAlignment = Alignment.Center,
+                                    .padding(start = 5.dp, end = 5.dp, top = 5.dp, bottom = 4.dp),
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxSize()
+                                        .fillMaxWidth()
+                                        .aspectRatio(ratio)
                                         .clip(RoundedCornerShape(2.dp))
                                         .background(Color(0xFFE7DAC2)),
                                     contentAlignment = Alignment.Center,
@@ -453,11 +454,17 @@ fun AdventureTimeline(
                                         Image(
                                             bitmap = bitmap,
                                             contentDescription = point.label.ifBlank { "Foto" },
-                                            contentScale = ContentScale.Crop,
+                                            contentScale = ContentScale.Fit,
                                             modifier = Modifier.fillMaxSize(),
                                         )
                                     }
                                 }
+                                Text(
+                                    text = point.label,
+                                    color = ink,
+                                    fontSize = 9.sp,
+                                    maxLines = 1,
+                                )
                             }
                         }
 
@@ -473,12 +480,6 @@ fun AdventureTimeline(
                                 )
                                 .padding(horizontal = 8.dp, vertical = 5.dp),
                         ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_stop_marker),
-                                contentDescription = "Pin",
-                                tint = Color.Unspecified,
-                                modifier = Modifier.size(20.dp),
-                            )
                             Text(
                                 text = point.label,
                                 color = ink,
@@ -495,7 +496,7 @@ fun AdventureTimeline(
                         else -> Column(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (point.kind == 2) Color(0xFFF6E27A) else paper)
+                                .background(if (expanded) fieldGray else paper)
                                 .border(
                                     if (highlighted) 2.dp else 1.dp,
                                     if (highlighted) accent else Color(0xFFDCCDB4),
@@ -524,7 +525,6 @@ fun AdventureTimeline(
                                 style = MaterialTheme.typography.bodyMedium,
                                 maxLines = 2,
                             )
-                            // Sichtbare Vorschau lädt zum Vergrößern des Eintrags ein.
                             if (point.kind == 2 && children > 0 && !expanded) {
                                 val entryPhotos = item?.entryId
                                     ?.let { photosByEntry[it] }.orEmpty()
@@ -554,7 +554,7 @@ fun AdventureTimeline(
                                                 Image(
                                                     bitmap = bitmap,
                                                     contentDescription = null,
-                                                    contentScale = ContentScale.Crop,
+                                                    contentScale = ContentScale.Fit,
                                                     modifier = Modifier.fillMaxSize(),
                                                 )
                                             }
@@ -586,7 +586,7 @@ fun AdventureTimeline(
                     .padding(horizontal = 8.dp, vertical = 3.dp),
             )
 
-            kmTargets.forEach { target ->
+            if (points.isNotEmpty()) kmTargets.forEach { target ->
                 val index = points.indexOfFirst { it.km >= target }
                     .let { if (it < 0) points.lastIndex else it }
                 val x = with(density) { (points[index].x - 34.dp.toPx()).toDp() }

@@ -21,6 +21,8 @@ data class Trip(
     val defaultTransportMode: TransportMode,
     /** Linie automatisch oder direkt als Spline. */
     val routeMode: RouteMode,
+    /** Kursiv „neue Reise“: Titel darf automatisch zum ersten Ort werden. */
+    val titleIsAuto: Boolean = false,
     val createdAt: Long,
     val updatedAt: Long,
 )

@@ -31,6 +31,9 @@ interface StopDao {
     @Query("SELECT * FROM stops WHERE tripId = :tripId ORDER BY sortIndex ASC")
     fun observeForTrip(tripId: String): Flow<List<StopEntity>>
 
+    @Query("SELECT * FROM stops ORDER BY tripId, sortIndex ASC")
+    fun observeAll(): Flow<List<StopEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(stop: StopEntity)
 
@@ -49,6 +52,9 @@ interface EntryDao {
     /** Alle Einträge der Reise – auch die ohne Stopp. */
     @Query("SELECT * FROM entries WHERE tripId = :tripId ORDER BY createdAt ASC")
     fun observeForTrip(tripId: String): Flow<List<EntryEntity>>
+
+    @Query("SELECT * FROM entries ORDER BY tripId, sortIndex ASC")
+    fun observeAll(): Flow<List<EntryEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entry: EntryEntity)
@@ -83,6 +89,9 @@ interface PhotoDao {
 
 @Dao
 interface PlaceNameDao {
+    @Query("SELECT * FROM place_names ORDER BY `key` ASC")
+    fun observeAll(): Flow<List<PlaceNameEntity>>
+
     @Query("SELECT * FROM place_names WHERE `key` = :key")
     suspend fun find(key: String): PlaceNameEntity?
 

@@ -1,10 +1,14 @@
 package de.breadcrumbz.app.ui.trips
 
 import android.graphics.BitmapFactory
-import androidx.compose.foundation.Image
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,7 +24,11 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -31,18 +39,26 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import de.breadcrumbz.app.R
+import de.breadcrumbz.app.data.backup.BackupManager
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.Trip
 import de.breadcrumbz.app.state.TripsViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -62,12 +78,20 @@ private fun formatDate(value: Long?): String = value?.let {
 @Composable
 fun TripsScreen(
     viewModel: TripsViewModel,
+    backupManager: BackupManager,
     onOpenTrip: (String) -> Unit,
+    onRefreshPlaces: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val trips by viewModel.trips.collectAsStateWithLifecycle()
     val photosByTrip by viewModel.photosByTrip.collectAsStateWithLifecycle()
+    val sortedTrips = remember(trips) { trips.sortedByDescending { it.createdAt } }
 
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var menuExpanded by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
     var showEditor by rememberSaveable { mutableStateOf(false) }
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var titleInput by rememberSaveable { mutableStateOf("") }
@@ -78,28 +102,91 @@ fun TripsScreen(
     var showModePicker by remember { mutableStateOf(false) }
     var deleteCandidate by remember { mutableStateOf<Trip?>(null) }
 
-    fun openEditor(trip: Trip? = null) {
-        editingId = trip?.id
-        titleInput = trip?.title.orEmpty()
-        descriptionInput = trip?.description.orEmpty()
-        startDateInput = formatDate(trip?.startDate)
-        endDateInput = formatDate(trip?.endDate)
-        transportMode = trip?.defaultTransportMode ?: TransportMode.CAR
+    fun toast(message: String) {
+        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch(Dispatchers.IO) {
+                val message = backupManager.exportTo(uri)
+                withContext(Dispatchers.Main) { toast(message) }
+            }
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch(Dispatchers.IO) {
+                val message = backupManager.importFrom(uri)
+                withContext(Dispatchers.Main) { toast(message) }
+            }
+        }
+    }
+
+    fun openEditor(trip: Trip) {
+        editingId = trip.id
+        titleInput = trip.title
+        descriptionInput = trip.description
+        startDateInput = formatDate(trip.startDate)
+        endDateInput = formatDate(trip.endDate)
+        transportMode = trip.defaultTransportMode
         showEditor = true
     }
 
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(title = { Text("Breadcrumbz") })
-        },
-        floatingActionButton = {
-            Button(
-                onClick = { openEditor() },
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Text("+ Neue Reise")
-            }
+            TopAppBar(
+                title = { Text("Breadcrumbz") },
+                actions = {
+                    IconButton(onClick = { viewModel.createTrip(onOpenTrip) }) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_add),
+                            contentDescription = "Neue Reise anlegen",
+                        )
+                    }
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_menu),
+                                contentDescription = "Menü",
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Einstellungen") },
+                                onClick = {
+                                    menuExpanded = false
+                                    showSettings = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Backup erstellen") },
+                                onClick = {
+                                    menuExpanded = false
+                                    exportLauncher.launch("breadcrumbz-backup.zip")
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Backup einspielen") },
+                                onClick = {
+                                    menuExpanded = false
+                                    importLauncher.launch(
+                                        arrayOf("application/zip", "application/octet-stream"),
+                                    )
+                                },
+                            )
+                        }
+                    }
+                },
+            )
         },
     ) { padding ->
         Column(
@@ -111,13 +198,13 @@ fun TripsScreen(
             Text("Deine Reisen", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(16.dp))
 
-            if (trips.isEmpty()) {
+            if (sortedTrips.isEmpty()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp),
                 ) {
                     Text(
-                        text = "Noch keine Reise angelegt.\nTippe unten auf „+ Neue Reise“.",
+                        text = "Noch keine Reise angelegt.\nTippe oben auf „+\".",
                         style = MaterialTheme.typography.bodyLarge,
                         textAlign = TextAlign.Center,
                         modifier = Modifier
@@ -127,7 +214,7 @@ fun TripsScreen(
                 }
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(trips, key = { it.id }) { trip ->
+                    items(sortedTrips, key = { it.id }) { trip ->
                         val coverPhoto: Photo? = trip.coverPhotoId?.let { id ->
                             photosByTrip[trip.id]?.firstOrNull { it.id == id }
                         }
@@ -145,10 +232,41 @@ fun TripsScreen(
         }
     }
 
+    if (showSettings) {
+        AlertDialog(
+            onDismissRequest = { showSettings = false },
+            title = { Text("Einstellungen") },
+            text = {
+                Column {
+                    Text(
+                        "Alle Daten bleiben lokal auf diesem Gerät. Es gibt kein Konto " +
+                            "und keinen Cloud-Zwang. Karten werden lokal zwischengespeichert.",
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Helles und dunkles Systemthema werden automatisch unterstützt.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    TextButton(onClick = {
+                        onRefreshPlaces()
+                        toast("Ortsnamen werden aus den Koordinaten aktualisiert.")
+                        showSettings = false
+                    }) {
+                        Text("Ortsnamen jetzt aktualisieren")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSettings = false }) { Text("Schließen") }
+            },
+        )
+    }
+
     if (showEditor) {
         AlertDialog(
             onDismissRequest = { showEditor = false },
-            title = { Text(if (editingId == null) "Neue Reise" else "Reise bearbeiten") },
+            title = { Text("Reise bearbeiten") },
             text = {
                 Column {
                     OutlinedTextField(
@@ -217,9 +335,7 @@ fun TripsScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showEditor = false }) {
-                    Text("Abbrechen")
-                }
+                TextButton(onClick = { showEditor = false }) { Text("Abbrechen") }
             },
         )
     }
@@ -319,7 +435,7 @@ private fun TripCard(
             if (coverPath != null) {
                 val bitmap = remember(coverPath) {
                     val options = BitmapFactory.Options().apply { inSampleSize = 4 }
-                    BitmapFactory.decodeFile(coverPath, options)?.asImageBitmap()
+                    coverPath?.let { BitmapFactory.decodeFile(it, options) }?.asImageBitmap()
                 }
                 if (bitmap != null) {
                     Spacer(Modifier.height(10.dp))

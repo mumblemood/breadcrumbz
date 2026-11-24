@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -25,10 +26,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,7 +58,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardOptions
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
@@ -66,6 +74,7 @@ import de.breadcrumbz.app.data.photo.ImportedPhoto
 import de.breadcrumbz.app.data.photo.PhotoSourceReader
 import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.TimelineItem
+import de.breadcrumbz.app.domain.model.OverlayMode
 import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.TimelineKind
 import de.breadcrumbz.app.domain.util.haversineMeters
@@ -79,7 +88,6 @@ import de.breadcrumbz.app.ui.map.RouteStyling
 import de.breadcrumbz.app.ui.map.StickyNoteOverlay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.events.MapListener
 import org.osmdroid.events.ScrollEvent
 import org.osmdroid.events.ZoomEvent
@@ -87,7 +95,6 @@ import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
@@ -110,6 +117,20 @@ private fun standardTiles() = XYTileSource(
         "https://c.tile.openstreetmap.org/",
     ),
     "© OpenStreetMap-Mitwirkende",
+)
+
+private fun contrastTiles() = XYTileSource(
+    "OSM-Kontrast",
+    0,
+    19,
+    256,
+    ".png",
+    arrayOf(
+        "https://a.tile.openstreetmap.fr/hot/",
+        "https://b.tile.openstreetmap.fr/hot/",
+        "https://c.tile.openstreetmap.fr/hot/",
+    ),
+    "© OpenStreetMap-Mitwirkende, HOT",
 )
 
 @Composable
@@ -176,6 +197,12 @@ fun TripMapScreen(
     var entryTitle by remember { mutableStateOf("") }
     var entryBody by remember { mutableStateOf("") }
 
+    var editingTitle by remember { mutableStateOf(false) }
+    var titleDraft by remember { mutableStateOf("") }
+    var tripMenuExpanded by remember { mutableStateOf(false) }
+    var appliedOverlayMode by remember { mutableStateOf<OverlayMode?>(null) }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
     var showNewEntryDialog by rememberSaveable { mutableStateOf(false) }
     var newEntryTitle by rememberSaveable { mutableStateOf("") }
     var newEntryBody by rememberSaveable { mutableStateOf("") }
@@ -206,6 +233,10 @@ fun TripMapScreen(
             expandedDay = dayKeyOf(timeline.first().time)
             didAutoExpandDay = true
         }
+    }
+
+    LaunchedEffect(trip?.id, trip?.title) {
+        if (!editingTitle) titleDraft = trip?.title.orEmpty()
     }
 
     BackHandler {
@@ -306,10 +337,14 @@ fun TripMapScreen(
             markers = markers,
             stops = stops,
             selectedStopId = activeStopId,
+            allowCreate = true,
             onTap = { id ->
                 selectedPhotoId = null
-                fullscreenKey = "stop-$id"
                 viewModel.selectStop(id)
+            },
+            onEmptyTap = { viewModel.selectStop(null) },
+            onCreateStop = { latitude, longitude ->
+                viewModel.onMapLongPress(latitude, longitude)
             },
             onMove = { id, latitude, longitude ->
                 viewModel.moveStop(id, latitude, longitude)
@@ -347,18 +382,6 @@ fun TripMapScreen(
                 Manifest.permission.ACCESS_COARSE_LOCATION,
             ),
         )
-    }
-
-    val tapOverlay = remember {
-        MapEventsOverlay(object : MapEventsReceiver {
-            override fun singleTapConfirmedHelper(point: GeoPoint?): Boolean = false
-            override fun longPressHelper(point: GeoPoint?): Boolean {
-                if (point != null) {
-                    viewModel.onMapLongPress(point.latitude, point.longitude)
-                }
-                return true
-            }
-        })
     }
 
     DisposableEffect(mapView) {
@@ -462,21 +485,110 @@ fun TripMapScreen(
         trip?.endDate?.let { formatDate(it) },
     ).joinToString(" - ")
 
+    fun commitTitle() {
+        if (titleDraft.isNotBlank()) {
+            viewModel.setTripTitle(titleDraft)
+        } else {
+            titleDraft = trip?.title.orEmpty()
+        }
+        editingTitle = false
+        keyboardController?.hide()
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        if (dateRange.isBlank()) {
+                    if (editingTitle) {
+                        OutlinedTextField(
+                            value = titleDraft,
+                            onValueChange = { titleDraft = it },
+                            label = { Text("Reisetitel") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { commitTitle() }),
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                        )
+                    } else {
+                        val titleText = if (dateRange.isBlank()) {
                             trip?.title ?: "Reise"
                         } else {
                             "${trip?.title ?: "Reise"} · $dateRange"
-                        },
-                    )
+                        }
+                        Text(
+                            text = titleText,
+                            fontStyle = if (trip?.titleIsAuto == true) {
+                                FontStyle.Italic
+                            } else {
+                                FontStyle.Normal
+                            },
+                            modifier = Modifier.clickable {
+                                titleDraft = trip?.title.orEmpty()
+                                editingTitle = true
+                            },
+                        )
+                    }
                 },
                 navigationIcon = {
                     TextButton(onClick = onBack) { Text("←") }
+                },
+                actions = {
+                    Box {
+                        IconButton(onClick = { tripMenuExpanded = true }) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_menu),
+                                contentDescription = "Reise-Einstellungen",
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = tripMenuExpanded,
+                            onDismissRequest = { tripMenuExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (trip?.routeMode == RouteMode.DIRECT) {
+                                            "Linie: direkt"
+                                        } else {
+                                            "Linie: Auto"
+                                        },
+                                    )
+                                },
+                                onClick = {
+                                    tripMenuExpanded = false
+                                    viewModel.setRouteMode(
+                                        if (trip?.routeMode == RouteMode.DIRECT) {
+                                            RouteMode.AUTO
+                                        } else {
+                                            RouteMode.DIRECT
+                                        },
+                                    )
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (trip?.overlayMode == OverlayMode.POSTER) {
+                                            "Karte: Kontrast"
+                                        } else {
+                                            "Karte: Standard"
+                                        },
+                                    )
+                                },
+                                onClick = {
+                                    tripMenuExpanded = false
+                                    viewModel.setOverlayMode(
+                                        if (trip?.overlayMode == OverlayMode.POSTER) {
+                                            OverlayMode.STANDARD
+                                        } else {
+                                            OverlayMode.POSTER
+                                        },
+                                    )
+                                },
+                            )
+                        }
+                    }
                 },
             )
         },
@@ -492,6 +604,14 @@ fun TripMapScreen(
                     factory = { mapView },
                     modifier = Modifier.fillMaxSize(),
                     update = { view ->
+                        val mode = trip?.overlayMode ?: OverlayMode.STANDARD
+                        if (appliedOverlayMode != mode) {
+                            view.setTileSource(
+                                if (mode == OverlayMode.POSTER) contrastTiles() else standardTiles(),
+                            )
+                            appliedOverlayMode = mode
+                        }
+
                         if (stops.isNotEmpty() && !didCenter) {
                             view.controller.setCenter(
                                 GeoPoint(stops.first().latitude, stops.first().longitude),
@@ -501,7 +621,6 @@ fun TripMapScreen(
                         }
 
                         view.overlays.clear()
-                        view.overlays.add(tapOverlay)
                         view.overlays.add(locationOverlay)
 
                         val placedPhotos = photos.filter {
@@ -580,12 +699,11 @@ fun TripMapScreen(
                                 R.drawable.ic_stop_marker,
                             )?.mutate()
                             icon?.let {
-                                it.setBounds(
-                                    -it.intrinsicWidth / 2,
-                                    -it.intrinsicHeight,
-                                    it.intrinsicWidth / 2,
-                                    0,
-                                )
+                                // Ausgewählter Pin: 1,5× größer, Spitze bleibt auf dem Ort.
+                                val factor = if (stop.id == activeStopId) 1.5f else 1f
+                                val width = (it.intrinsicWidth * factor).roundToInt()
+                                val height = (it.intrinsicHeight * factor).roundToInt()
+                                it.setBounds(-width / 2, -height, width / 2, 0)
                                 marker.icon = it
                             }
                             marker.isDraggable = false
@@ -623,16 +741,6 @@ fun TripMapScreen(
                             contentDescription = "Standort anzeigen",
                             tint = Color(0xFF3B2B20),
                         )
-                    }
-                    Button(onClick = {
-                        val next = if (trip?.routeMode == RouteMode.DIRECT) {
-                            RouteMode.AUTO
-                        } else {
-                            RouteMode.DIRECT
-                        }
-                        viewModel.setRouteMode(next)
-                    }) {
-                        Text(if (trip?.routeMode == RouteMode.DIRECT) "Linie: direkt" else "Linie: Auto")
                     }
                     IconButton(
                         onClick = {
@@ -698,11 +806,13 @@ fun TripMapScreen(
                     shape = RoundedCornerShape(16.dp),
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-                        Text(
-                            "${stops.size} Wegpunkte · ${photos.size} Fotos",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
                         val activeStop = stops.firstOrNull { it.id == activeStopId }
+                        if (activeStop == null) {
+                            Text(
+                                "Pin antippen zum Auswählen",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                         if (activeStop != null) {
                             Text(
                                 activeStop.title,

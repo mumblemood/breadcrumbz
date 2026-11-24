@@ -32,6 +32,18 @@ class InternalPhotoStore(context: Context) {
 
     fun fileFor(fileName: String): File = File(directory, fileName)
 
+    /** Schreibt eine Bilddatei mit vorhandenem Namen (für den Backup-Import). */
+    suspend fun write(fileName: String, bytes: ByteArray): Boolean = withContext(Dispatchers.IO) {
+        if (fileName.isBlank() || fileName.contains('/') || fileName.contains('\\') ||
+            fileName == "." || fileName == ".."
+        ) {
+            false
+        } else {
+            File(directory, fileName).writeBytes(bytes)
+            true
+        }
+    }
+
     suspend fun delete(fileName: String): Boolean = withContext(Dispatchers.IO) {
         if (fileName.contains('/') || fileName.contains('\\')) {
             false

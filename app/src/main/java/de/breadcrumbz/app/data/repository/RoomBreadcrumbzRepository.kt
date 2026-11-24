@@ -39,6 +39,7 @@ class RoomBreadcrumbzRepository(
         endDate: Long?,
         defaultTransportMode: TransportMode,
         routeMode: RouteMode,
+        titleIsAuto: Boolean,
     ): Trip {
         val now = System.currentTimeMillis()
         val trip = Trip(
@@ -51,6 +52,7 @@ class RoomBreadcrumbzRepository(
             overlayMode = OverlayMode.STANDARD,
             defaultTransportMode = defaultTransportMode,
             routeMode = routeMode,
+            titleIsAuto = titleIsAuto,
             createdAt = now,
             updatedAt = now,
         )

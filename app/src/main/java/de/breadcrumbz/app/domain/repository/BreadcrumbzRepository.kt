@@ -24,6 +24,7 @@ interface BreadcrumbzRepository {
         endDate: Long? = null,
         defaultTransportMode: TransportMode = TransportMode.CAR,
         routeMode: RouteMode = RouteMode.AUTO,
+        titleIsAuto: Boolean = false,
     ): Trip
 
     suspend fun updateTrip(trip: Trip)

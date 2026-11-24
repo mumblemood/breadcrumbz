@@ -23,6 +23,7 @@ fun TripEntity.toDomain() = Trip(
     overlayMode = enumValue(overlayMode, OverlayMode.STANDARD),
     defaultTransportMode = enumValue(defaultTransportMode, TransportMode.CAR),
     routeMode = enumValue(routeMode, RouteMode.AUTO),
+    titleIsAuto = titleIsAuto,
     createdAt = createdAt,
     updatedAt = updatedAt,
 )
@@ -37,6 +38,7 @@ fun Trip.toEntity() = TripEntity(
     overlayMode = overlayMode.name,
     defaultTransportMode = defaultTransportMode.name,
     routeMode = routeMode.name,
+    titleIsAuto = titleIsAuto,
     createdAt = createdAt,
     updatedAt = updatedAt,
 )

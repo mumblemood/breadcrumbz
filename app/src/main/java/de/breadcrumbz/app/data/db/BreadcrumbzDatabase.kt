@@ -19,7 +19,7 @@ import java.util.UUID
         PhotoEntity::class,
         PlaceNameEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class BreadcrumbzDatabase : RoomDatabase() {
@@ -159,5 +159,21 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
                 arrayOf(row[0], row[6]),
             )
         }
+    }
+}
+
+/**
+ * Version 8: Merkt sich, ob der Reisetitel noch automatisch ist („neue Reise“).
+ * Ein selbst vergebener Titel wird nicht mehr automatisch überschrieben.
+ */
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE `trips` ADD COLUMN `titleIsAuto` INTEGER NOT NULL DEFAULT 0",
+        )
+        db.execSQL(
+            "UPDATE `trips` SET `titleIsAuto` = 1 " +
+                "WHERE TRIM(`title`) = '' OR LOWER(TRIM(`title`)) = 'neue reise'",
+        )
     }
 }

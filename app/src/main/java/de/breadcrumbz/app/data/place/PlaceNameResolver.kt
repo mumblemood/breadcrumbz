@@ -17,14 +17,18 @@ import java.util.Locale
  */
 class PlaceNameResolver(private val dao: PlaceNameDao) {
 
-    suspend fun resolve(latitude: Double, longitude: Double): String? = withContext(Dispatchers.IO) {
+    suspend fun resolve(
+        latitude: Double,
+        longitude: Double,
+        force: Boolean = false,
+    ): String? = withContext(Dispatchers.IO) {
         val key = String.format(Locale.US, "%.3f,%.3f", latitude, longitude)
-        dao.find(key)?.let { return@withContext it.name }
+        if (!force) dao.find(key)?.let { return@withContext it.name }
 
         val name = try {
             val url = URL(
                 "https://nominatim.openstreetmap.org/reverse?format=jsonv2" +
-                    "&accept-language=de&zoom=16&lat=$latitude&lon=$longitude",
+                    "&accept-language=de&zoom=10&lat=$latitude&lon=$longitude",
             )
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
@@ -50,20 +54,23 @@ class PlaceNameResolver(private val dao: PlaceNameDao) {
     private fun parseName(jsonText: String): String? {
         val json = JSONObject(jsonText)
         val address = json.optJSONObject("address")
-        val parts = mutableListOf<String>()
-        fun add(value: String?) {
-            if (!value.isNullOrBlank() && value !in parts) parts.add(value)
+        val city = listOf(
+            address?.optString("city"),
+            address?.optString("town"),
+            address?.optString("village"),
+            address?.optString("municipality"),
+            address?.optString("suburb"),
+        ).firstOrNull { !it.isNullOrBlank() }?.trim()
+        val state = listOf(
+            address?.optString("country"),
+            address?.optString("state"),
+        ).firstOrNull { !it.isNullOrBlank() }?.trim()
+
+        return when {
+            !city.isNullOrBlank() && !state.isNullOrBlank() -> "$city, $state"
+            !city.isNullOrBlank() -> city
+            else -> json.optString("display_name").orEmpty()
+                .split(",").take(2).joinToString(",").trim().ifBlank { null }
         }
-        add(address?.optString("road"))
-        add(address?.optString("suburb"))
-        add(address?.optString("city"))
-        add(address?.optString("town"))
-        add(address?.optString("village"))
-
-        val shortName = parts.take(2).joinToString(", ")
-        if (shortName.isNotBlank()) return shortName
-
-        val display = json.optString("display_name").orEmpty()
-        return display.split(",").take(2).joinToString(",").trim().ifBlank { null }
     }
 }

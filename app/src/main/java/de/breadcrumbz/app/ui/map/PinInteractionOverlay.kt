@@ -14,15 +14,19 @@ import org.osmdroid.views.overlay.Overlay
 import kotlin.math.abs
 
 /**
- * Ein Pin wird zuerst durch Tippen ausgewählt. Erst wenn er ausgewählt ist,
- * lässt er sich durch zwei Sekunden Halten lösen und verschieben. Während
- * eines Pinch-Zooms wird gar nichts ausgewählt.
+ * Pins entstehen durch zwei Sekunden Halten auf freier Fläche. Ein Tippen wählt
+ * einen Pin aus; ein Tippen ins Leere hebt die Auswahl auf. Nur der ausgewählte
+ * Pin lässt sich nach zwei Sekunden Halten ziehen. Während eines Pinch-Zooms
+ * passiert gar nichts.
  */
 class PinInteractionOverlay(
     private val markers: Map<String, Marker>,
     private val stops: List<Stop>,
     private val selectedStopId: String?,
+    private val allowCreate: Boolean,
     private val onTap: (String) -> Unit,
+    private val onEmptyTap: () -> Unit,
+    private val onCreateStop: (Double, Double) -> Unit,
     private val onMove: (String, Double, Double) -> Unit,
 ) : Overlay() {
 
@@ -31,10 +35,14 @@ class PinInteractionOverlay(
     private var candidateStopId: String? = null
     private var draggingStopId: String? = null
     private var dragOriginal: GeoPoint? = null
+    private var pendingCreate = false
+    private var createdStop = false
+    private var downGeo: GeoPoint? = null
     private var multiTouch = false
     private var ignoreTapsUntilRelease = false
     private var lastDownX = 0f
     private var lastDownY = 0f
+    private var gestureMoved = false
     private var mapViewRef: MapView? = null
 
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -55,12 +63,25 @@ class PinInteractionOverlay(
         }
     }
 
+    private val create = Runnable {
+        val geo = downGeo
+        if (pendingCreate && allowCreate && geo != null && !multiTouch &&
+            !ignoreTapsUntilRelease
+        ) {
+            pendingCreate = false
+            createdStop = true
+            mapViewRef?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            onCreateStop(geo.latitude, geo.longitude)
+            mapViewRef?.invalidate()
+        }
+    }
+
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow) return
-        val id = draggingStopId ?: return
+        val id = draggingStopId ?: selectedStopId ?: return
         val marker = markers[id] ?: return
         val point = mapView.projection.toPixels(marker.position, null)
-        canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), 34f, ringPaint)
+        canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), 40f, ringPaint)
     }
 
     override fun onTouchEvent(event: MotionEvent, mapView: MapView): Boolean {
@@ -74,21 +95,40 @@ class PinInteractionOverlay(
             MotionEvent.ACTION_DOWN -> {
                 mapViewRef = mapView
                 candidateStopId = null
+                pendingStopId = null
+                createdStop = false
+                gestureMoved = false
                 if (ignoreTapsUntilRelease || event.pointerCount > 1) return true
-                val hit = hitStop(event, mapView) ?: return false
-                candidateStopId = hit.id
-                // Nur der bereits ausgewählte Pin darf durch Halten losgelöst werden.
-                if (hit.id == selectedStopId) {
-                    pendingStopId = hit.id
-                    handler.postDelayed(unlock, 2_000L)
+
+                downGeo = mapView.projection.fromPixels(
+                    event.x.toInt(),
+                    event.y.toInt(),
+                )?.let { GeoPoint(it.latitude, it.longitude) }
+
+                val hit = hitStop(event, mapView)
+                if (hit != null) {
+                    candidateStopId = hit.id
+                    // Nur der bereits ausgewählte Pin darf durch Halten losgelöst werden.
+                    if (hit.id == selectedStopId) {
+                        pendingStopId = hit.id
+                        handler.postDelayed(unlock, 2_000L)
+                    }
+                    return true
                 }
-                return true
+
+                if (allowCreate) {
+                    pendingCreate = true
+                    handler.postDelayed(create, 2_000L)
+                }
+                // Freie Fläche: Scrollen und Pinch müssen möglich bleiben.
+                return false
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
-                // Pinch/Zweitfinger: Auswahl und laufendes Ziehen sofort abbrechen.
                 ignoreTapsUntilRelease = true
                 multiTouch = true
+                handler.removeCallbacks(create)
+                pendingCreate = false
                 cancel(restoreMarker = true)
                 candidateStopId = null
                 return true
@@ -97,26 +137,29 @@ class PinInteractionOverlay(
             MotionEvent.ACTION_MOVE -> {
                 if (multiTouch || event.pointerCount > 1) {
                     cancel(restoreMarker = true)
+                    handler.removeCallbacks(create)
+                    pendingCreate = false
                     return true
                 }
                 val id = draggingStopId
                 if (id != null) {
                     val marker = markers[id]
-                    val geo = mapView.projection.fromPixels(
-                        event.x.toInt(),
-                        event.y.toInt(),
-                    )
+                    val geo = mapView.projection.fromPixels(event.x.toInt(), event.y.toInt())
                     if (marker != null && geo != null) {
                         marker.position = GeoPoint(geo.latitude, geo.longitude)
                         mapView.invalidate()
                     }
                     return true
                 }
-                if (pendingStopId != null &&
-                    (abs(event.x - lastDownX) > 12f || abs(event.y - lastDownY) > 12f)
-                ) {
-                    cancel(restoreMarker = false)
+                val moved = abs(event.x - lastDownX) > 12f ||
+                    abs(event.y - lastDownY) > 12f
+                if (moved) gestureMoved = true
+                if (pendingStopId != null && moved) cancel(restoreMarker = false)
+                if (pendingCreate && moved) {
+                    handler.removeCallbacks(create)
+                    pendingCreate = false
                 }
+                return candidateStopId != null
             }
 
             MotionEvent.ACTION_POINTER_UP -> {
@@ -125,42 +168,50 @@ class PinInteractionOverlay(
             }
 
             MotionEvent.ACTION_UP -> {
+                handler.removeCallbacks(unlock)
+                handler.removeCallbacks(create)
                 if (ignoreTapsUntilRelease || multiTouch) {
                     ignoreTapsUntilRelease = false
                     multiTouch = false
                     cancel(restoreMarker = true)
                     candidateStopId = null
+                    pendingCreate = false
                     return true
                 }
-                handler.removeCallbacks(unlock)
                 val dragging = draggingStopId
                 if (dragging != null) {
                     val marker = markers[dragging]
                     if (marker != null) {
-                        onMove(
-                            dragging,
-                            marker.position.latitude,
-                            marker.position.longitude,
-                        )
+                        onMove(dragging, marker.position.latitude, marker.position.longitude)
                     }
                     draggingStopId = null
                     dragOriginal = null
                     mapView.invalidate()
                     return true
                 }
+                if (createdStop) {
+                    createdStop = false
+                    return true
+                }
                 val tapped = pendingStopId ?: candidateStopId
                 if (tapped != null) {
                     mapView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                     onTap(tapped)
+                    pendingStopId = null
+                    candidateStopId = null
+                    return true
                 }
-                pendingStopId = null
+                pendingCreate = false
                 candidateStopId = null
-                return true
+                if (!gestureMoved) onEmptyTap()
+                return false
             }
 
             MotionEvent.ACTION_CANCEL -> {
                 ignoreTapsUntilRelease = false
                 multiTouch = false
+                handler.removeCallbacks(create)
+                pendingCreate = false
                 cancel(restoreMarker = true)
                 candidateStopId = null
                 return true

@@ -15,9 +15,10 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Overlay
 
 /**
- * Große Polaroid-Pins: Die Karte hängt unter dem Marker. Fotos desselben
- * Stopps bilden einen Stapel mit Anzahl. Titel erscheinen handschriftlich
- * im unteren Rahmen (maximal 12 Zeichen).
+ * Foto-Polaroids auf der Karte. Das Bild wird nie verzogen: Der Rahmen passt
+ * sich dem Seitenverhältnis an. Alle Ränder sind gleich breit, nur der untere
+ * Rand ist für die Beschriftung dicker. Die Nadelspitze zeigt auf die Mitte
+ * des oberen weißen Rahmens.
  */
 class PolaroidOverlay(
     private val photos: List<Photo>,
@@ -39,11 +40,11 @@ class PolaroidOverlay(
     private val hitAreas = mutableListOf<Pair<RectF, List<String>>>()
 
     private val scale = 5f
-    private val cardWidth = 72f * scale
-    private val cardHeight = 86f * scale
+    private val imageWidth = 88f * scale
     private val padding = 5f * scale
     private val captionHeight = 12f * scale
     private val shadowOffset = 3f * scale
+    private val needleLength = 18f
 
     private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#FBF4E4")
@@ -57,7 +58,7 @@ class PolaroidOverlay(
         strokeWidth = 2f * scale
     }
     private val pinPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#D99B52")
+        color = Color.parseColor("#3B2B20")
         strokeWidth = 3f * scale
     }
     private val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -83,15 +84,23 @@ class PolaroidOverlay(
         val projection = mapView.projection
         groups().forEach { group ->
             val bitmap = bitmapFor(group.representative.fileName) ?: return@forEach
+            val ratio = bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1)
+            val naturalHeight = imageWidth / ratio.coerceAtLeast(0.01f)
+            // Rahmen passt sich an: Breite wird proportional mitgezogen, nie verzerrt.
+            val imageHeight = naturalHeight.coerceIn(60f * scale, 120f * scale)
+            val fittedWidth = imageWidth * (imageHeight / naturalHeight)
+            val cardWidth = fittedWidth + 2f * padding
+            val cardHeight = padding + imageHeight + captionHeight
+
             val point = projection.toPixels(
                 GeoPoint(group.latitude, group.longitude),
                 null,
             )
             val tilt = ((group.representative.id.hashCode() ushr 4) % 29).toFloat() - 14f
 
-            val left = -cardWidth / 2
-            val top = 18f
-            val rect = RectF(left, top, left + cardWidth, top + cardHeight)
+            // Oberer weißer Rand: die Spitze der Nadel landet in seiner Mitte.
+            val top = needleLength - padding / 2f
+            val rect = RectF(-cardWidth / 2f, top, cardWidth / 2f, top + cardHeight)
             val pinX = point.x.toFloat()
             val pinY = point.y.toFloat()
 
@@ -119,7 +128,7 @@ class PolaroidOverlay(
                 canvas.restore()
             }
 
-            // Vorderste Karte mit Bild und Titel.
+            // Vorderste Karte mit unverzerrtem Bild und Titel.
             canvas.save()
             canvas.translate(pinX, pinY)
             canvas.rotate(tilt)
@@ -145,21 +154,16 @@ class PolaroidOverlay(
             canvas.drawRect(rect, borderPaint)
             val title = group.representative.caption.take(12)
             if (title.isNotBlank()) {
-                canvas.drawText(
-                    title,
-                    0f,
-                    rect.bottom - 14f,
-                    captionPaint,
-                )
+                canvas.drawText(title, 0f, rect.bottom - 14f, captionPaint)
             }
             canvas.restore()
 
-            // Nadel und Stapel-Anzahl.
-            canvas.drawLine(pinX, pinY, pinX, pinY + 18f, pinPaint)
-            canvas.drawCircle(pinX, pinY, 10f, pinPaint)
+            // Nadel von der Koordinate bis zur Mitte des oberen weißen Rahmens.
+            canvas.drawLine(pinX, pinY, pinX, pinY + needleLength, pinPaint)
+            canvas.drawCircle(pinX, pinY, 9f, pinPaint)
             if (group.ids.size > 1) {
-                val badgeX = pinX + cardWidth / 2 - 12f
-                val badgeY = pinY + 18f + 28f
+                val badgeX = pinX + cardWidth / 2f - 12f
+                val badgeY = pinY + needleLength + 28f
                 canvas.drawCircle(badgeX, badgeY, 34f, badgePaint)
                 val label = "×${group.ids.size}"
                 val textY = badgeY - (badgeTextPaint.descent() + badgeTextPaint.ascent()) / 2
@@ -168,9 +172,9 @@ class PolaroidOverlay(
 
             hitAreas.add(
                 RectF(
-                    pinX - cardWidth / 2 - 24f,
+                    pinX - cardWidth / 2f - 24f,
                     pinY - 24f,
-                    pinX + cardWidth / 2 + 44f,
+                    pinX + cardWidth / 2f + 44f,
                     pinY + top + cardHeight + 24f,
                 ) to group.ids,
             )
