@@ -1,8 +1,6 @@
 package de.breadcrumbz.app.ui.trips
 
 import android.Manifest
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
 import android.graphics.BitmapFactory
 import android.os.Build
 import androidx.activity.compose.BackHandler
@@ -50,14 +48,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
@@ -72,7 +71,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.breadcrumbz.app.R
 import de.breadcrumbz.app.data.photo.ImportedPhoto
 import de.breadcrumbz.app.data.photo.PhotoSourceReader
-import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.TimelineItem
 import de.breadcrumbz.app.domain.model.OverlayMode
 import de.breadcrumbz.app.domain.model.RouteMode
@@ -82,12 +80,14 @@ import de.breadcrumbz.app.state.TripMapViewModel
 import de.breadcrumbz.app.ui.map.AdventureTimeline
 import de.breadcrumbz.app.ui.map.ClusterElement
 import de.breadcrumbz.app.ui.map.ClusterOverlay
+import de.breadcrumbz.app.ui.map.EntryPlusOverlay
 import de.breadcrumbz.app.ui.map.PinInteractionOverlay
 import de.breadcrumbz.app.ui.map.PolaroidOverlay
 import de.breadcrumbz.app.ui.map.RouteStyling
 import de.breadcrumbz.app.ui.map.StickyNoteOverlay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.osmdroid.events.MapListener
 import org.osmdroid.events.ScrollEvent
 import org.osmdroid.events.ZoomEvent
@@ -100,7 +100,6 @@ import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -152,9 +151,6 @@ private fun formatDate(time: Long?, withYear: Boolean = false): String {
     return SimpleDateFormat(pattern, Locale.GERMANY).format(Date(time))
 }
 
-private fun formatTime(time: Long): String =
-    SimpleDateFormat("HH:mm", Locale.GERMANY).format(Date(time))
-
 private fun dayKeyOf(time: Long): String =
     SimpleDateFormat("yyyy-MM-dd", Locale.GERMANY).format(Date(time))
 
@@ -191,23 +187,14 @@ fun TripMapScreen(
     var selectedPhotoId by remember { mutableStateOf<String?>(null) }
     var stackPhotoIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var confirmDeleteStopId by remember { mutableStateOf<String?>(null) }
-    var showEntryEditor by remember { mutableStateOf(false) }
-    var editingEntryId by remember { mutableStateOf<String?>(null) }
-    var editorStopId by remember { mutableStateOf<String?>(null) }
-    var entryTitle by remember { mutableStateOf("") }
-    var entryBody by remember { mutableStateOf("") }
+    var photoTargetEntryId by remember { mutableStateOf<String?>(null) }
+    var mapBounds by remember { mutableStateOf(Rect.Zero) }
 
     var editingTitle by remember { mutableStateOf(false) }
     var titleDraft by remember { mutableStateOf("") }
     var tripMenuExpanded by remember { mutableStateOf(false) }
     var appliedOverlayMode by remember { mutableStateOf<OverlayMode?>(null) }
     val keyboardController = LocalSoftwareKeyboardController.current
-
-    var showNewEntryDialog by rememberSaveable { mutableStateOf(false) }
-    var newEntryTitle by rememberSaveable { mutableStateOf("") }
-    var newEntryBody by rememberSaveable { mutableStateOf("") }
-    var newEntryTime by rememberSaveable { mutableStateOf(System.currentTimeMillis()) }
-    var newEntryImages by remember { mutableStateOf<List<ImportedPhoto>>(emptyList()) }
 
     val thumbnails = photos.map { it.id to rememberThumbnail(viewModel, it.fileName) }.toMap()
     val photosByEntry = remember(photos) {
@@ -242,8 +229,7 @@ fun TripMapScreen(
     BackHandler {
         when {
             fullscreenKey != null -> fullscreenKey = null
-            showEntryEditor -> showEntryEditor = false
-            showNewEntryDialog -> showNewEntryDialog = false
+            photoTargetEntryId != null -> photoTargetEntryId = null
             stackPhotoIds.isNotEmpty() -> stackPhotoIds = emptyList()
             selectedPhotoId != null -> selectedPhotoId = null
             pendingPhotoId != null || pendingEntryId != null -> viewModel.cancelPlacement()
@@ -252,18 +238,11 @@ fun TripMapScreen(
         }
     }
 
-    fun openEntryEditor(entry: Entry?) {
-        editingEntryId = entry?.id
-        editorStopId = entry?.stopId ?: activeStopId
-        entryTitle = entry?.title.orEmpty()
-        entryBody = entry?.body.orEmpty()
-        showEntryEditor = true
-    }
-
     val dialogImageLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
-        if (uris.isNotEmpty()) {
+        val targetId = photoTargetEntryId
+        if (uris.isNotEmpty() && targetId != null) {
             scope.launch(Dispatchers.IO) {
                 val imported = uris.mapNotNull { uri ->
                     val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
@@ -271,8 +250,14 @@ fun TripMapScreen(
                     val bytes = PhotoSourceReader.read(context, uri) ?: return@mapNotNull null
                     ImportedPhoto(bytes, mimeType)
                 }
-                newEntryImages = newEntryImages + imported
+                viewModel.addPhotosToEntry(targetId, imported)
+                withContext(Dispatchers.Main) {
+                    photoTargetEntryId = null
+                    fullscreenKey = "entry-$targetId"
+                }
             }
+        } else {
+            photoTargetEntryId = null
         }
     }
 
@@ -297,6 +282,14 @@ fun TripMapScreen(
             dialogImageLauncher.launch(arrayOf("image/*"))
         } else {
             requestGalleryPermissions.launch(permissions.toTypedArray())
+        }
+    }
+
+    fun openNewEntry(stopId: String? = null) {
+        scope.launch {
+            val entry = viewModel.createEntry(stopId)
+            expandedDay = dayKeyOf(entry.entryAt ?: entry.createdAt)
+            fullscreenKey = "entry-${entry.id}"
         }
     }
 
@@ -392,39 +385,6 @@ fun TripMapScreen(
             mapView.onPause()
             mapView.onDetach()
         }
-    }
-
-    fun pickDate() {
-        val calendar = Calendar.getInstance().apply { timeInMillis = newEntryTime }
-        DatePickerDialog(
-            context,
-            { _, year, month, day ->
-                newEntryTime = Calendar.getInstance().apply {
-                    timeInMillis = newEntryTime
-                    set(year, month, day)
-                }.timeInMillis
-            },
-            calendar.get(Calendar.YEAR),
-            calendar.get(Calendar.MONTH),
-            calendar.get(Calendar.DAY_OF_MONTH),
-        ).show()
-    }
-
-    fun pickTime() {
-        val calendar = Calendar.getInstance().apply { timeInMillis = newEntryTime }
-        TimePickerDialog(
-            context,
-            { _, hour, minute ->
-                newEntryTime = Calendar.getInstance().apply {
-                    timeInMillis = newEntryTime
-                    set(Calendar.HOUR_OF_DAY, hour)
-                    set(Calendar.MINUTE, minute)
-                }.timeInMillis
-            },
-            calendar.get(Calendar.HOUR_OF_DAY),
-            calendar.get(Calendar.MINUTE),
-            true,
-        ).show()
     }
 
     fun handleTimelineClick(item: TimelineItem) {
@@ -599,7 +559,12 @@ fun TripMapScreen(
                 .padding(padding),
         ) {
             // Karte: zwei Drittel des Bildschirms.
-            Box(modifier = Modifier.fillMaxWidth().weight(2f)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(2f)
+                    .onGloballyPositioned { mapBounds = it.boundsInRoot() },
+            ) {
                 AndroidView(
                     factory = { mapView },
                     modifier = Modifier.fillMaxSize(),
@@ -711,6 +676,17 @@ fun TripMapScreen(
                             if (!clustered) view.overlays.add(marker)
                         }
                         if (!clustered) view.overlays.add(pinOverlay)
+
+                        val selectedStop = stops.firstOrNull { it.id == activeStopId }
+                        if (selectedStop != null &&
+                            allEntries.none { it.stopId == selectedStop.id }
+                        ) {
+                            view.overlays.add(
+                                EntryPlusOverlay(
+                                    GeoPoint(selectedStop.latitude, selectedStop.longitude),
+                                ) { openNewEntry(selectedStop.id) },
+                            )
+                        }
                         view.invalidate()
                     },
                 )
@@ -721,13 +697,7 @@ fun TripMapScreen(
                         .padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Button(onClick = {
-                        newEntryTitle = ""
-                        newEntryBody = ""
-                        newEntryTime = System.currentTimeMillis()
-                        newEntryImages = emptyList()
-                        showNewEntryDialog = true
-                    }) {
+                    Button(onClick = { openNewEntry() }) {
                         Text("+")
                     }
                     IconButton(
@@ -819,13 +789,7 @@ fun TripMapScreen(
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             Row {
-                                TextButton(onClick = {
-                                    editorStopId = activeStop.id
-                                    editingEntryId = null
-                                    entryTitle = ""
-                                    entryBody = ""
-                                    showEntryEditor = true
-                                }) {
+                                TextButton(onClick = { openNewEntry(activeStop.id) }) {
                                     Text("+ Eintrag")
                                 }
                                 TextButton(onClick = { confirmDeleteStopId = activeStop.id }) {
@@ -882,6 +846,30 @@ fun TripMapScreen(
                     },
                     onDropElement = { source, entryId ->
                         viewModel.assignElementToEntry(source, entryId)
+                    },
+                    onDropEntry = { entryId, screenX, screenY ->
+                        if (screenY >= mapBounds.top && screenY <= mapBounds.bottom &&
+                            screenX >= mapBounds.left && screenX <= mapBounds.right
+                        ) {
+                            val pixelX = screenX - mapBounds.left
+                            val pixelY = screenY - mapBounds.top
+                            val targetStopId = markers.entries.firstOrNull { (_, marker) ->
+                                val pixels = mapView.projection.toPixels(marker.position, null)
+                                kotlin.math.hypot(
+                                    pixels.x.toDouble() - pixelX,
+                                    pixels.y.toDouble() - pixelY,
+                                ) < 40.0
+                            }?.key
+                            if (targetStopId != null) {
+                                viewModel.assignEntryToStop(entryId, targetStopId)
+                            } else {
+                                val geo = mapView.projection.fromPixels(
+                                    pixelX.roundToInt(),
+                                    pixelY.roundToInt(),
+                                )
+                                viewModel.placeEntryAt(entryId, geo.latitude, geo.longitude)
+                            }
+                        }
                     },
                     onCenterKeyChange = { key -> centerKey = key },
                     modifier = Modifier.fillMaxHeight(),
@@ -1005,71 +993,6 @@ fun TripMapScreen(
         )
     }
 
-    if (showNewEntryDialog) {
-        AlertDialog(
-            onDismissRequest = { showNewEntryDialog = false },
-            title = { Text("Neuer Eintrag") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = newEntryTitle,
-                        onValueChange = { newEntryTitle = it },
-                        label = { Text("Titel") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = newEntryBody,
-                        onValueChange = { newEntryBody = it },
-                        label = { Text("Tagebuch") },
-                        minLines = 3,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { pickDate() }) {
-                            Text(formatDate(newEntryTime))
-                        }
-                        Button(onClick = { pickTime() }) {
-                            Text(formatTime(newEntryTime))
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "Der Ort wird automatisch aus GPS und Zeit der Bilder " +
-                            "bzw. vorhandenen Stationen bestimmt.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    TextButton(onClick = { startGalleryPick() }) {
-                        Text("Bilder hinzufügen (${newEntryImages.size})")
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val chosenTime = newEntryTime
-                    val chosenImages = newEntryImages
-                    viewModel.createEntryFromDialog(
-                        title = newEntryTitle,
-                        body = newEntryBody,
-                        time = chosenTime,
-                        images = chosenImages,
-                        fallbackLatitude = mapView.mapCenter.latitude,
-                        fallbackLongitude = mapView.mapCenter.longitude,
-                    )
-                    expandedDay = dayKeyOf(chosenTime)
-                    showNewEntryDialog = false
-                }) {
-                    Text("Speichern")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showNewEntryDialog = false }) { Text("Abbrechen") }
-            },
-        )
-    }
-
     if (confirmDeleteStopId != null) {
         AlertDialog(
             onDismissRequest = { confirmDeleteStopId = null },
@@ -1096,45 +1019,6 @@ fun TripMapScreen(
         )
     }
 
-    if (showEntryEditor && editorStopId != null) {
-        AlertDialog(
-            onDismissRequest = { showEntryEditor = false },
-            title = { Text(if (editingEntryId == null) "Neuer Eintrag" else "Eintrag bearbeiten") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = entryTitle,
-                        onValueChange = { entryTitle = it },
-                        label = { Text("Titel") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = entryBody,
-                        onValueChange = { entryBody = it },
-                        label = { Text("Text") },
-                        minLines = 5,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    editorStopId?.let { stopId ->
-                        viewModel.saveEntry(stopId, editingEntryId, entryTitle, entryBody)
-                    }
-                    showEntryEditor = false
-                }) {
-                    Text("Speichern")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEntryEditor = false }) { Text("Abbrechen") }
-            },
-        )
-    }
-
     val activeFullscreenKey = fullscreenKey
     if (activeFullscreenKey != null) {
         FullscreenElement(
@@ -1146,7 +1030,11 @@ fun TripMapScreen(
             photoBitmap = { id -> thumbnails[id] },
             onClose = { fullscreenKey = null },
             onOpenElement = { key -> fullscreenKey = key },
-            onEditEntry = { entry -> openEntryEditor(entry) },
+            onAddPhotos = { entryId ->
+                fullscreenKey = null
+                photoTargetEntryId = entryId
+                startGalleryPick()
+            },
             onEditPhoto = { id ->
                 fullscreenKey = null
                 selectedPhotoId = id

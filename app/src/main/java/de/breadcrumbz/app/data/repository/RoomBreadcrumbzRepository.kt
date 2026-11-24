@@ -125,6 +125,7 @@ class RoomBreadcrumbzRepository(
             id = UUID.randomUUID().toString(),
             tripId = tripId,
             stopId = stopId,
+            entryAt = null,
             title = title.trim(),
             body = body.trim(),
             sortIndex = entryDao.nextSortIndex(tripId),

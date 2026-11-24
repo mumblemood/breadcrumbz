@@ -1,5 +1,7 @@
 package de.breadcrumbz.app.ui.trips
 
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -23,11 +25,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -45,6 +52,7 @@ import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.state.TripMapViewModel
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -98,7 +106,7 @@ fun FullscreenElement(
     photoBitmap: (String) -> ImageBitmap?,
     onClose: () -> Unit,
     onOpenElement: (String) -> Unit,
-    onEditEntry: (Entry) -> Unit,
+    onAddPhotos: (String) -> Unit,
     onEditPhoto: (String) -> Unit,
     onAdoptPhotoLocation: (String) -> Unit,
 ) {
@@ -297,40 +305,107 @@ fun FullscreenElement(
                     if (entry == null) {
                         MissingElement(onClose)
                     } else {
+                        val context = LocalContext.current
+                        var titleDraft by remember(entry.id) { mutableStateOf(entry.title) }
+                        var bodyDraft by remember(entry.id) { mutableStateOf(entry.body) }
                         val childPhotos = photos.filter { it.entryId == entry.id }
                         val childStops = stops.filter { it.entryId == entry.id }
+                        val stopTitle = entry.stopId
+                            ?.let { target -> stops.firstOrNull { it.id == target }?.title }
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .verticalScroll(rememberScrollState())
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                         ) {
-                            if (entry.title.isNotBlank()) {
-                                Text(
-                                    entry.title,
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    fontWeight = FontWeight.Bold,
-                                )
+                            OutlinedTextField(
+                                value = titleDraft,
+                                onValueChange = {
+                                    titleDraft = it
+                                    viewModel.updateEntryText(entry.id, it, bodyDraft)
+                                },
+                                label = { Text("Titel") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            OutlinedTextField(
+                                value = bodyDraft,
+                                onValueChange = {
+                                    bodyDraft = it
+                                    viewModel.updateEntryText(entry.id, titleDraft, it)
+                                },
+                                label = { Text("Tagebuch") },
+                                minLines = 5,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = {
+                                    val calendar = Calendar.getInstance().apply {
+                                        timeInMillis = entry.entryAt ?: System.currentTimeMillis()
+                                    }
+                                    DatePickerDialog(
+                                        context,
+                                        { _, year, month, day ->
+                                            val next = Calendar.getInstance().apply {
+                                                timeInMillis = entry.entryAt
+                                                    ?: System.currentTimeMillis()
+                                                set(year, month, day)
+                                            }.timeInMillis
+                                            viewModel.setEntryTime(entry.id, next)
+                                        },
+                                        calendar.get(Calendar.YEAR),
+                                        calendar.get(Calendar.MONTH),
+                                        calendar.get(Calendar.DAY_OF_MONTH),
+                                    ).show()
+                                }) {
+                                    Text("Datum")
+                                }
+                                Button(onClick = {
+                                    val calendar = Calendar.getInstance().apply {
+                                        timeInMillis = entry.entryAt ?: System.currentTimeMillis()
+                                    }
+                                    TimePickerDialog(
+                                        context,
+                                        { _, hour, minute ->
+                                            val next = Calendar.getInstance().apply {
+                                                timeInMillis = entry.entryAt
+                                                    ?: System.currentTimeMillis()
+                                                set(Calendar.HOUR_OF_DAY, hour)
+                                                set(Calendar.MINUTE, minute)
+                                            }.timeInMillis
+                                            viewModel.setEntryTime(entry.id, next)
+                                        },
+                                        calendar.get(Calendar.HOUR_OF_DAY),
+                                        calendar.get(Calendar.MINUTE),
+                                        true,
+                                    ).show()
+                                }) {
+                                    Text("Uhrzeit")
+                                }
                             }
-                            if (entry.body.isNotBlank()) {
-                                Spacer(Modifier.height(8.dp))
-                                Text(entry.body)
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            Text(dateText(entry.createdAt))
                             Text(
-                                if (entry.stopId == null) {
-                                    "Ohne Ort – in der Timeline oder Karte verorten"
+                                "Zeit: ${entry.entryAt?.let { dateText(it) } ?: "aus erstem Foto"}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            if (entry.entryAt != null) {
+                                InkTextButton(onClick = { viewModel.setEntryTime(entry.id, null) }) {
+                                    Text("Zeit leeren")
+                                }
+                            }
+                            Text(
+                                if (stopTitle == null) {
+                                    "Ohne Ort – Foto, Pin oder Drag & Drop ergänzt ihn"
                                 } else {
-                                    "Hat einen Ort"
+                                    "Ort: $stopTitle"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                InkTextButton(onClick = {
-                                    onEditEntry(entry)
-                                    onClose()
-                                }) { Text("Bearbeiten") }
+                                InkTextButton(onClick = { onAddPhotos(entry.id) }) {
+                                    Text("Fotos hinzufügen")
+                                }
                                 if (entry.stopId == null) {
                                     InkTextButton(onClick = {
                                         viewModel.beginEntryPlacement(entry.id)

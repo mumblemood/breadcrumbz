@@ -3,7 +3,7 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Version 0.8.0 – neue Bedienrunde für Liste, Titel, Pins und Timeline.**
+**Aktueller Stand: Version 0.9.0 – Einträge und Bearbeitung neu aufgebaut.**
 
 Die **Startseite** zeigt alle Reisen chronologisch, die neueste oben. Das **„+"**
 ganz oben legt sofort eine neue Reise an und öffnet direkt die Karte – ohne
@@ -40,11 +40,15 @@ aufgefrischt und können in den Einstellungen erneut aktualisiert werden.
 einem Import wird die bestehende Datenbank als Snapshot kopiert; der Import liest
 toleranter, auch wenn einzelne Zeilen beschädigt sind.
 
-Jedes **Foto gehört weiterhin zu einem Eintrag**. Zeit und Ort schlägt das erste
-Bild vor; dieser Ort ist zugleich der Pin des Eintrags. Alte Einzelbilder wurden
-beim Öffnen automatisch in je einen eigenen Eintrag überführt – nichts ging
-verloren. Beim Ziehen eines Pins verschieben sich Eintrag und Bilder mit.
-Während des Pinch-Zooms wird nichts ausgewählt – erst nach dem Loslassen wieder.
+**Einträge entstehen über das „+" in der Karte oder über das Plus über einem
+ausgewählten Pin ohne Eintrag.** Es sind mehrere Einträge pro Tag und mehrere
+Elemente pro Eintrag möglich. Elemente öffnen sich beim Antippen und werden
+dort direkt bearbeitet. Fotos schreiben Zeit und Ort nur in noch leere Felder
+des Eintrags; vorhandene Werte bleiben erhalten. Ein Eintrag aus der Timeline
+kann nach langem Halten auf einen Pin oder auf freie Karte gezogen werden – dort
+entsteht dann ein neuer Pin. Beim Ziehen eines Pins verschieben sich Eintrag und
+Bilder mit. Alte Einzelbilder wurden bereits in eigene Einträge überführt –
+nichts ging verloren. Während des Pinch-Zooms wird nichts ausgewählt.
 
 Die Detailansichten (Pin, Foto, Eintrag) nutzen feste Papier-/Tintafarben und
 bleiben deshalb bei **hell und dunkel** gleich gut lesbar.

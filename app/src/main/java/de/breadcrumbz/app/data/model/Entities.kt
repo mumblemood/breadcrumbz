@@ -82,6 +82,8 @@ data class EntryEntity(
     @PrimaryKey val id: String,
     val tripId: String,
     val stopId: String?,
+    /** v9: eigene Zeit des Eintrags; alte Einträge bleiben ohne Zeit. */
+    val entryAt: Long? = null,
     val title: String,
     val body: String,
     val sortIndex: Int,

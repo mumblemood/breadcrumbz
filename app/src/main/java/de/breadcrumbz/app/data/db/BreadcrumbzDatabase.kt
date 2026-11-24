@@ -19,7 +19,7 @@ import java.util.UUID
         PhotoEntity::class,
         PlaceNameEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class BreadcrumbzDatabase : RoomDatabase() {
@@ -175,5 +175,16 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
             "UPDATE `trips` SET `titleIsAuto` = 1 " +
                 "WHERE TRIM(`title`) = '' OR LOWER(TRIM(`title`)) = 'neue reise'",
         )
+    }
+}
+
+/**
+ * Version 9: Einträge bekommen eine eigene, bearbeitbare Zeit. Sie bleibt leer,
+ * damit das erste hinzugefügte Foto Zeit und Ort nur in leere Felder schreiben
+ * kann. Bestehende Einträge behalten ihre bisherigen Daten unverändert.
+ */
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `entries` ADD COLUMN `entryAt` INTEGER")
     }
 }

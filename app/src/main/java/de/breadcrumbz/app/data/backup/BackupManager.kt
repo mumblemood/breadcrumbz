@@ -271,6 +271,7 @@ class BackupManager(
         put("id", id)
         put("tripId", tripId)
         put("stopId", stopId ?: JSONObject.NULL)
+        putNullable("entryAt", entryAt)
         put("title", title)
         put("body", body)
         put("sortIndex", sortIndex)
@@ -282,6 +283,7 @@ class BackupManager(
         id = optString("id").ifBlank { UUID.randomUUID().toString() },
         tripId = optString("tripId"),
         stopId = if (isNull("stopId")) null else optString("stopId"),
+        entryAt = longOrNull("entryAt"),
         title = optString("title", ""),
         body = optString("body", ""),
         sortIndex = optInt("sortIndex", 0),

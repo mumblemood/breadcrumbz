@@ -55,6 +55,8 @@ data class Entry(
     val id: String,
     val tripId: String,
     val stopId: String?,
+    /** Editierbare Zeit des Eintrags. null = wird aus dem ersten Foto übernommen. */
+    val entryAt: Long?,
     val title: String,
     val body: String,
     val sortIndex: Int,

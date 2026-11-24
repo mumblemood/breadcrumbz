@@ -27,13 +27,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
@@ -42,6 +46,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
@@ -106,6 +111,7 @@ fun AdventureTimeline(
     externalKey: String? = null,
     onScrollFraction: (Float) -> Unit = {},
     onDropElement: (String, String?) -> Unit = { _, _ -> },
+    onDropEntry: (String, Float, Float) -> Unit = { _, _, _ -> },
     onCenterKeyChange: (String?) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -115,6 +121,7 @@ fun AdventureTimeline(
         (168f * (mapZoom / 14f)).coerceIn(100f, 300f).dp.toPx()
     }
     val scrollState = rememberScrollState()
+    var timelineBounds by remember { mutableStateOf(Rect.Zero) }
     val startPx = with(density) { 48.dp.toPx() }
     val baseY = with(density) { 58.dp.toPx() }
 
@@ -264,7 +271,8 @@ fun AdventureTimeline(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .horizontalScroll(scrollState),
+            .horizontalScroll(scrollState)
+            .onGloballyPositioned { timelineBounds = it.boundsInRoot() },
     ) {
         val viewportPx = with(density) { maxWidth.toPx() }
         val centerPixel = scrollState.value + viewportPx / 2f
@@ -338,11 +346,11 @@ fun AdventureTimeline(
             points.forEachIndexed { index, point ->
                 val item = point.item
                 val lineY = with(density) { (baseY + sin(index * 0.85f) * 9f).toDp() }
-                val x = with(density) { (point.x - 84.dp.toPx()).toDp() }
                 val cardY = lineY + 30.dp
                 val highlighted = point.key == centerKey
                 val expanded = item?.entryId?.let { expandedEntryIds.contains(it) } == true
                 val children = (item?.photoCount ?: 0) + (item?.pinCount ?: 0)
+                val dragOffset = remember(point.key) { mutableStateOf(Offset.Zero) }
 
                 // Pin in Kartengröße: die Spitze sitzt auf der Linie.
                 Icon(
@@ -359,26 +367,59 @@ fun AdventureTimeline(
 
                 Box(
                     modifier = Modifier
-                        .offset(x = x, y = cardY)
+                        .offset(
+                            x = with(density) {
+                                (point.x - 84.dp.toPx()).toDp() + dragOffset.value.x.toDp()
+                            },
+                            y = cardY + with(density) { dragOffset.value.y.toDp() },
+                        )
                         .width(168.dp)
                         .scale(if (highlighted) 1.08f else 1f)
                         .pointerInput(point.key) {
                             var dragX = 0f
+                            var dragY = 0f
+                            var grabX = 0f
+                            var grabY = 0f
+                            var grabSet = false
                             detectDragGesturesAfterLongPress(
                                 onDragStart = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    dragX = 0f
+                                    dragY = 0f
+                                    grabSet = false
+                                    dragOffset.value = Offset.Zero
                                 },
                                 onDrag = { change, amount ->
                                     change.consume()
+                                    if (!grabSet) {
+                                        grabX = change.position.x
+                                        grabY = change.position.y
+                                        grabSet = true
+                                    }
                                     dragX += amount.x
+                                    dragY += amount.y
+                                    dragOffset.value = Offset(dragX, dragY)
                                 },
                                 onDragEnd = {
+                                    dragOffset.value = Offset.Zero
                                     val source = when {
                                         point.kind == 3 || point.kind == 4 ->
                                             point.photoId?.let { "photo-$it" }
                                         point.kind == 1 || point.kind == 5 ->
                                             point.item?.stopId?.let { "stop-$it" }
                                         else -> null
+                                    }
+                                    if (point.kind == 2 && item?.entryId != null) {
+                                        val cardLeft = timelineBounds.left +
+                                            point.x - with(density) { 84.dp.toPx() } -
+                                            scrollState.value
+                                        val cardTop = timelineBounds.top +
+                                            with(density) { cardY.toPx() }
+                                        onDropEntry(
+                                            item.entryId!!,
+                                            cardLeft + grabX + dragX,
+                                            cardTop + grabY + dragY,
+                                        )
                                     }
                                     if (source != null) {
                                         val finalX = point.x + dragX
@@ -389,7 +430,7 @@ fun AdventureTimeline(
                                         onDropElement(source, target)
                                     }
                                 },
-                                onDragCancel = {},
+                                onDragCancel = { dragOffset.value = Offset.Zero },
                             )
                         }
                         .clickable {
@@ -397,7 +438,7 @@ fun AdventureTimeline(
                                 point.kind == 0 && point.dayKey != null ->
                                     onDayToggle(point.dayKey)
                                 point.kind == 2 && item?.entryId != null ->
-                                    onEntryToggle(item.entryId)
+                                    onItemClick(item)
                                 point.kind == 3 && point.photoId != null ->
                                     onPhotoClick(point.photoId)
                                 point.kind == 4 && point.photoId != null ->
@@ -516,6 +557,9 @@ fun AdventureTimeline(
                                         if (expanded) "▴" else "▾",
                                         color = ink,
                                         style = MaterialTheme.typography.labelLarge,
+                                        modifier = Modifier.clickable {
+                                            item?.entryId?.let(onEntryToggle)
+                                        },
                                     )
                                 }
                             }
