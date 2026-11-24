@@ -423,7 +423,11 @@ fun AdventureTimeline(
                                     ((item?.photoCount ?: 0) + (item?.pinCount ?: 0)) > 0
                                 ) {
                                     Text(
-                                        if (expandedEntryIds.contains(item.entryId)) "▴" else "▾",
+                                        if (item?.entryId?.let { expandedEntryIds.contains(it) } == true) {
+                                            "▴"
+                                        } else {
+                                            "▾"
+                                        },
                                         style = MaterialTheme.typography.labelSmall,
                                     )
                                 }
