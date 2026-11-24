@@ -1,5 +1,6 @@
 package de.breadcrumbz.app.data.model
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -14,6 +15,10 @@ data class TripEntity(
     val endDate: Long?,
     val coverPhotoId: String?,
     val overlayMode: String,
+    @ColumnInfo(defaultValue = "CAR")
+    val defaultTransportMode: String,
+    @ColumnInfo(defaultValue = "AUTO")
+    val routeMode: String,
     val createdAt: Long,
     val updatedAt: Long,
 )

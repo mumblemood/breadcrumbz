@@ -3,14 +3,20 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Meilenstein 5 – Tagebuch und Timeline (Update).**
+**Aktueller Stand: Build A des Meilensteins 6 – Paper-Adventure-Timeline.**
 Zu jedem Stopp können mehrere Tagebucheinträge mit Titel und Text geschrieben,
-bearbeitet und gelöscht werden. Ein Marker-Tipp auf der Karte öffnet die Einträge
-dieses Stopps. Die **Timeline** lässt sich im unteren Bereich der Karte als
-horizontal scrollbarer Streifen einblenden; sie zeigt Stationen, Einträge und
-Fotos gemischt in einem Zeitstrom. Ein Tipp springt zur Stelle auf der Karte.
+bearbeitet und gelöscht werden. Die **Timeline** läuft über die volle Fensterbreite
+als leicht geschwungene, gestrichelte Linie. Stationen, Einträge und Fotos hängen
+als Pins daran; Tagesmarken lassen sich einklappen. Eine senkrechte Linie markiert
+jeweils 100 km und die Gesamtdistanz – die Beschriftung liegt über den Bildern
+und bleibt daher lesbar. Text-Einträge erscheinen zusätzlich als gelbe Zettel
+auf der Karte, Fotos als große Polaroids unter dem Marker (Stapel mit Anzahl).
+Foto-Titel werden handschriftlich im Rahmen angezeigt (maximal 12 Zeichen) und
+ein Foto kann als Titelbild der Reise gesetzt werden. Der Standard-Verkehrsmittel
+wird beim Anlegen oder Bearbeiten einer Reise gewählt; die Linien-Stile pro
+Abschnitt folgen in Build B.
 
-**Neu in diesem Update:** Beim Setzen eines Punkts wird der Ortsname automatisch
+**Aus Meilenstein 5:** Beim Setzen eines Punkts wird der Ortsname automatisch
 über Nominatim (OpenStreetMap) ermittelt und lokal gecacht; ohne Internet wird
 „Wegpunkt n" verwendet. Fotos werden jetzt auch über mehrere Importe hinweg in
 einen vorhandenen Foto-Stopp einsortiert (Gruppierungs-Bug behoben). Die Foto-Pins

@@ -18,7 +18,7 @@ import de.breadcrumbz.app.data.model.TripEntity
         PhotoEntity::class,
         PlaceNameEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class BreadcrumbzDatabase : RoomDatabase() {
@@ -76,6 +76,18 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
                 PRIMARY KEY(`key`)
             )
             """.trimIndent(),
+        )
+    }
+}
+
+/** Version 3: Standard-Verkehrsmittel und Linienmodus kommen zur Reise hinzu. */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE `trips` ADD COLUMN `defaultTransportMode` TEXT NOT NULL DEFAULT 'CAR'",
+        )
+        db.execSQL(
+            "ALTER TABLE `trips` ADD COLUMN `routeMode` TEXT NOT NULL DEFAULT 'AUTO'",
         )
     }
 }

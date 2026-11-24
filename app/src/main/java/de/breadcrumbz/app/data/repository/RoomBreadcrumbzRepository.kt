@@ -10,11 +10,14 @@ import de.breadcrumbz.app.data.photo.InternalPhotoStore
 import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.OverlayMode
 import de.breadcrumbz.app.domain.model.Photo
+import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.Stop
+import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.StopSource
 import de.breadcrumbz.app.domain.model.Trip
 import de.breadcrumbz.app.domain.repository.BreadcrumbzRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import java.util.UUID
 
@@ -34,6 +37,8 @@ class RoomBreadcrumbzRepository(
         description: String,
         startDate: Long?,
         endDate: Long?,
+        defaultTransportMode: TransportMode,
+        routeMode: RouteMode,
     ): Trip {
         val now = System.currentTimeMillis()
         val trip = Trip(
@@ -44,6 +49,8 @@ class RoomBreadcrumbzRepository(
             endDate = endDate,
             coverPhotoId = null,
             overlayMode = OverlayMode.STANDARD,
+            defaultTransportMode = defaultTransportMode,
+            routeMode = routeMode,
             createdAt = now,
             updatedAt = now,
         )
@@ -129,6 +136,14 @@ class RoomBreadcrumbzRepository(
 
     override fun observePhotos(tripId: String): Flow<List<Photo>> =
         photoDao.observeForTrip(tripId).map { rows -> rows.map { it.toDomain() } }
+
+    override fun observeAllPhotos(): Flow<List<Photo>> =
+        photoDao.observeAll().map { rows -> rows.map { it.toDomain() } }
+
+    override suspend fun setCoverPhoto(tripId: String, photoId: String) {
+        val trip = tripDao.observeById(tripId).firstOrNull()?.toDomain() ?: return
+        updateTrip(trip.copy(coverPhotoId = photoId))
+    }
 
     override suspend fun insertPhoto(photo: Photo) = photoDao.upsert(photo.toEntity())
 

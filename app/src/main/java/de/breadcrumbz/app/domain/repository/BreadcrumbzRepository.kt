@@ -3,7 +3,9 @@ package de.breadcrumbz.app.domain.repository
 import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.Stop
+import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.StopSource
+import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.Trip
 import kotlinx.coroutines.flow.Flow
 
@@ -20,6 +22,8 @@ interface BreadcrumbzRepository {
         description: String = "",
         startDate: Long? = null,
         endDate: Long? = null,
+        defaultTransportMode: TransportMode = TransportMode.CAR,
+        routeMode: RouteMode = RouteMode.AUTO,
     ): Trip
 
     suspend fun updateTrip(trip: Trip)
@@ -47,6 +51,8 @@ interface BreadcrumbzRepository {
     suspend fun deleteEntry(id: String)
 
     fun observePhotos(tripId: String): Flow<List<Photo>>
+    fun observeAllPhotos(): Flow<List<Photo>>
+    suspend fun setCoverPhoto(tripId: String, photoId: String)
     suspend fun insertPhoto(photo: Photo)
     suspend fun updatePhoto(photo: Photo)
     suspend fun deletePhoto(id: String)

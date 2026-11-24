@@ -6,19 +6,18 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.util.LruCache
 import android.view.MotionEvent
 import de.breadcrumbz.app.domain.model.Photo
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Overlay
-import kotlin.math.abs
 
 /**
- * Eigene Kartenebene für große Polaroid-Foto-Pins. Fotos desselben Stopps
- * werden als Stapel mit Count-Badge gezeichnet. Die Bilder werden verkleinert
- * gecacht und direkt auf dem Canvas gezeichnet, damit sie beim Zoomen exakt
- * an ihrem GPS-Punkt kleben.
+ * Große Polaroid-Pins: Die Karte hängt unter dem Marker. Fotos desselben
+ * Stopps bilden einen Stapel mit Anzahl. Titel erscheinen handschriftlich
+ * im unteren Rahmen (maximal 12 Zeichen).
  */
 class PolaroidOverlay(
     private val photos: List<Photo>,
@@ -67,6 +66,12 @@ class PolaroidOverlay(
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true
     }
+    private val captionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#3B2B20")
+        textSize = 28f
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create("cursive", Typeface.NORMAL)
+    }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow) return
@@ -79,24 +84,22 @@ class PolaroidOverlay(
                 GeoPoint(group.latitude, group.longitude),
                 null,
             )
-            val tilt = when (abs(group.representative.id.hashCode()) % 3) {
-                0 -> -10f
-                1 -> 8f
-                else -> -4f
-            }
+            val tilt = ((group.representative.id.hashCode() ushr 4) % 29).toFloat() - 14f
 
             val left = -cardWidth / 2
-            val top = -cardHeight + 12f * scale
+            val top = 18f
             val rect = RectF(left, top, left + cardWidth, top + cardHeight)
+            val pinX = point.x.toFloat()
+            val pinY = point.y.toFloat()
 
-            // Hintere Karten des Stapels (maximal drei sichtbar).
+            // Hintere Karten des Stapels.
             val layers = minOf(3, group.ids.size)
             for (layer in layers - 1 downTo 1) {
                 canvas.save()
-                canvas.translate(point.x.toFloat(), point.y.toFloat())
-                canvas.rotate(tilt + layer * 4f)
+                canvas.translate(pinX, pinY)
+                canvas.rotate(tilt + layer * 5f)
                 val dx = layer * 14f
-                val dy = -layer * 10f
+                val dy = -layer * 12f
                 canvas.drawRect(
                     rect.left + dx + shadowOffset,
                     rect.top + dy + shadowOffset,
@@ -105,25 +108,17 @@ class PolaroidOverlay(
                     shadowPaint,
                 )
                 canvas.drawRect(
-                    rect.left + dx,
-                    rect.top + dy,
-                    rect.right + dx,
-                    rect.bottom + dy,
-                    framePaint,
+                    rect.left + dx, rect.top + dy, rect.right + dx, rect.bottom + dy, framePaint,
                 )
                 canvas.drawRect(
-                    rect.left + dx,
-                    rect.top + dy,
-                    rect.right + dx,
-                    rect.bottom + dy,
-                    borderPaint,
+                    rect.left + dx, rect.top + dy, rect.right + dx, rect.bottom + dy, borderPaint,
                 )
                 canvas.restore()
             }
 
-            // Vorderste Karte mit Bild.
+            // Vorderste Karte mit Bild und Titel.
             canvas.save()
-            canvas.translate(point.x.toFloat(), point.y.toFloat())
+            canvas.translate(pinX, pinY)
             canvas.rotate(tilt)
             canvas.drawRect(
                 rect.left + shadowOffset,
@@ -145,16 +140,23 @@ class PolaroidOverlay(
                 null,
             )
             canvas.drawRect(rect, borderPaint)
+            val title = group.representative.caption.take(12)
+            if (title.isNotBlank()) {
+                canvas.drawText(
+                    title,
+                    0f,
+                    rect.bottom - 14f,
+                    captionPaint,
+                )
+            }
             canvas.restore()
 
             // Nadel und Stapel-Anzahl.
-            val pinX = point.x.toFloat()
-            val pinY = point.y.toFloat()
-            canvas.drawLine(pinX, pinY, pinX, pinY - 24f, pinPaint)
-            canvas.drawCircle(pinX, pinY, 12f, pinPaint)
+            canvas.drawLine(pinX, pinY, pinX, pinY + 18f, pinPaint)
+            canvas.drawCircle(pinX, pinY, 10f, pinPaint)
             if (group.ids.size > 1) {
                 val badgeX = pinX + cardWidth / 2 - 12f
-                val badgeY = pinY - cardHeight + 12f * scale + 24f
+                val badgeY = pinY + 18f + 28f
                 canvas.drawCircle(badgeX, badgeY, 34f, badgePaint)
                 val label = "×${group.ids.size}"
                 val textY = badgeY - (badgeTextPaint.descent() + badgeTextPaint.ascent()) / 2
@@ -163,10 +165,10 @@ class PolaroidOverlay(
 
             hitAreas.add(
                 RectF(
-                    pinX - cardWidth / 2 - 20f,
-                    pinY - cardHeight - 20f,
-                    pinX + cardWidth / 2 + 40f,
-                    pinY + 24f,
+                    pinX - cardWidth / 2 - 24f,
+                    pinY - 24f,
+                    pinX + cardWidth / 2 + 44f,
+                    pinY + top + cardHeight + 24f,
                 ) to group.ids,
             )
         }
@@ -183,7 +185,6 @@ class PolaroidOverlay(
         return super.onTouchEvent(event, mapView)
     }
 
-    /** Fotos mit gemeinsamem Stopp werden zu einem Stapel zusammengefasst. */
     private fun groups(): List<Group> = photos
         .groupBy { it.stopId ?: "solo-${it.id}" }
         .values

@@ -60,6 +60,10 @@ class TripMapViewModel(
         if (stopId != null) repository.observeEntries(stopId) else flowOf(emptyList())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Alle Einträge der Reise – für die Zettel auf der Karte. */
+    val allEntries = repository.observeEntriesForTrip(tripId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** Stationen, Einträge und Fotos gemeinsam nach Zeit sortiert. */
     val timeline = combine(
         stops,
@@ -219,6 +223,21 @@ class TripMapViewModel(
     fun deletePhoto(photoId: String) {
         viewModelScope.launch(Dispatchers.IO) {
             repository.deletePhoto(photoId)
+        }
+    }
+
+    /** Foto-Titel mit maximal zwölf Zeichen. */
+    fun updatePhotoCaption(photoId: String, caption: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val photo = repository.observePhotos(tripId).first().firstOrNull { it.id == photoId }
+                ?: return@launch
+            repository.updatePhoto(photo.copy(caption = caption.take(12)))
+        }
+    }
+
+    fun setCoverPhoto(photoId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.setCoverPhoto(tripId, photoId)
         }
     }
 

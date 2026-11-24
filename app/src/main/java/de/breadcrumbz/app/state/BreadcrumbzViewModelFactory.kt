@@ -17,7 +17,7 @@ class BreadcrumbzViewModelFactory(
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         when {
             modelClass.isAssignableFrom(TripsViewModel::class.java) ->
-                return TripsViewModel(repository) as T
+                return TripsViewModel(repository, photoStore) as T
 
             modelClass.isAssignableFrom(TripMapViewModel::class.java) && tripId != null ->
                 return TripMapViewModel(repository, photoStore, placeNameResolver, tripId) as T

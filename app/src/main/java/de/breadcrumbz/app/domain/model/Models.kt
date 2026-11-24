@@ -17,6 +17,10 @@ data class Trip(
     val endDate: Long?,
     val coverPhotoId: String?,
     val overlayMode: OverlayMode,
+    /** Standard-Verkehrsmittel für neue Abschnitte. */
+    val defaultTransportMode: TransportMode,
+    /** Linie automatisch oder direkt als Spline. */
+    val routeMode: RouteMode,
     val createdAt: Long,
     val updatedAt: Long,
 )

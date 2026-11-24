@@ -6,6 +6,8 @@ import de.breadcrumbz.app.domain.model.OverlayMode
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.StopSource
+import de.breadcrumbz.app.domain.model.RouteMode
+import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.Trip
 
 private inline fun <reified T : Enum<T>> enumValue(name: String?, fallback: T): T =
@@ -19,6 +21,8 @@ fun TripEntity.toDomain() = Trip(
     endDate = endDate,
     coverPhotoId = coverPhotoId,
     overlayMode = enumValue(overlayMode, OverlayMode.STANDARD),
+    defaultTransportMode = enumValue(defaultTransportMode, TransportMode.CAR),
+    routeMode = enumValue(routeMode, RouteMode.AUTO),
     createdAt = createdAt,
     updatedAt = updatedAt,
 )
@@ -31,6 +35,8 @@ fun Trip.toEntity() = TripEntity(
     endDate = endDate,
     coverPhotoId = coverPhotoId,
     overlayMode = overlayMode.name,
+    defaultTransportMode = defaultTransportMode.name,
+    routeMode = routeMode.name,
     createdAt = createdAt,
     updatedAt = updatedAt,
 )

@@ -1,5 +1,7 @@
 package de.breadcrumbz.app.ui.trips
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,11 +32,29 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import de.breadcrumbz.app.domain.model.Photo
+import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.Trip
 import de.breadcrumbz.app.state.TripsViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private fun parseGermanDate(value: String): Long? = try {
+    if (value.isBlank()) null
+    else SimpleDateFormat("dd.MM.yyyy", Locale.GERMANY).parse(value.trim())?.time
+} catch (_: Exception) {
+    null
+}
+
+private fun formatDate(value: Long?): String = value?.let {
+    SimpleDateFormat("dd.MM.yyyy", Locale.GERMANY).format(Date(it))
+} ?: ""
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,17 +64,25 @@ fun TripsScreen(
     modifier: Modifier = Modifier,
 ) {
     val trips by viewModel.trips.collectAsStateWithLifecycle()
+    val photosByTrip by viewModel.photosByTrip.collectAsStateWithLifecycle()
 
     var showEditor by rememberSaveable { mutableStateOf(false) }
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var titleInput by rememberSaveable { mutableStateOf("") }
     var descriptionInput by rememberSaveable { mutableStateOf("") }
+    var startDateInput by rememberSaveable { mutableStateOf("") }
+    var endDateInput by rememberSaveable { mutableStateOf("") }
+    var transportMode by rememberSaveable { mutableStateOf(TransportMode.CAR) }
+    var showModePicker by remember { mutableStateOf(false) }
     var deleteCandidate by remember { mutableStateOf<Trip?>(null) }
 
     fun openEditor(trip: Trip? = null) {
         editingId = trip?.id
         titleInput = trip?.title.orEmpty()
         descriptionInput = trip?.description.orEmpty()
+        startDateInput = formatDate(trip?.startDate)
+        endDateInput = formatDate(trip?.endDate)
+        transportMode = trip?.defaultTransportMode ?: TransportMode.CAR
         showEditor = true
     }
 
@@ -97,8 +126,13 @@ fun TripsScreen(
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(trips, key = { it.id }) { trip ->
+                        val coverPhoto: Photo? = trip.coverPhotoId?.let { id ->
+                            photosByTrip[trip.id]?.firstOrNull { it.id == id }
+                        }
+                        val coverPath = coverPhoto?.let { viewModel.photoPath(it.fileName) }
                         TripCard(
                             trip = trip,
+                            coverPath = coverPath,
                             onOpen = { onOpenTrip(trip.id) },
                             onEdit = { openEditor(trip) },
                             onDelete = { deleteCandidate = trip },
@@ -122,20 +156,57 @@ fun TripsScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = descriptionInput,
                         onValueChange = { descriptionInput = it },
                         label = { Text("Kurze Beschreibung") },
-                        minLines = 3,
+                        minLines = 2,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    Spacer(Modifier.height(8.dp))
+                    Row {
+                        OutlinedTextField(
+                            value = startDateInput,
+                            onValueChange = { startDateInput = it },
+                            label = { Text("Von (dd.MM.yyyy)") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedTextField(
+                            value = endDateInput,
+                            onValueChange = { endDateInput = it },
+                            label = { Text("Bis (dd.MM.yyyy)") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = transportMode.label,
+                        onValueChange = {},
+                        label = { Text("Standard-Verkehrsmittel") },
+                        readOnly = true,
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    TextButton(onClick = { showModePicker = true }) {
+                        Text("Verkehrsmittel ändern")
+                    }
                 }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.saveTrip(editingId, titleInput, descriptionInput)
+                        viewModel.saveTrip(
+                            id = editingId,
+                            title = titleInput,
+                            description = descriptionInput,
+                            startDate = parseGermanDate(startDateInput),
+                            endDate = parseGermanDate(endDateInput),
+                            transportMode = transportMode,
+                        )
                         showEditor = false
                     },
                     enabled = titleInput.isNotBlank(),
@@ -147,6 +218,34 @@ fun TripsScreen(
                 TextButton(onClick = { showEditor = false }) {
                     Text("Abbrechen")
                 }
+            },
+        )
+    }
+
+    if (showModePicker) {
+        AlertDialog(
+            onDismissRequest = { showModePicker = false },
+            title = { Text("Verkehrsmittel") },
+            text = {
+                Column {
+                    TransportMode.entries.forEach { mode ->
+                        TextButton(
+                            onClick = {
+                                transportMode = mode
+                                showModePicker = false
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                if (mode == transportMode) "✓ ${mode.label}" else mode.label,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showModePicker = false }) { Text("Schließen") }
             },
         )
     }
@@ -178,6 +277,7 @@ fun TripsScreen(
 @Composable
 private fun TripCard(
     trip: Trip,
+    coverPath: String?,
     onOpen: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -190,11 +290,42 @@ private fun TripCard(
         ),
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
-            Text(trip.title, style = MaterialTheme.typography.titleLarge)
+            val range = listOfNotNull(
+                trip.startDate?.let { formatDate(it) },
+                trip.endDate?.let { formatDate(it) },
+            ).joinToString(" - ")
+            Text(
+                text = if (range.isBlank()) trip.title else "${trip.title} · $range",
+                style = MaterialTheme.typography.titleLarge,
+            )
             if (trip.description.isNotBlank()) {
                 Spacer(Modifier.height(6.dp))
                 Text(trip.description, style = MaterialTheme.typography.bodyMedium)
             }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Verkehrsmittel: ${trip.defaultTransportMode.label}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+
+            if (coverPath != null) {
+                val bitmap = remember(coverPath) {
+                    val options = BitmapFactory.Options().apply { inSampleSize = 4 }
+                    BitmapFactory.decodeFile(coverPath, options)?.asImageBitmap()
+                }
+                if (bitmap != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = "Titelbild",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                            .clip(RoundedCornerShape(12.dp)),
+                    )
+                }
+            }
+
             Spacer(Modifier.height(10.dp))
             Row {
                 TextButton(onClick = onOpen) { Text("Karte öffnen") }
