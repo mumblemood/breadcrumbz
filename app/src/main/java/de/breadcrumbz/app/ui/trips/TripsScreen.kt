@@ -147,8 +147,9 @@ fun TripsScreen(
                 navigationIcon = {
                     IconButton(onClick = {}) {
                         Icon(
-                            painter = painterResource(R.mipmap.ic_launcher),
+                            painter = painterResource(R.drawable.ic_launcher_foreground),
                             contentDescription = "Breadcrumbz",
+                            tint = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 },

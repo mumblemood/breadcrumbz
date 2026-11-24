@@ -35,7 +35,11 @@ object PhotoSourceReader {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
 
         val candidates = buildList {
-            MediaStore.getMediaUri(context, uri)?.let { add(it) }
+            // getMediaUri gibt es erst ab API 30 – ältere Geräte dürfen nicht abstürzen.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                runCatching { MediaStore.getMediaUri(context, uri) }
+                    .getOrNull()?.let { add(it) }
+            }
             documentMediaUri(context, uri)?.let { add(it) }
         }
 

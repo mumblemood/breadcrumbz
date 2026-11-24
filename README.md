@@ -3,7 +3,7 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Version 0.11.0 – Startseite, Foto-Ort, Pop-up und Zeitleiste korrigiert.**
+**Aktueller Stand: Version 0.11.1 – Startseite, Foto-Ort, Pop-up und Zeitleiste korrigiert.**
 
 Die **Startseite** zeigt alle Reisen chronologisch, die neueste oben. Das **App-Logo**
 steht oben links. Das **„+"** sitzt mittig oben **innerhalb der Liste** und legt

@@ -86,7 +86,7 @@ class AppContainer(context: Context) {
         photoDao = photoDao,
         placeNameDao = placeNameDao,
         photoStore = photoStore,
-        appVersion = "0.11.0",
+        appVersion = "0.11.1",
     )
 
     private val placeRefresher = PlaceNameRefresher(stopDao, placeNameResolver)
