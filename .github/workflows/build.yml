@@ -27,6 +27,18 @@ jobs:
       - name: APK bauen
         run: ./gradlew assembleDebug --no-daemon
 
+      - name: Versionsgerechten Dateinamen vergeben
+        id: apk_name
+        run: |
+          NAME=$(sh scripts/save-apk.sh app/build/outputs/apk/debug/app-debug.apk .)
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "APK heißt jetzt $NAME"
+
+      - name: Alten APK-Namen entfernen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete-asset latest app-debug.apk --yes || true
+
       - name: APK als Download bereitstellen
         uses: softprops/action-gh-release@v2
         with:
@@ -35,4 +47,4 @@ jobs:
           prerelease: true
           overwrite_files: true
           body: Automatisch aus dem Hauptzweig gebaut. APK herunterladen und auf dem Handy installieren.
-          files: app/build/outputs/apk/debug/app-debug.apk
+          files: ${{ steps.apk_name.outputs.name }}

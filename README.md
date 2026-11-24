@@ -101,17 +101,26 @@ Veröffentlichung später wird ein separater, geheimer Release-Schlüssel nötig
 
 1. Änderungen in den Hauptzweig `main` hochladen (`git push`).
 2. GitHub baut automatisch eine Test-APK.
-3. Die APK liegt unter **Releases → neueste Testversion** als Download bereit.
-4. Auf dem Handy den Download öffnen und installieren. Dafür muss einmalig
-   „Apps aus unbekannten Quellen installieren" erlaubt sein.
+3. Die Datei heißt jetzt immer **`Breadcrumbz_v0.x.apk`**. Die Zahl kommt aus
+   der `versionName` in `app/build.gradle.kts`: aus `0.8.0` wird
+   `Breadcrumbz_v0.8.apk`, aus `0.9.0` wird `Breadcrumbz_v0.9.apk`.
+4. Die APK liegt unter **Releases → neueste Testversion** als Download bereit.
+5. Zusätzlich wird sie nach dem Download auf dem Gerät unter
+   **Interner Speicher → mumblemood** abgelegt. Dort kannst du sie direkt
+   antippen und installieren. Dafür muss einmalig „Apps aus unbekannten
+   Quellen installieren" erlaubt sein.
 
 Zum manuellen Bauen auf einem Computer:
 
 ```sh
 ./gradlew assembleDebug
+sh scripts/save-apk.sh
 ```
 
-Die Datei entsteht dann unter `app/build/outputs/apk/debug/app-debug.apk`.
+Die buildete Datei entsteht unter `app/build/outputs/apk/debug/app-debug.apk`.
+Das Skript kopiert sie mit dem richtigen Versionsnamen nach
+`/sdcard/mumblemood`. Ein anderer Zielordner kann als zweiter Argument
+angegeben werden.
 
 ## Lizenz
 
