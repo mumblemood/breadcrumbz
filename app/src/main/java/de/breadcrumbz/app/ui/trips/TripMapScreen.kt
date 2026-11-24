@@ -32,8 +32,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.breadcrumbz.app.R
 import de.breadcrumbz.app.state.TripMapViewModel
-import org.osmdroid.events.MapEventsOverlay
 import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -98,7 +98,7 @@ fun TripMapScreen(
         mapView.onResume()
         onDispose {
             mapView.onPause()
-            mapView.onDestroy()
+            mapView.onDetach()
         }
     }
 
