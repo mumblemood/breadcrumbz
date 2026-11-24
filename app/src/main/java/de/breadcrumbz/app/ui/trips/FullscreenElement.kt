@@ -19,10 +19,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +46,26 @@ import de.breadcrumbz.app.state.TripMapViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// Feste Papier-Optik: Diese Farben gelten unabhängig vom Systemthema (hell/dunkel).
+private val paper = Color(0xFFF6EFE1)
+private val ink = Color(0xFF3B2B20)
+private val frame = Color(0xFFDCCDB4)
+
+/** TextButton mit Lesbarkeit auf dem festen Papierhintergrund. */
+@Composable
+private fun InkTextButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = modifier,
+        colors = ButtonDefaults.textButtonColors(contentColor = ink),
+        content = content,
+    )
+}
 
 @Composable
 private fun rememberBigImage(viewModel: TripMapViewModel, fileName: String): ImageBitmap? =
@@ -82,10 +105,11 @@ fun FullscreenElement(
         onDismissRequest = onClose,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        CompositionLocalProvider(LocalContentColor provides ink) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFF6EFE1)),
+                .background(paper),
         ) {
             Row(
                 modifier = Modifier
@@ -93,7 +117,13 @@ fun FullscreenElement(
                     .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Button(onClick = onClose) { Text("← Zurück") }
+                Button(
+                    onClick = onClose,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ink,
+                        contentColor = paper,
+                    ),
+                ) { Text("← Zurück", color = paper) }
             }
 
             when {
@@ -139,21 +169,21 @@ fun FullscreenElement(
                             Text(coordText(photo.latitude, photo.longitude))
                             val entry = entries.firstOrNull { it.id == photo.entryId }
                             if (entry != null) {
-                                TextButton(onClick = { onOpenElement("entry-${entry.id}") }) {
+                                InkTextButton(onClick = { onOpenElement("entry-${entry.id}") }) {
                                     Text("Eintrag: ${entry.title.ifBlank { "Tagebucheintrag" }}")
                                 }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TextButton(onClick = { viewModel.setCoverPhoto(photo.id) }) {
+                                InkTextButton(onClick = { viewModel.setCoverPhoto(photo.id) }) {
                                     Text("Titelbild")
                                 }
-                                TextButton(onClick = { onEditPhoto(photo.id) }) {
+                                InkTextButton(onClick = { onEditPhoto(photo.id) }) {
                                     Text("Titel bearbeiten")
                                 }
                                 if (photo.latitude != null && photo.longitude != null &&
                                     entry != null
                                 ) {
-                                    TextButton(onClick = {
+                                    InkTextButton(onClick = {
                                         onAdoptPhotoLocation(photo.id)
                                         onClose()
                                     }) {
@@ -161,7 +191,7 @@ fun FullscreenElement(
                                     }
                                 }
                                 if (photo.latitude == null || photo.longitude == null) {
-                                    TextButton(onClick = {
+                                    InkTextButton(onClick = {
                                         viewModel.beginPlacement(photo.id)
                                         onClose()
                                     }) {
@@ -206,7 +236,7 @@ fun FullscreenElement(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
                                 TransportMode.entries.forEach { mode ->
-                                    TextButton(onClick = {
+                                    InkTextButton(onClick = {
                                         viewModel.setStopTransportMode(stop.id, mode)
                                     }) {
                                         Text(mode.label)
@@ -221,7 +251,7 @@ fun FullscreenElement(
                                 if (entry.body.isNotBlank()) {
                                     Text(entry.body)
                                 }
-                                TextButton(onClick = { onOpenElement("entry-${entry.id}") }) {
+                                InkTextButton(onClick = { onOpenElement("entry-${entry.id}") }) {
                                     Text("Eintrag öffnen")
                                 }
                             }
@@ -238,7 +268,7 @@ fun FullscreenElement(
                                             modifier = Modifier
                                                 .size(96.dp)
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .background(Color(0xFFDCCDB4))
+                                                .background(frame)
                                                 .clickable {
                                                     onOpenElement("photo-${photo.id}")
                                                 },
@@ -296,17 +326,17 @@ fun FullscreenElement(
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TextButton(onClick = {
+                                InkTextButton(onClick = {
                                     onEditEntry(entry)
                                     onClose()
                                 }) { Text("Bearbeiten") }
                                 if (entry.stopId == null) {
-                                    TextButton(onClick = {
+                                    InkTextButton(onClick = {
                                         viewModel.beginEntryPlacement(entry.id)
                                         onClose()
                                     }) { Text("Ort setzen") }
                                 }
-                                TextButton(onClick = {
+                                InkTextButton(onClick = {
                                     viewModel.deleteEntry(entry.id)
                                     onClose()
                                 }) { Text("Löschen") }
@@ -315,7 +345,7 @@ fun FullscreenElement(
                                 Spacer(Modifier.height(12.dp))
                                 Text("Pins im Eintrag", fontWeight = FontWeight.Bold)
                                 childStops.forEach { stop ->
-                                    TextButton(onClick = { onOpenElement("stop-${stop.id}") }) {
+                                    InkTextButton(onClick = { onOpenElement("stop-${stop.id}") }) {
                                         Text(stop.title.ifBlank { "Pin" })
                                     }
                                 }
@@ -333,7 +363,7 @@ fun FullscreenElement(
                                             modifier = Modifier
                                                 .size(96.dp)
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .background(Color(0xFFDCCDB4))
+                                                .background(frame)
                                                 .clickable {
                                                     onOpenElement("photo-${photo.id}")
                                                 },
@@ -358,6 +388,7 @@ fun FullscreenElement(
                 else -> MissingElement(onClose)
             }
         }
+        }
     }
 }
 
@@ -368,8 +399,14 @@ private fun MissingElement(onClose: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("Dieses Element gibt es nicht mehr.")
+        Text("Dieses Element gibt es nicht mehr.", color = ink)
         Spacer(Modifier.height(12.dp))
-        Button(onClick = onClose) { Text("← Zurück") }
+        Button(
+            onClick = onClose,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = ink,
+                contentColor = paper,
+            ),
+        ) { Text("← Zurück", color = paper) }
     }
 }

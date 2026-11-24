@@ -27,6 +27,9 @@ Der **„+"**-Knopf öffnet Titel, Tagebuch, Datum, Uhrzeit und mehrere neue Bil
 aus der Galerie. Die Route wird **pro Abschnitt** im Stil des Verkehrsmittels
 gezeichnet; **„Linie: direkt"** schaltet auf einen glatten Spline um.
 
+Die Detailansichten (Pin, Foto, Eintrag) nutzen feste Papier-/Tintafarben und
+bleiben deshalb bei **hell und dunkel** gleich gut lesbar.
+
 **Aus Meilenstein 5:** Beim Setzen eines Punkts wird der Ortsname automatisch
 über Nominatim (OpenStreetMap) ermittelt und lokal gecacht; ohne Internet wird
 „Wegpunkt n" verwendet. Fotos werden jetzt auch über mehrere Importe hinweg in
