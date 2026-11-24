@@ -6,15 +6,21 @@ import de.breadcrumbz.app.data.photo.ImportedPhoto
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
 import de.breadcrumbz.app.data.photo.PhotoImporter
 import de.breadcrumbz.app.domain.model.StopSource
+import de.breadcrumbz.app.domain.model.TimelineItem
+import de.breadcrumbz.app.domain.model.TimelineKind
 import de.breadcrumbz.app.domain.repository.BreadcrumbzRepository
 import de.breadcrumbz.app.domain.util.clusterPhotos
 import de.breadcrumbz.app.domain.util.haversineMeters
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -41,6 +47,64 @@ class TripMapViewModel(
     val photos = repository.observePhotos(tripId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    private val _selectedStopId = MutableStateFlow<String?>(null)
+    val selectedStopId: StateFlow<String?> = _selectedStopId.asStateFlow()
+
+    /** Einträge des gerade ausgewählten Stopps. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val entries = _selectedStopId.flatMapLatest { stopId ->
+        if (stopId != null) repository.observeEntries(stopId) else flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Stationen, Einträge und Fotos gemeinsam nach Zeit sortiert. */
+    val timeline = combine(
+        stops,
+        repository.observeEntriesForTrip(tripId),
+        photos,
+    ) { allStops, allEntries, allPhotos ->
+        buildList {
+            allStops.forEach { stop ->
+                add(
+                    TimelineItem(
+                        id = "stop-${stop.id}",
+                        time = stop.visitedAt ?: stop.createdAt,
+                        kind = TimelineKind.STOP,
+                        title = stop.title,
+                        subtitle = "Station",
+                        stopId = stop.id,
+                        photoId = null,
+                    ),
+                )
+            }
+            allEntries.forEach { entry ->
+                add(
+                    TimelineItem(
+                        id = "entry-${entry.id}",
+                        time = entry.createdAt,
+                        kind = TimelineKind.ENTRY,
+                        title = entry.title.ifBlank { "Tagebucheintrag" },
+                        subtitle = entry.body,
+                        stopId = entry.stopId,
+                        photoId = null,
+                    ),
+                )
+            }
+            allPhotos.forEach { photo ->
+                add(
+                    TimelineItem(
+                        id = "photo-${photo.id}",
+                        time = photo.capturedAt ?: photo.createdAt,
+                        kind = TimelineKind.PHOTO,
+                        title = photo.caption.ifBlank { "Foto" },
+                        subtitle = "Foto",
+                        stopId = photo.stopId,
+                        photoId = photo.id,
+                    ),
+                )
+            }
+        }.sortedBy { it.time }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** Live-Luftlinie in km. Straßen-km über OSRM kommen in einem späteren Schritt. */
     val distanceKm = stops.map { list ->
         val meters = (1 until list.size).sumOf { index ->
@@ -58,6 +122,32 @@ class TripMapViewModel(
     val pendingPhotoId: StateFlow<String?> = _pendingPhotoId.asStateFlow()
 
     fun photoPath(fileName: String): String = photoStore.fileFor(fileName).absolutePath
+
+    fun selectStop(stopId: String?) {
+        _selectedStopId.value = stopId
+    }
+
+    fun saveEntry(stopId: String, entryId: String?, title: String, body: String) {
+        if (title.isBlank() && body.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (entryId != null) {
+                val entry = repository.observeEntries(stopId).first().firstOrNull { it.id == entryId }
+                if (entry != null) {
+                    repository.updateEntry(
+                        entry.copy(title = title.trim(), body = body.trim()),
+                    )
+                }
+            } else {
+                repository.addEntry(stopId, title.trim(), body.trim())
+            }
+        }
+    }
+
+    fun deleteEntry(entryId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.deleteEntry(entryId)
+        }
+    }
 
     fun beginPlacement(photoId: String) {
         _pendingPhotoId.value = photoId

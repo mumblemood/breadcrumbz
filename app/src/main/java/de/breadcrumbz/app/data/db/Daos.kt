@@ -45,6 +45,12 @@ interface EntryDao {
     @Query("SELECT * FROM entries WHERE stopId = :stopId ORDER BY sortIndex ASC")
     fun observeForStop(stopId: String): Flow<List<EntryEntity>>
 
+    @Query(
+        "SELECT entries.* FROM entries INNER JOIN stops ON entries.stopId = stops.id " +
+            "WHERE stops.tripId = :tripId ORDER BY entries.createdAt ASC",
+    )
+    fun observeForTrip(tripId: String): Flow<List<EntryEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entry: EntryEntity)
 

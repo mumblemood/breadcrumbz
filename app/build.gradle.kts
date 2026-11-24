@@ -15,8 +15,8 @@ android {
         applicationId = "de.breadcrumbz.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.1-m4-fix"
+        versionCode = 5
+        versionName = "0.5.0-m5"
     }
 
     // Fester Test-Schlüssel: jeder Build bekommt dadurch dieselbe Signatur.

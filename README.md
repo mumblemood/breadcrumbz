@@ -3,8 +3,14 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Meilenstein 4 – Fotos.**
-Fotos können aus der Galerie importiert werden. Sie werden als Kopie im
+**Aktueller Stand: Meilenstein 5 – Tagebuch und Timeline.**
+Zu jedem Stopp können mehrere Tagebucheinträge mit Titel und Text geschrieben,
+bearbeitet und gelöscht werden. Ein Marker-Tipp auf der Karte öffnet die Einträge
+dieses Stopps. Die **Timeline** zeigt Stationen, Einträge und Fotos gemischt in
+einem Zeitstrom; ein Tipp springt zur Stelle auf der Karte bzw. zum Foto.
+
+Meilenstein 4 hatte den Foto-Import mit EXIF, Gruppierung und Polaroid-Pins
+gebracht. Fotos können aus der Galerie importiert werden. Sie werden als Kopie im
 App-Speicher abgelegt; Aufnahmezeit und GPS kommen aus den EXIF-Daten. Fotos,
 die zeitlich (≤ 30 Minuten) und örtlich (≤ 200 m) zusammenpassen, werden zu
 einem Foto-Stopp gruppiert. Seit Android 10 blendet das System GPS-Daten in

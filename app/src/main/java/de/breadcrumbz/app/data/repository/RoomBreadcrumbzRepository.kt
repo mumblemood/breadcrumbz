@@ -97,6 +97,9 @@ class RoomBreadcrumbzRepository(
     override fun observeEntries(stopId: String): Flow<List<Entry>> =
         entryDao.observeForStop(stopId).map { rows -> rows.map { it.toDomain() } }
 
+    override fun observeEntriesForTrip(tripId: String): Flow<List<Entry>> =
+        entryDao.observeForTrip(tripId).map { rows -> rows.map { it.toDomain() } }
+
     override suspend fun addEntry(stopId: String, title: String, body: String): Entry {
         val now = System.currentTimeMillis()
         val entry = Entry(
