@@ -29,7 +29,7 @@ object PhotoSourceReader {
     private fun originalStream(context: Context, uri: Uri): InputStream? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
         return try {
-            val mediaUri = MediaStore.getMediaUri(uri)
+            val mediaUri = MediaStore.getMediaUri(context, uri)
             val originalUri = MediaStore.setRequireOriginal(mediaUri)
             context.contentResolver.openInputStream(originalUri)
         } catch (_: Exception) {
