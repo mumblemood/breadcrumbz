@@ -46,9 +46,8 @@ class PinInteractionOverlay(
     private var mapViewRef: MapView? = null
 
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0x88D99B52.toInt()
+        color = 0xE6B8782F.toInt()
         style = Paint.Style.STROKE
-        strokeWidth = 6f
     }
 
     private val unlock = Runnable {
@@ -81,7 +80,17 @@ class PinInteractionOverlay(
         val id = draggingStopId ?: selectedStopId ?: return
         val marker = markers[id] ?: return
         val point = mapView.projection.toPixels(marker.position, null)
-        canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), 40f, ringPaint)
+        val density = mapView.resources.displayMetrics.density
+        // Der Anker liegt an der Pin-Spitze. Der Kreis muss um den Kopf des
+        // Pins liegen, nicht um die Spitze – und mit dem vergrößerten Pin wachsen.
+        val half = 21f * density
+        ringPaint.strokeWidth = 5f * density
+        canvas.drawCircle(
+            point.x.toFloat(),
+            point.y - half,
+            half + 7f * density,
+            ringPaint,
+        )
     }
 
     override fun onTouchEvent(event: MotionEvent, mapView: MapView): Boolean {
@@ -223,12 +232,19 @@ class PinInteractionOverlay(
 
     private fun hitStop(event: MotionEvent, mapView: MapView): Stop? {
         val projection = mapView.projection
+        val density = mapView.resources.displayMetrics.density
         return stops.firstOrNull { stop ->
             val point = projection.toPixels(
                 GeoPoint(stop.latitude, stop.longitude),
                 null,
             )
-            abs(point.x - event.x) < 48f && abs(point.y - event.y) < 64f
+            // Tippen auf den ganzen Pin, nicht nur auf die Spitze.
+            val scale = if (stop.id == selectedStopId) 1.5f else 1f
+            val half = 14f * density * scale
+            val height = 28f * density * scale
+            abs(point.x - event.x) < half + 8f * density &&
+                event.y >= point.y - height - 8f * density &&
+                event.y <= point.y + 8f * density
         }
     }
 

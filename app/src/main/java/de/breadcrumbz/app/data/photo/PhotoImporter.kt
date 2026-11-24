@@ -12,10 +12,17 @@ data class PhotoMetadata(
     val longitude: Double?,
 )
 
-/** Ein aus der Galerie ausgewähltes Foto, bevor es kopiert wird. */
+/**
+ * Ein aus der Galerie ausgewähltes Foto, bevor es kopiert wird.
+ * Die Orts- und Zeitangaben können auch aus dem MediaStore stammen, wenn die
+ * ausgelesene Datei selbst keine GPS-Daten mehr enthält.
+ */
 data class ImportedPhoto(
     val bytes: ByteArray,
     val mimeType: String,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val capturedAt: Long? = null,
 )
 
 /** Liest Aufnahmezeit und GPS aus den EXIF-Daten eines Fotos. */

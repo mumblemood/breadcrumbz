@@ -3,7 +3,7 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Version 0.11.1 – Startseite, Foto-Ort, Pop-up und Zeitleiste korrigiert.**
+**Aktueller Stand: Version 0.12.0 – Foto-GPS, Zeitleisten-Rahmen, Pin-Markierung und Gesamtansicht korrigiert.**
 
 Die **Startseite** zeigt alle Reisen chronologisch, die neueste oben. Das **App-Logo**
 steht oben links. Das **„+"** sitzt mittig oben **innerhalb der Liste** und legt
@@ -30,17 +30,20 @@ zeigt mit der Spitze auf die Mitte des oberen weißen Polaroid-Rands. Fotos werd
 nie verzogen: Der Rahmen passt sich dem Seitenverhältnis an, alle Ränder sind
 gleich breit und nur der untere Rand ist für die Beschriftung dicker. Die
 Polaroids werden mit dem Zoom größer und kleiner. Pinch-Zoom funktioniert
-überall; währenddessen wird nichts ausgewählt. Als kleinster Zoom ist Stufe 4
-eingestellt.
+überall; währenddessen wird nichts ausgewählt. Der ausgewählte Pin bekommt einen
+farbigen Ring um den Kopf. Der kleinste Zoom ist Stufe 1: Mit dem Knopf für die
+**Gesamtansicht** zoomt die App auf die ganze Welt, solange es noch keine Fotos
+und Pins gibt. Danach passt sie die Karte mit sicherem Rand an alle Punkte an.
 
 **Timeline:** Sie lässt sich überall wischen; Ziehen eines Elements startet erst
 nach längerem Halten. Die schwarze gestrichelte Linie ist dick und hat nur einen
 dünnen weißen Rand. Ein Klick auf den Rahmen öffnet oder schließt Tag bzw.
-Eintrag – Pfeile gibt es nicht. Der Tagesrahmen umschließt alles des Tages; der
-Eintragsrahmen umschließt Titel, alle Fotos, Pins und den Tagebuchtext.
-Eingeklappt erscheinen mehrere Fotos als kleiner Stapel, ausgeklappt einzeln.
-Pins haben einen farbigen Rand; vor Ortsnamen steht immer ein einfarbiges Pin-
-Symbol in Textgröße.
+Eintrag – Pfeile gibt es nicht. Der größere **Tagesrahmen** umschließt alle
+Einträge des Tages; der kleinere **Eintragsrahmen** umschließt Titel, alle Fotos,
+Pins und den Tagebuchtext. Die Rahmen bleiben beim Scrollen stabil und
+überschneiden sich nicht. Eingeklappt erscheinen mehrere Fotos als kleiner
+Stapel, ausgeklappt einzeln. Pins haben einen farbigen Rand; vor Ortsnamen steht
+immer ein einfarbiges Pin-Symbol in Textgröße.
 
 **Ortsnamen** werden automatisch als **„Stadt, Staat"** aus den Koordinaten
 ermittelt. Vorhandene alte Namen werden beim ersten Start dieser Version einmalig
@@ -63,9 +66,10 @@ nichts ging verloren. Während des Pinch-Zooms wird nichts ausgewählt.
 
 Die Detailansichten öffnen sich als **Pop-up** über leicht abgedunkeltem
 Hauptbereich; ein Klick daneben schließt es. Im Eintrag siehst du auch die
-angehängten Fotos. Foto-Orte werden aus dem unveränderten Original ausgelesen,
-auch wenn die Galerie-Auswahl sonst nur eine GPS-lose Kopie liefert. Zeit und
-Ort stehen direkt unterm Titel. Wurden sie aus dem ersten
+angehängten Fotos. Foto-Orte werden aus dem unveränderten Original ausgelesen
+und notfalls aus den GPS-Spalten des MediaStore ergänzt, auch wenn die
+Galerie-Auswahl sonst nur eine GPS-lose Kopie liefert. Zeit und Ort stehen
+direkt unterm Titel. Wurden sie aus dem ersten
 Foto übernommen, stehen sie kursiv mit **„(aus erstem Foto)"**; ein Tippen
 öffnet eine bequeme Auswahl und entfernt den Kursiv-Hinweis. Das Foto selbst hat
 einen großen Polaroid-Rahmen mit dem Titel im unteren Rand (Comic-Schrift);

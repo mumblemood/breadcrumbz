@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import de.breadcrumbz.app.data.photo.ImportedPhoto
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
 import de.breadcrumbz.app.data.photo.PhotoImporter
+import de.breadcrumbz.app.data.photo.PhotoMetadata
 import de.breadcrumbz.app.data.place.PlaceNameResolver
 import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.OverlayMode
@@ -253,7 +254,15 @@ class TripMapViewModel(
             val created = mutableListOf<Photo>()
 
             images.forEachIndexed { index, item ->
-                val metadata = PhotoImporter.read(item.bytes)
+                val metadata = try {
+                    PhotoImporter.read(item.bytes)
+                } catch (_: Exception) {
+                    PhotoMetadata(null, null, null)
+                }
+                // MediaStore-Werte greifen, wenn die Datei selbst keine GPS-Daten hat.
+                val capturedAt = item.capturedAt ?: metadata.capturedAt
+                val latitude = item.latitude ?: metadata.latitude
+                val longitude = item.longitude ?: metadata.longitude
                 val fileName = photoStore.save(item.bytes, item.mimeType)
                 val photo = Photo(
                     id = UUID.randomUUID().toString(),
@@ -262,9 +271,9 @@ class TripMapViewModel(
                     entryId = entryId,
                     fileName = fileName,
                     mimeType = item.mimeType,
-                    capturedAt = metadata.capturedAt,
-                    latitude = metadata.latitude,
-                    longitude = metadata.longitude,
+                    capturedAt = capturedAt,
+                    latitude = latitude,
+                    longitude = longitude,
                     caption = "",
                     sortIndex = startIndex + index,
                     createdAt = now + index,

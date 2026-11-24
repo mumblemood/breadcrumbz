@@ -249,8 +249,15 @@ fun TripMapScreen(
                 val imported = uris.mapNotNull { uri ->
                     val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
                     if (!mimeType.startsWith("image/")) return@mapNotNull null
-                    val bytes = PhotoSourceReader.read(context, uri) ?: return@mapNotNull null
-                    ImportedPhoto(bytes, mimeType)
+                    val source = PhotoSourceReader.readWithMetadata(context, uri)
+                        ?: return@mapNotNull null
+                    ImportedPhoto(
+                        bytes = source.bytes,
+                        mimeType = mimeType,
+                        latitude = source.latitude,
+                        longitude = source.longitude,
+                        capturedAt = source.capturedAt,
+                    )
                 }
                 viewModel.addPhotosToEntry(targetId, imported)
                 withContext(Dispatchers.Main) {
@@ -299,8 +306,8 @@ fun TripMapScreen(
         MapView(context).apply {
             setTileSource(standardTiles())
             setMultiTouchControls(true)
-            // Sinnvolle Untergrenze: ganze Reise überblicken, ohne ins Bodenlose zu zoomen.
-            minZoomLevel = 4.0
+            // Ganz rauszoomen muss möglich sein, damit die Weltkarte sichtbar ist.
+            minZoomLevel = 1.0
             controller.setZoom(14.0)
             controller.setCenter(GeoPoint(51.0, 10.0))
         }
@@ -675,7 +682,9 @@ fun TripMapScreen(
                                 val factor = if (stop.id == activeStopId) 1.5f else 1f
                                 val width = (it.intrinsicWidth * factor).roundToInt()
                                 val height = (it.intrinsicHeight * factor).roundToInt()
-                                it.setBounds(-width / 2, -height, width / 2, 0)
+                                // osmdroid setzt den Anker selbst (unten mittig).
+                                // Doppelte Offsets würden den Pin verschieben.
+                                it.setBounds(0, 0, width, height)
                                 marker.icon = it
                             }
                             marker.isDraggable = false
@@ -741,12 +750,22 @@ fun TripMapScreen(
                                     }
                                 }
                             }
-                            if (points.isNotEmpty()) {
-                                mapView.zoomToBoundingBox(
-                                    BoundingBox.fromGeoPoints(points),
-                                    true,
-                                    100,
+                            if (points.isEmpty()) {
+                                // Noch keine Fotos und Pins: ganze Weltkarte zeigen.
+                                mapView.controller.setZoom(1.0)
+                                mapView.controller.setCenter(GeoPoint(0.0, 0.0))
+                            } else {
+                                // Rand um die äußeren Fotos, damit nichts abgeschnitten wird.
+                                val box = BoundingBox.fromGeoPoints(points)
+                                val latMargin = maxOf((box.north - box.south) * 0.15, 0.02)
+                                val lonMargin = maxOf((box.east - box.west) * 0.15, 0.02)
+                                val padded = BoundingBox(
+                                    (box.north + latMargin).coerceAtMost(85.0),
+                                    (box.east + lonMargin).coerceAtMost(180.0),
+                                    (box.south - latMargin).coerceAtLeast(-85.0),
+                                    (box.west - lonMargin).coerceAtLeast(-180.0),
                                 )
+                                mapView.zoomToBoundingBox(padded, true, 140)
                             }
                         },
                         modifier = Modifier
