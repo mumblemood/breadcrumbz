@@ -4,37 +4,49 @@ import android.graphics.DashPathEffect
 import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TransportMode
+import de.breadcrumbz.app.domain.util.haversineMeters
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
-import kotlin.math.cos
-import kotlin.math.hypot
+import kotlin.math.ceil
 import kotlin.math.sin
 
 /**
- * Zeichnet die Route abschnittsweise passend zum Verkehrsmittel. Der Modus
- * DIREKT überschreibt alle Stile durch einen glatten Spline.
+ * Die Linie auf der Karte sieht genauso aus wie in der Zeitleiste:
+ * weißer Untergrund, schwarze gestrichelte Linie darüber. Das Verkehrsmittel
+ * bestimmt nur, wie die Punkte geführt werden – nicht die Farbe.
+ *
+ * Ein Tippen auf die Linie öffnet die Verkehrsmittel-Auswahl des Abschnitts.
  */
 object RouteStyling {
+
+    // Dieselben Werte benutzt auch die Zeitleiste – Karte und Timeline sehen
+    // dadurch identisch aus: weißer Unterzug, schwarze gestrichelte Linie.
+    val LINE_COLOR = 0xFF3B2B20.toInt()
+    val UNDER_COLOR = 0xFFFFFFFF.toInt()
+    const val LINE_WIDTH = 14f
+    const val UNDER_WIDTH = 26f
+    const val DASH = 30f
+    const val GAP = 18f
 
     fun build(
         mapView: MapView,
         stops: List<Stop>,
         defaultMode: TransportMode,
         routeMode: RouteMode,
+        onLineClick: (GeoPoint) -> Unit = {},
     ): List<Polyline> {
         val ordered = stops.sortedBy { it.sortIndex }
         if (ordered.size < 2) return emptyList()
 
         if (routeMode == RouteMode.DIRECT) {
+            val points = smooth(ordered.map { GeoPoint(it.latitude, it.longitude) })
             return listOf(
-                line(
-                    mapView,
-                    smooth(ordered.map { GeoPoint(it.latitude, it.longitude) }),
-                    color = 0xFF6B4A2A.toInt(),
-                    width = 6f,
-                    dash = floatArrayOf(18f, 12f),
-                ),
+                underLine(mapView, points),
+                dashedLine(mapView, points) { _, _, point ->
+                    onLineClick(point ?: points.last())
+                    true
+                },
             )
         }
 
@@ -43,7 +55,6 @@ object RouteStyling {
                 val from = ordered[index - 1]
                 val to = ordered[index]
                 val mode = to.transportMode ?: defaultMode
-                val style = styleOf(mode)
                 val points = when (mode) {
                     TransportMode.PLANE -> arc(
                         GeoPoint(from.latitude, from.longitude),
@@ -55,34 +66,40 @@ object RouteStyling {
                         GeoPoint(to.latitude, to.longitude),
                         wave = true,
                     )
+                    TransportMode.CAR, TransportMode.CAMPER -> approximateRoad(
+                        GeoPoint(from.latitude, from.longitude),
+                        GeoPoint(to.latitude, to.longitude),
+                    )
                     else -> listOf(
                         GeoPoint(from.latitude, from.longitude),
                         GeoPoint(to.latitude, to.longitude),
                     )
                 }
-                add(
-                    line(
-                        mapView,
-                        points,
-                        color = style.color,
-                        width = style.width,
-                        dash = style.dash,
-                    ),
-                )
+                add(underLine(mapView, points))
+                add(dashedLine(mapView, points) { _, _, point ->
+                    onLineClick(point ?: GeoPoint(to.latitude, to.longitude))
+                    true
+                })
             }
         }
     }
 
-    private data class Style(val color: Int, val width: Float, val dash: FloatArray)
+    private fun underLine(mapView: MapView, points: List<GeoPoint>): Polyline =
+        line(mapView, points, UNDER_COLOR, UNDER_WIDTH, null).apply {
+            infoWindow = null
+        }
 
-    private fun styleOf(mode: TransportMode) = when (mode) {
-        TransportMode.WALK -> Style(0xFF4E7A3A.toInt(), 5f, floatArrayOf(10f, 10f))
-        TransportMode.BIKE -> Style(0xFF2E6B6B.toInt(), 5f, floatArrayOf(18f, 10f))
-        TransportMode.KAYAK -> Style(0xFF2E6FA8.toInt(), 6f, floatArrayOf(8f, 12f))
-        TransportMode.CAR -> Style(0xFF3B2B20.toInt(), 7f, floatArrayOf(20f, 12f))
-        TransportMode.TRAIN -> Style(0xFF9B3B2F.toInt(), 6f, floatArrayOf(26f, 8f))
-        TransportMode.PLANE -> Style(0xFF6E5A8C.toInt(), 5f, floatArrayOf(16f, 14f))
-        TransportMode.CAMPER -> Style(0xFFB8782F.toInt(), 7f, floatArrayOf(22f, 10f))
+    private fun dashedLine(
+        mapView: MapView,
+        points: List<GeoPoint>,
+        onClick: Polyline.OnClickListener,
+    ): Polyline = line(
+        mapView, points, LINE_COLOR, LINE_WIDTH,
+        DashPathEffect(floatArrayOf(DASH, GAP), 0f),
+    ).apply {
+        // Keine Sprechblase: ein Tippen öffnet die Verkehrsmittel-Auswahl.
+        infoWindow = null
+        setOnClickListener(onClick)
     }
 
     private fun line(
@@ -90,12 +107,26 @@ object RouteStyling {
         points: List<GeoPoint>,
         color: Int,
         width: Float,
-        dash: FloatArray,
+        dash: DashPathEffect?,
     ): Polyline = Polyline(mapView).apply {
         setPoints(points)
         this.color = color
         this.width = width
-        paint.pathEffect = DashPathEffect(dash, 0f)
+        paint.pathEffect = dash
+    }
+
+    /** Ungefähre Straßenführung: ein Zwischenpunkt pro Kilometer Luftlinie. */
+    private fun approximateRoad(from: GeoPoint, to: GeoPoint): List<GeoPoint> {
+        val meters = haversineMeters(from.latitude, from.longitude, to.latitude, to.longitude)
+        val steps = maxOf(1, ceil(meters / 1_000.0).toInt())
+        if (steps == 1) return listOf(from, to)
+        return (0..steps).map { index ->
+            val t = index.toDouble() / steps
+            GeoPoint(
+                from.latitude + (to.latitude - from.latitude) * t,
+                from.longitude + (to.longitude - from.longitude) * t,
+            )
+        }
     }
 
     /** Catmull-Rom geglättete Punkte für den Modus „direkt". */
@@ -106,7 +137,7 @@ object RouteStyling {
             val p0 = source[(index - 1).coerceAtLeast(0)]
             val p1 = source[index]
             val p2 = source[index + 1]
-            val p3 = source[(index + 2).coerceAtMost(source.lastIndex)]
+            val p3 = source[index + 2.coerceAtMost(source.lastIndex)]
             for (step in 0 until 12) {
                 val t = step / 12f
                 val t2 = t * t
@@ -133,26 +164,26 @@ object RouteStyling {
         return result
     }
 
-    /** Flugbogen oder leicht gewellte Wasserlinie zwischen zwei Punkten. */
+    /** Bogen für Flugzeug und Kajak; wc === true erzeugt eine Welle. */
     private fun arc(from: GeoPoint, to: GeoPoint, wave: Boolean): List<GeoPoint> {
-        val dLat = to.latitude - from.latitude
-        val dLon = to.longitude - from.longitude
-        val length = hypot(dLat, dLon).coerceAtLeast(0.00001)
-        val lift = length * 0.18
-        val mid = GeoPoint(
-            (from.latitude + to.latitude) / 2 - dLon / length * lift,
-            (from.longitude + to.longitude) / 2 + dLat / length * lift,
-        )
-        return (0..24).map { step ->
-            val t = step / 24f
-            val a = (1 - t) * (1 - t)
-            val b = 2 * (1 - t) * t
-            val c = t * t
-            val ripple = if (wave) sin(t * 6 * kotlin.math.PI) * length * 0.03 else 0.0
-            GeoPoint(
-                a * from.latitude + b * mid.latitude + c * to.latitude + ripple * cos(t * kotlin.math.PI),
-                a * from.longitude + b * mid.longitude + c * to.longitude,
+        val steps = 24
+        val midLat = (from.latitude + to.latitude) / 2.0
+        val midLon = (from.longitude + to.longitude) / 2.0
+        val distance = haversineMeters(from.latitude, from.longitude, to.latitude, to.longitude)
+        val lift = minOf(distance / 4_000_000.0, 4.0)
+        val bend = if (wave) 1.2 else 0.6
+        val result = mutableListOf<GeoPoint>()
+        for (index in 0..steps) {
+            val t = index.toDouble() / steps
+            val arch = sin(t * Math.PI)
+            val side = sin(t * Math.PI * 2) * bend
+            result.add(
+                GeoPoint(
+                    midLat + (from.latitude - to.latitude) * (0.5 - t) + arch * lift,
+                    midLon + (from.longitude - to.longitude) * (0.5 - t) + side * lift,
+                ),
             )
         }
+        return result
     }
 }

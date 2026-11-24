@@ -291,27 +291,28 @@ class TripMapViewModel(
             }
             if (created.isEmpty()) return@withContext
 
-            // Zeit und Ort kommen aus demselben Foto, damit beides zusammenpasst.
-            val primary = created.firstOrNull {
-                it.capturedAt != null && it.latitude != null && it.longitude != null
-            } ?: created.firstOrNull { it.capturedAt != null }
-            ?: created.firstOrNull { it.latitude != null && it.longitude != null }
-
-            var updated = entry
-            if (primary?.capturedAt != null &&
-                (updated.entryAt == null || updated.timeFromPhoto)
-            ) {
-                updated = updated.copy(entryAt = primary.capturedAt, timeFromPhoto = true)
+            // Zeit und Ort dürfen aus verschiedenen Bildern kommen: hat das
+            // erste nur eine Zeit und das nächste GPS, übernehmen wir beides.
+            val timeSource = created.firstOrNull { it.capturedAt != null }?.capturedAt
+            val placeSource = created.firstOrNull {
+                it.latitude != null && it.longitude != null
             }
 
-            val photoLatitude = primary?.latitude
-            val photoLongitude = primary?.longitude
+            var updated = entry
+            if (timeSource != null &&
+                (updated.entryAt == null || updated.timeFromPhoto)
+            ) {
+                updated = updated.copy(entryAt = timeSource, timeFromPhoto = true)
+            }
+
+            val photoLatitude = placeSource?.latitude
+            val photoLongitude = placeSource?.longitude
             var targetStopId = updated.stopId
             var targetStop: Stop? = null
             if ((targetStopId == null || updated.placeFromPhoto) &&
                 photoLatitude != null && photoLongitude != null
             ) {
-                val photoTime = primary.capturedAt
+                val photoTime = placeSource?.capturedAt ?: timeSource
                 targetStop = repository.observeStops(tripId).first()
                     .firstOrNull { stop ->
                         photoMatchesStop(

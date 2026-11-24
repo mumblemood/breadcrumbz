@@ -190,6 +190,7 @@ fun TripMapScreen(
     var expandedEntryIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var stackPhotoIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var coverPickerOpen by remember { mutableStateOf(false) }
+    var segmentModeStopId by remember { mutableStateOf<String?>(null) }
     var photoTargetEntryId by remember { mutableStateOf<String?>(null) }
     var zoomOutToCurrent by remember { mutableStateOf(false) }
     var didRequestEmptyLocation by remember { mutableStateOf(false) }
@@ -242,6 +243,7 @@ fun TripMapScreen(
             fullscreenKey != null -> fullscreenKey = null
             photoTargetEntryId != null -> photoTargetEntryId = null
             coverPickerOpen -> coverPickerOpen = false
+            segmentModeStopId != null -> segmentModeStopId = null
             stackPhotoIds.isNotEmpty() -> stackPhotoIds = emptyList()
             pendingPhotoId != null || pendingEntryId != null -> viewModel.cancelPlacement()
             activeStopId != null -> viewModel.selectStop(null)
@@ -709,8 +711,19 @@ fun TripMapScreen(
                             mapView = view,
                             stops = stops,
                             defaultMode = trip?.defaultTransportMode
-                                ?: de.breadcrumbz.app.domain.model.TransportMode.CAR,
+                                ?: TransportMode.CAR,
                             routeMode = trip?.routeMode ?: RouteMode.AUTO,
+                            // Tippen auf die Linie öffnet die Verkehrsmittelwahl,
+                            // keine Sprechblase (InfoWindow ist in RouteStyling null).
+                            onLineClick = { clicked ->
+                                val nearest = stops.minByOrNull { stop ->
+                                    haversineMeters(
+                                        stop.latitude, stop.longitude,
+                                        clicked.latitude, clicked.longitude,
+                                    )
+                                }
+                                segmentModeStopId = nearest?.id
+                            },
                         ).forEach { view.overlays.add(it) }
 
                         markers.clear()
@@ -886,18 +899,18 @@ fun TripMapScreen(
                     photoTimes = photoTimes,
                     mapZoom = mapZoom,
                     externalKey = timeline.getOrNull(nearestIndex ?: -1)?.id,
-                    onScrollFraction = { fraction ->
-                        if (timeline.isNotEmpty() &&
-                            System.currentTimeMillis() - lastTimelineSync > 700L
-                        ) {
-                            val index = (fraction * timeline.lastIndex)
-                                .roundToInt()
-                                .coerceIn(0, timeline.lastIndex)
-                            val point = geoFor(timeline[index])
+                    // Wischen in der Zeitleiste holt das Element auf die Karte.
+                    // Die Umkehrung (Karte -> Zeitleiste) läuft über externalKey.
+                    onUserCenterKey = { key ->
+                        centerKey = key
+                        if (key != null) {
+                            val item = timeline.firstOrNull { it.id == key }
+                            val point = item?.let { geoFor(it) }
                             if (point != null) {
-                                lastTimelineSync = System.currentTimeMillis()
                                 mapView.controller.animateTo(
-                                    point, mapView.zoomLevelDouble, 450L,
+                                    point,
+                                    maxOf(mapView.zoomLevelDouble, 15.0),
+                                    450L,
                                 )
                             }
                         }
@@ -977,6 +990,39 @@ fun TripMapScreen(
             },
             confirmButton = {
                 TextButton(onClick = { stackPhotoIds = emptyList() }) { Text("Schließen") }
+            },
+        )
+    }
+
+    // Verkehrsmittel für einen Abschnitt – direkt nach einem Tap auf die Linie.
+    segmentModeStopId?.let { stopId ->
+        val stop = stops.firstOrNull { it.id == stopId }
+        AlertDialog(
+            onDismissRequest = { segmentModeStopId = null },
+            title = {
+                Text(
+                    "Verkehrsmittel bis " +
+                        (stop?.title?.ifBlank { " diesem Pin" } ?: " diesem Pin"),
+                )
+            },
+            text = {
+                Column {
+                    TransportMode.entries.forEach { mode ->
+                        TextButton(onClick = {
+                            viewModel.setStopTransportMode(stopId, mode)
+                            // Die Auswahl soll die Linie sofort beeinflussen.
+                            if (trip?.routeMode == RouteMode.DIRECT) {
+                                viewModel.setRouteMode(RouteMode.AUTO)
+                            }
+                            segmentModeStopId = null
+                        }) {
+                            Text(mode.label)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { segmentModeStopId = null }) { Text("Abbrechen") }
             },
         )
     }

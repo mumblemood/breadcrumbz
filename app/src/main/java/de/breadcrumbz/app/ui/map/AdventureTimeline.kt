@@ -148,6 +148,8 @@ fun AdventureTimeline(
     onDropElement: (String, String?) -> Unit = { _, _ -> },
     onDropEntry: (String, Float, Float) -> Unit = { _, _, _ -> },
     onCenterKeyChange: (String?) -> Unit = {},
+    /** Nur vom Nutzer gestartetes Wischen soll die Karte mitziehen. */
+    onUserCenterKey: (String?) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -163,6 +165,8 @@ fun AdventureTimeline(
     var anchorKey by remember { mutableStateOf<String?>(null) }
     // Beim Ziehen wird der Eintrag hervorgehoben, auf den man zusteuert.
     var dragTargetEntryId by remember { mutableStateOf<String?>(null) }
+    // Verhindert, dass eine programmgesteuerte Scrollbewegung die Karte zurückzieht.
+    var programmaticScroll by remember { mutableStateOf(false) }
     val startPx = with(density) { 48.dp.toPx() }
     val baseY = with(density) { 88.dp.toPx() }
 
@@ -250,6 +254,10 @@ fun AdventureTimeline(
                         }
                         val pinChildren = stops
                             .filter { stop -> stop.entryId == item.entryId }
+                            // Der Ort des Eintrags steht schon auf der Eintragskarte –
+                            // sonst gäbe es ihn doppelt. Pro Foto bleibt genau ein Pin.
+                            .filter { stop -> stop.id != item.stopId }
+                            .distinctBy { stop -> stop.id }
                             .map { stop ->
                                 (stop.visitedAt ?: stop.createdAt) to TimelinePoint(
                                     key = "entrypin-${stop.id}",
@@ -290,17 +298,31 @@ fun AdventureTimeline(
     }
 
     val contentWidth = with(density) { (startPx + points.size * stepPx + 72.dp.toPx()).toDp() }
+    val viewportPx = if (timelineBounds.width > 0f) {
+        timelineBounds.width
+    } else {
+        with(density) { 320.dp.toPx() }
+    }
 
-    LaunchedEffect(scrollState.value, contentWidth) {
+    LaunchedEffect(scrollState.value, contentWidth, viewportPx) {
         val widthPx = with(density) { contentWidth.toPx() }
         if (widthPx > 0f) onScrollFraction(scrollState.value / widthPx)
     }
-    LaunchedEffect(externalKey) {
+    LaunchedEffect(externalKey, viewportPx, stepPx) {
         // Während der Anker-Korrektur nach dem Auf-/Zuklappen nicht eingreifen.
-        if (anchorKey != null) return@LaunchedEffect
+        if (anchorKey != null || externalKey == null) return@LaunchedEffect
         val index = points.indexOfFirst { it.key == externalKey }
         if (index >= 0) {
-            scrollState.animateScrollTo((index * stepPx).roundToInt())
+            val maxScroll = (with(density) { contentWidth.toPx() } - viewportPx)
+                .coerceAtLeast(0f).roundToInt()
+            val target = (index * stepPx + stepPx / 2f - viewportPx / 2f)
+                .roundToInt().coerceAtLeast(0).coerceAtMost(maxScroll)
+            if (abs(scrollState.value - target) > 24) {
+                // Die Karte hat das gewünschte Element vorgegeben: nicht retour melden.
+                programmaticScroll = true
+                scrollState.animateScrollTo(target)
+                programmaticScroll = false
+            }
         }
     }
 
@@ -327,6 +349,9 @@ fun AdventureTimeline(
         val centerKey = centerPoint?.key
         val centerPhotoId = centerPoint?.photoId
         LaunchedEffect(centerKey) { onCenterKeyChange(centerKey) }
+        LaunchedEffect(centerKey) {
+            if (!programmaticScroll) onUserCenterKey(centerKey)
+        }
 
         val frameHalf = with(density) { 92.dp.toPx() }
         val dayPad = with(density) { 18.dp.toPx() }
@@ -337,18 +362,36 @@ fun AdventureTimeline(
         val entryBottomPx = with(density) { minOf(266.dp, maxHeight - 14.dp).toPx() }
 
         // Rahmen haben feste Höhen: Auf-/Zuklappen ändert nur ihre Breite.
+        // Die Grenzen liegen genau in der Mitte zwischen zwei Tagen, damit sich
+        // Tagesrahmen niemals überdecken – auch bei dicht beieinander liegenden
+        // Einträgen nicht.
         val dayFrames = remember(points, frameHalf, dayPad, dayTopPx, dayBottomPx) {
-            points.filter { it.kind == 0 && it.dayKey != null }.mapNotNull { day ->
-                val key = day.dayKey ?: return@mapNotNull null
+            val dayKeys = points.filter { it.kind == 0 }
+                .mapNotNull { it.dayKey }
+                .distinct()
+            val gap = with(density) { 8.dp.toPx() }
+            dayKeys.mapIndexed { index, key ->
                 val xs = points.filter { it.dayKey == key }.map { it.x }
-                if (xs.isEmpty()) return@mapNotNull null
-                key to Rect(
-                    xs.minOf { it } - frameHalf - dayPad,
-                    dayTopPx,
-                    xs.maxOf { it } + frameHalf + dayPad,
-                    dayBottomPx,
-                )
-            }.toMap()
+                if (xs.isEmpty()) return@mapIndexed key to Rect.Zero
+                val left = if (index == 0) {
+                    xs.minOf { it } - frameHalf - dayPad
+                } else {
+                    val previous = points.filter { it.dayKey == dayKeys[index - 1] }
+                        .maxOfOrNull { it.x } ?: xs.minOf { it }
+                    (previous + xs.minOf { it }) / 2f + gap / 2f
+                }
+                val right = if (index == dayKeys.lastIndex) {
+                    xs.maxOf { it } + frameHalf + dayPad
+                } else {
+                    val next = points.filter { it.dayKey == dayKeys[index + 1] }
+                        .minOfOrNull { it.x } ?: xs.maxOf { it }
+                    (xs.maxOf { it } + next) / 2f - gap / 2f
+                }
+                // Nie über die Tagesscheide hinaus – das verhindert Überschneidungen.
+                val safeLeft = minOf(left, right - 8f)
+                val safeRight = maxOf(right, safeLeft + 8f)
+                key to Rect(safeLeft, dayTopPx, safeRight, dayBottomPx)
+            }.filter { it.second != Rect.Zero }.toMap()
         }
         val entryFrames = remember(points, frameHalf, entryPad, entryTopPx, entryBottomPx) {
             points.filter { it.kind == 2 && it.item?.entryId != null }.mapNotNull { entry ->
@@ -410,7 +453,10 @@ fun AdventureTimeline(
                 val yAt = { index: Int ->
                     baseY + (sin(index * 0.85f) * with(density) { 6.dp.toPx() }).toFloat()
                 }
-                val dash = PathEffect.dashPathEffect(floatArrayOf(30f, 18f), 0f)
+                // Identische Werte wie auf der Karte (RouteStyling).
+                val dash = PathEffect.dashPathEffect(
+                    floatArrayOf(RouteStyling.DASH, RouteStyling.GAP), 0f,
+                )
 
                 val path = Path()
                 path.moveTo(points.first().x, yAt(0))
@@ -418,9 +464,15 @@ fun AdventureTimeline(
                     val middle = (points[index - 1].x + points[index].x) / 2
                     path.quadraticBezierTo(middle, yAt(index - 1), points[index].x, yAt(index))
                 }
-                // Dünner weißer Rand, darüber dicke schwarze Striche.
-                drawPath(path, Color.White, style = Stroke(width = 8f))
-                drawPath(path, ink, style = Stroke(width = 20f, pathEffect = dash))
+                // Weißer Unterzug, darüber schwarze Striche – wie auf der Karte.
+                drawPath(
+                    path, Color(RouteStyling.UNDER_COLOR),
+                    style = Stroke(width = RouteStyling.UNDER_WIDTH),
+                )
+                drawPath(
+                    path, Color(RouteStyling.LINE_COLOR),
+                    style = Stroke(width = RouteStyling.LINE_WIDTH, pathEffect = dash),
+                )
 
                 val centerIndex = points.indexOfFirst { it.key == centerKey }
                 if (centerIndex >= 0) {
@@ -666,25 +718,16 @@ fun AdventureTimeline(
                             val entryId = item?.entryId
                             val entryPhotos = entryId?.let { photosByEntry[it] }.orEmpty()
                             val body = entryId?.let { entryBodies[it] }.orEmpty()
+                            // Kein dritter (beiger) Rahmen: der graue Eintragsrahmen
+                            // reicht. Die Karte selbst bleibt ohne Hintergrund.
                             Column(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
                                     .clickable {
                                         anchorKey = centerKey
                                         item?.entryId?.let(onEntryToggle)
                                     }
-                                    .background(if (expanded) fieldGray else paper)
-                                    .border(
-                                        if (highlighted || entryId == dragTargetEntryId) {
-                                            2.dp
-                                        } else {
-                                            1.dp
-                                        },
-                                        if (highlighted || entryId == dragTargetEntryId) {
-                                            accent
-                                        } else {
-                                            Color(0xFFDCCDB4)
-                                        },
+                                    .background(
+                                        if (expanded) fieldGray else Color.Transparent,
                                         RoundedCornerShape(8.dp),
                                     )
                                     .padding(horizontal = 10.dp, vertical = 6.dp),

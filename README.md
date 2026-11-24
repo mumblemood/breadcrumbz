@@ -3,7 +3,7 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Version 0.14.0 – Foto-Import stabiler, Einträge bleiben erhalten, Bedienung von Zeitleiste und Menüs vereinfacht.**
+**Aktueller Stand: Version 0.15.0 – Ort direkt aus Fotos, Linien und Rahmen vereinheitlicht, Zeitleiste zuverlässig synchron.**
 
 Die **Reisenliste** (Startseite) zeigt alle Reisen chronologisch, die neueste oben.
 Das **App-Logo** steht oben links. Das **„+"** sitzt mittig oben **innerhalb der Liste**
@@ -27,6 +27,13 @@ du den Titel selbst tippst. Danach bleibt er fest. Das Dreistrich-Menü in der K
 ändern nur die Reise selbst – Einträge, Pins und Fotos bleiben erhalten. Die
 Zähler und der alte Knopf **„Linie:auto"** sind entfernt.
 
+**Linie:** Karte und Zeitleiste zeigen denselben Stil: weißer Unterzug und eine
+schwarze gestrichelte Linie darüber. Ein Tippen auf die Linie öffnet keine
+Sprechblase, sondern die **Auswahl des Verkehrsmittels** für diesen Abschnitt.
+Mit Auto oder Campingbus wird die Route nur ungefähr über Straßen geführt – ein
+Zwischenpunkt pro Kilometer genügt. Flugzeug und Kajak werden als Bogen
+gezeichnet.
+
 **Pins:** Zwei Sekunden Halten auf freier Karte erzeugt einen Pin. Ein Tippen
 wählt ihn aus; der ausgewählte Pin wird **1,5× größer**. Nur ein Element ist
 gleichzeitig ausgewählt, ein Tippen ins Leere hebt die Auswahl auf. Die Nadel
@@ -34,8 +41,8 @@ zeigt mit der Spitze auf die Mitte des oberen weißen Polaroid-Rands. Fotos werd
 nie verzogen: Der Rahmen passt sich dem Seitenverhältnis an, alle Ränder sind
 gleich breit und nur der untere Rand ist für die Beschriftung dicker. Die
 Polaroids werden mit dem Zoom größer und kleiner. Pinch-Zoom funktioniert
-überall; währenddessen wird nichts ausgewählt. Der ausgewählte Pin bekommt einen
-farbigen Ring um den Kopf. Der kleinste Zoom ist Stufe 1: Solange es noch keine
+überall; währenddessen wird nichts ausgewählt. Statt eines Rings wird der
+ausgewählte Pin nur vorübergehend **1,5× größer** dargestellt. Der kleinste Zoom ist Stufe 1: Solange es noch keine
 Fotos und Pins gibt, bleibt die **aktuelle Position in der Mitte** und die Karte
 wird nur so weit rausgezoomt, dass sie den Bildschirm in der Höhe füllt. Danach
 passt sie die Karte mit sicherem Rand an alle Punkte an.
@@ -45,14 +52,17 @@ wandern seine Fotos vorübergehend einzeln an ihre Originalorte und bekommen
 jeweils eigene Pins.
 
 **Timeline:** Sie lässt sich überall wischen; Ziehen eines Elements startet erst
-nach längerem Halten. Die schwarze gestrichelte Linie ist dick und hat nur einen
-dünnen weißen Rand. Ein Tippen auf den Rahmen **oder auf die Eintragskarte** öffnet bzw. schließt
-Tag und Eintrag – Pfeile gibt es nicht. Beim Ziehen leuchtet der Eintrag auf,
-dem du das Element zuordnen willst. Alle **Tagesrahmen** liegen auf derselben Höhe
-mit sinnvollem Abstand zum oberen Rand, alle **Eintragsrahmen** ebenso. Ihre
-Höhe bleibt beim Auf-/Zuklappen gleich, nur die Breite ändert sich. Das Element
-in der **Bildschirmmitte bleibt dabei stehen**; automatische Bewegungen laufen
-weich. Die **Kilometerleiste** liegt oben und überlappt keine Pins. Die
+nach längerem Halten. Die Linie sieht genauso aus wie auf der Karte. Ein Tippen
+auf den Rahmen **oder auf die Eintragskarte** öffnet bzw. schließt Tag und Eintrag
+– Pfeile gibt es nicht. Beim Ziehen leuchtet der Eintrag auf, dem du das Element
+zuordnen willst. **Tagesrahmen überlappen sich nicht mehr**: ihre Grenzen liegen
+genau in der Mitte zwischen zwei Tagen. Es gibt nur noch den Tagesrahmen und den
+grauen Eintragsrahmen – der frühere beige Rahmen um die Eintragskarte ist weg.
+Ihre Höhe bleibt beim Auf-/Zuklappen gleich, nur die Breite ändert sich. Das
+Element in der **Bildschirmmitte bleibt dabei stehen**; automatische Bewegungen
+laufen weich. Wischen in der Zeitleiste zentriert das Element auf der Karte und
+zoomt nötigenfalls auf Stufe 15; bewegt man die Karte, folgt die Zeitleiste. Die
+**Kilometerleiste** liegt oben und überlappt keine Pins. Die
 Zeitleiste nutzt die unteren zwei Fünftel des Bildschirms; Fotos aufgeklappter
 Einträge sind größer. Pins erscheinen als **Nadel** wie auf der Karte, ohne
 zusätzlichen Rahmen; vor Ortsnamen steht ein einfarbiges Pin-Symbol in
@@ -71,8 +81,10 @@ toleranter, auch wenn einzelne Zeilen beschädigt sind.
 Elementfenster eines Pins über „+ Eintrag hier“.** Es sind mehrere Einträge pro
 Tag und mehrere Elemente pro Eintrag möglich. Elemente öffnen sich beim Antippen
 und werden dort direkt bearbeitet – auch das Löschen gibt es nur dort. Fotos
-übergeben **Datum, Uhrzeit und Ort** an den Eintrag; Felder, die du selbst
-gesetzt hast, bleiben erhalten. Ein Eintrag aus der Zeitleiste kann nach langem
+übergeben **Datum, Uhrzeit und Ort** direkt an den Eintrag – der Ort steht also
+sofort im Detailfenster, nicht nur als Hinweis. Felder, die du selbst gesetzt
+hast, bleiben erhalten. In der Zeitleiste gibt es genau **einen Pin je Foto mit
+Ort und einen Pin für den Eintrag selbst**, keine zusätzlichen Pins. Ein Eintrag aus der Zeitleiste kann nach langem
 Halten auf einen Pin oder auf freie Karte gezogen werden – dort entsteht dann
 ein neuer Pin. Beim Ziehen eines Pins verschieben sich Eintrag und Bilder mit.
 Alte Einzelbilder wurden bereits in eigene Einträge überführt – nichts ging
@@ -81,8 +93,9 @@ verloren. Während des Pinch-Zooms wird nichts ausgewählt. Ein schlechtes Foto
 
 Die Detailansichten öffnen sich als **Pop-up** über leicht abgedunkeltem
 Hauptbereich; ein Klick daneben schließt es. Im Eintrag siehst du auch die
-angehängten Fotos. Foto-Orte werden aus dem unveränderten Original ausgelesen
-und notfalls aus den GPS-Spalten des MediaStore ergänzt, auch wenn die
+angehängten Fotos, aber **keine Liste der Pins** mehr. Foto-Orte werden aus dem
+unveränderten Original ausgelesen und notfalls aus den GPS-Spalten des
+MediaStore ergänzt – bei SAF-Kopien zusätzlich über den Dateinamen, auch wenn die
 Galerie-Auswahl sonst nur eine GPS-lose Kopie liefert. Zeit und Ort stehen
 direkt unterm Titel. Wurden sie aus dem ersten
 Foto übernommen, stehen sie kursiv mit **„(aus erstem Foto)"**; ein Tippen

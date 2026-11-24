@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import java.io.File
 
 /** Ein gelesenes Foto samt Orts- und Zeitangaben, auch wenn sie nicht in den Bytes stehen. */
@@ -105,26 +106,91 @@ object PhotoSourceReader {
         }
     }
 
-    /** Liest lat/long aus dem MediaStore – auch wenn die Datei selbst GPS-verstümmelt ist. */
+    /**
+     * Liest lat/long aus dem MediaStore – auch wenn die Datei selbst
+     * GPS-verstümmelt ist. Bei SAF-Kopien wird zusätzlich anhand des
+     * Dateinamens im MediaStore gesucht; dort stehen die GPS-Daten oft noch.
+     */
     private fun mediaMetadata(context: Context, uri: Uri): SourcePhoto? {
-        candidates(context, uri).distinct().forEach { candidate ->
-            val projection = arrayOf("latitude", "longitude", "datetaken")
+        val projection = arrayOf("latitude", "longitude", "datetaken")
+        val direct = queryMetadata(
+            context, candidates(context, uri).distinct(), projection, null, null,
+        )
+        if (direct?.hasLocation == true) return direct
+
+        val name = displayName(context, uri)
+        val byName = if (name.isNullOrBlank()) null else queryMetadata(
+            context,
+            listOf(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                MediaStore.Images.Media.INTERNAL_CONTENT_URI,
+            ),
+            projection,
+            "${MediaStore.MediaColumns.DISPLAY_NAME}=?",
+            arrayOf(name),
+        )
+        if (byName?.hasLocation == true) return byName
+        if (direct == null) return byName
+        if (byName == null) return direct
+        return SourcePhoto(
+            ByteArray(0),
+            direct.latitude ?: byName.latitude,
+            direct.longitude ?: byName.longitude,
+            direct.capturedAt ?: byName.capturedAt,
+        )
+    }
+
+    private val SourcePhoto.hasLocation: Boolean
+        get() = latitude != null && longitude != null
+
+    /** Erste brauchbare Zeile: volle GPS-Daten vor Zeit vor Teilangaben. */
+    private fun queryMetadata(
+        context: Context,
+        uris: List<Uri>,
+        projection: Array<String>,
+        selection: String?,
+        args: Array<String>?,
+    ): SourcePhoto? {
+        var partial: SourcePhoto? = null
+        uris.forEach { candidate ->
             val rows = try {
-                context.contentResolver.query(candidate, projection, null, null, null)
+                context.contentResolver.query(candidate, projection, selection, args, null)
             } catch (_: Exception) {
                 null
             } ?: return@forEach
             rows.use { cursor ->
-                if (!cursor.moveToFirst()) return@use
-                val lat = cursor.getDoubleOrNull("latitude")
-                val lon = cursor.getDoubleOrNull("longitude")
-                val time = cursor.getLongOrNull("datetaken")?.takeIf { it > 0L }
-                if (lat != null && lon != null) {
-                    return SourcePhoto(ByteArray(0), lat, lon, time)
+                while (cursor.moveToNext()) {
+                    val lat = cursor.getDoubleOrNull("latitude")
+                    val lon = cursor.getDoubleOrNull("longitude")
+                    val time = cursor.getLongOrNull("datetaken")?.takeIf { it > 0L }
+                    val found = SourcePhoto(ByteArray(0), lat, lon, time)
+                    if (found.hasLocation) return found
+                    if (found.capturedAt != null && partial?.capturedAt == null) {
+                        partial = found
+                    } else if (partial == null) {
+                        partial = found
+                    }
                 }
             }
         }
-        return null
+        return partial
+    }
+
+    private fun displayName(context: Context, uri: Uri): String? {
+        if (uri.scheme == "file") return uri.path?.let { File(it).name }
+        val rows = try {
+            context.contentResolver.query(
+                uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null,
+            )
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        rows.use { cursor ->
+            if (!cursor.moveToFirst()) return null
+            val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (index < 0 || cursor.isNull(index)) return null
+            return cursor.getString(index)
+        }
     }
 
     private fun android.database.Cursor.getDoubleOrNull(name: String): Double? = try {

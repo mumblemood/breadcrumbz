@@ -1,7 +1,5 @@
 package de.breadcrumbz.app.ui.map
 
-import android.graphics.Canvas
-import android.graphics.Paint
 import android.os.Handler
 import android.os.Looper
 import android.view.HapticFeedbackConstants
@@ -45,11 +43,6 @@ class PinInteractionOverlay(
     private var gestureMoved = false
     private var mapViewRef: MapView? = null
 
-    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xE6B8782F.toInt()
-        style = Paint.Style.STROKE
-    }
-
     private val unlock = Runnable {
         val id = pendingStopId
         if (id != null) {
@@ -73,24 +66,6 @@ class PinInteractionOverlay(
             onCreateStop(geo.latitude, geo.longitude)
             mapViewRef?.invalidate()
         }
-    }
-
-    override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
-        if (shadow) return
-        val id = draggingStopId ?: selectedStopId ?: return
-        val marker = markers[id] ?: return
-        val point = mapView.projection.toPixels(marker.position, null)
-        val density = mapView.resources.displayMetrics.density
-        // Der Anker liegt an der Pin-Spitze. Der Kreis muss um den Kopf des
-        // Pins liegen, nicht um die Spitze – und mit dem vergrößerten Pin wachsen.
-        val half = 21f * density
-        ringPaint.strokeWidth = 5f * density
-        canvas.drawCircle(
-            point.x.toFloat(),
-            point.y - half,
-            half + 7f * density,
-            ringPaint,
-        )
     }
 
     override fun onTouchEvent(event: MotionEvent, mapView: MapView): Boolean {

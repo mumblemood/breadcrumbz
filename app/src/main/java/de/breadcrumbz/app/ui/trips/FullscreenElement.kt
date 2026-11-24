@@ -501,7 +501,6 @@ fun FullscreenElement(
                                     var placePickerOpen by remember(entry.id) {
                                         mutableStateOf(false)
                                     }
-                                    val childStops = stops.filter { it.entryId == entry.id }
                                     val stopTitle = entry.stopId
                                         ?.let { target -> stops.firstOrNull { it.id == target }?.title }
                                     val timeIsAuto = entry.timeFromPhoto && entry.entryAt != null
@@ -684,17 +683,6 @@ fun FullscreenElement(
                                                 viewModel.deleteEntry(entry.id)
                                                 onClose()
                                             }) { Text("Löschen") }
-                                        }
-                                        if (childStops.isNotEmpty()) {
-                                            Spacer(Modifier.height(8.dp))
-                                            Text("Pins im Eintrag", fontWeight = FontWeight.Bold, color = ink)
-                                            childStops.forEach { stop ->
-                                                InkTextButton(onClick = {
-                                                    onOpenElement("stop-${stop.id}")
-                                                }) {
-                                                    Text(stop.title.ifBlank { "Pin" })
-                                                }
-                                            }
                                         }
                                     }
 
