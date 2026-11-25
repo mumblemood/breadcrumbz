@@ -1196,9 +1196,12 @@ fun TripMapScreen(
                             // der Gesamtansicht.
                             val outerStopIds = stops.filter { it.isArrivalDeparture }
                                 .map { it.id }.toSet()
-                            val outerEntryIds = allEntries.filter {
-                                it.stopId in outerStopIds
-                            }.map { it.id }.toSet()
+                            val outerEntryIds = buildSet {
+                                stops.filter { it.isArrivalDeparture }
+                                    .mapNotNull { it.entryId }.forEach(::add)
+                                allEntries.filter { it.stopId in outerStopIds }
+                                    .map { it.id }.forEach(::add)
+                            }
                             val points = buildList {
                                 stops.filterNot { it.isArrivalDeparture }.forEach { stop ->
                                     add(GeoPoint(stop.latitude, stop.longitude))

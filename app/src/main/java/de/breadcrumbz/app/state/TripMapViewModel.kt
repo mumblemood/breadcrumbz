@@ -92,6 +92,16 @@ class TripMapViewModel(
         repository.observeEntriesForTrip(tripId),
         photos,
     ) { allStops, allEntries, allPhotos ->
+        // Alles, was an An-/Abreise-Pins hängt, bleibt auf der Karte sichtbar,
+        // gehört aber nicht zur eigentlichen Reise in der Zeitleiste.
+        val outerStopIds = allStops.filter { it.isArrivalDeparture }
+            .map { it.id }.toSet()
+        val outerEntryIds = buildSet {
+            allStops.filter { it.isArrivalDeparture }
+                .mapNotNull { it.entryId }.forEach(::add)
+            allEntries.filter { it.stopId in outerStopIds }
+                .map { it.id }.forEach(::add)
+        }
         // Die Reihenfolge kommt aus den Foto-Daten: Einträge mit automatisch
         // übernommener Zeit richten sich nach dem frühesten Bild des Eintrags.
         // Manuell gesetzte Zeiten bleiben davon unberührt.
@@ -105,10 +115,8 @@ class TripMapViewModel(
             }
         }
         buildList {
-            // An-/Abreise-Pins bleiben auf der Karte sichtbar, gehören aber
-            // nicht zur Zeitleiste der eigentlichen Reise.
             // Pins in Einträgen erscheinen nur im Eintrag, nicht noch einmal allein.
-            allStops.filter { it.entryId == null && !it.isArrivalDeparture }.forEach { stop ->
+            allStops.filter { it.entryId == null && it.id !in outerStopIds }.forEach { stop ->
                 add(
                     TimelineItem(
                         id = "stop-${stop.id}",
@@ -123,7 +131,7 @@ class TripMapViewModel(
                     ),
                 )
             }
-            allEntries.forEach { entry ->
+            allEntries.filterNot { it.id in outerEntryIds }.forEach { entry ->
                 add(
                     TimelineItem(
                         id = "entry-${entry.id}",
@@ -142,7 +150,11 @@ class TripMapViewModel(
                 )
             }
             // Fotos mit Eintrag erscheinen aufgeklappt im Eintrag, nicht doppelt.
-            allPhotos.filter { it.entryId == null }.forEach { photo ->
+            allPhotos.filter { photo ->
+                photo.entryId == null &&
+                    photo.stopId !in outerStopIds &&
+                    photo.entryId !in outerEntryIds
+            }.forEach { photo ->
                 add(
                     TimelineItem(
                         id = "photo-${photo.id}",
@@ -163,19 +175,18 @@ class TripMapViewModel(
 
     /** Live-Luftlinie in km in der gleichen Reihenfolge wie die gezeichnete Route. */
     val distanceKm = combine(stops, allEntries, photos) { list, entries, photoList ->
+        // Erst in Zeitreihenfolge bringen, dann die markierten Außenpins
+        // entfernen. So zählt auch ein markierter Mittelpin nicht mit, ohne
+        // die Strecke davor und danach künstlich zu unterbrechen.
         val ordered = chronologicalStops(list, entries, photoList)
+            .filterNot { it.isArrivalDeparture }
         val meters = (1 until ordered.size).sumOf { index ->
             val previous = ordered[index - 1]
             val current = ordered[index]
-            // An-/Abreise zählt nicht mit in die Gesamtstrecke.
-            if (previous.isArrivalDeparture || current.isArrivalDeparture) {
-                0.0
-            } else {
-                haversineMeters(
-                    previous.latitude, previous.longitude,
-                    current.latitude, current.longitude,
-                )
-            }
+            haversineMeters(
+                previous.latitude, previous.longitude,
+                current.latitude, current.longitude,
+            )
         }
         meters / 1_000.0
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0.0)
