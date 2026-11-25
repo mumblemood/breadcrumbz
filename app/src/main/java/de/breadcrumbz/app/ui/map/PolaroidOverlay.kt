@@ -7,6 +7,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.os.Handler
+import android.os.Looper
 import android.util.LruCache
 import android.view.MotionEvent
 import de.breadcrumbz.app.domain.model.Photo
@@ -14,6 +16,7 @@ import de.breadcrumbz.app.domain.util.haversineMeters
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Overlay
+import kotlin.math.abs
 import kotlin.math.pow
 
 /**
@@ -30,9 +33,17 @@ class PolaroidOverlay(
     private val frontPhotoId: String? = null,
     /** Fotos eines aufgeklappten Eintrags liegen einzeln an ihrem Originalort. */
     private val expandedPhotoIds: Set<String> = emptySet(),
+    /** Langes Halten auf einem Polaroid löscht dieses Foto (mit Rückfrage). */
+    private val onPhotoLongClick: (String) -> Unit = {},
+    /** Markiertes Foto: leichtes Leuchten hinter dem Polaroid. */
+    private val highlightPhotoId: String? = null,
 ) : Overlay() {
 
     private var ignoreTapsUntilRelease = false
+    private val handler = Handler(Looper.getMainLooper())
+    private var longPress: Runnable? = null
+    private var downX = 0f
+    private var downY = 0f
 
     private data class Group(
         val ids: List<String>,
@@ -44,8 +55,15 @@ class PolaroidOverlay(
     )
 
     private val cache = LruCache<String, Bitmap>(24)
-    private val hitAreas = mutableListOf<Pair<RectF, List<String>>>()
+    private val hitAreas = mutableListOf<Triple<RectF, List<String>, String>>()
 
+    /** Damit langes Halten auf einem Polaroid keinen neuen Pin erzeugt. */
+    fun isPhotoAt(x: Float, y: Float): Boolean =
+        hitAreas.any { it.first.contains(x, y) }
+
+    private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#55FFE08A")
+    }
     private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#FBF4E4")
     }
@@ -155,6 +173,16 @@ class PolaroidOverlay(
                 canvas.restore()
             }
 
+            // Markiertes Foto leuchtet sanft, ohne das Polaroid zu verdecken.
+            if (group.ids.contains(highlightPhotoId)) {
+                val glow = 12f * zoomFactor
+                canvas.drawRect(
+                    rect.left - glow, rect.top - glow,
+                    rect.right + glow, rect.bottom + glow,
+                    glowPaint,
+                )
+            }
+
             // Vorderste Karte mit unverzerrtem Bild und Titel.
             canvas.save()
             canvas.translate(pinX, pinY)
@@ -205,15 +233,45 @@ class PolaroidOverlay(
                     pinY - hitPad,
                     pinX + cardWidth / 2f + hitPad,
                     pinY + top + cardHeight + hitPad,
-                ) to group.ids,
+                ),
+                group.ids,
+                group.representative.id,
             )
         }
     }
 
+    private fun cancelLongPress() {
+        longPress?.let { handler.removeCallbacks(it) }
+        longPress = null
+    }
+
     override fun onTouchEvent(event: MotionEvent, mapView: MapView): Boolean {
         when (event.actionMasked) {
-            MotionEvent.ACTION_POINTER_DOWN -> ignoreTapsUntilRelease = true
+            MotionEvent.ACTION_DOWN -> {
+                if (event.pointerCount == 1) {
+                    downX = event.x
+                    downY = event.y
+                    val hit = hitAreas.firstOrNull { it.first.contains(event.x, event.y) }
+                    if (hit != null) {
+                        val photoId = hit.third
+                        longPress = Runnable {
+                            longPress = null
+                            onPhotoLongClick(photoId)
+                        }.also { handler.postDelayed(it, 2_000L) }
+                    }
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (abs(event.x - downX) > 12f || abs(event.y - downY) > 12f) {
+                    cancelLongPress()
+                }
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                ignoreTapsUntilRelease = true
+                cancelLongPress()
+            }
             MotionEvent.ACTION_UP -> {
+                cancelLongPress()
                 val blocked = ignoreTapsUntilRelease
                 ignoreTapsUntilRelease = false
                 if (blocked) return false
@@ -223,7 +281,10 @@ class PolaroidOverlay(
                     return true
                 }
             }
-            MotionEvent.ACTION_CANCEL -> ignoreTapsUntilRelease = false
+            MotionEvent.ACTION_CANCEL -> {
+                ignoreTapsUntilRelease = false
+                cancelLongPress()
+            }
         }
         return false
     }

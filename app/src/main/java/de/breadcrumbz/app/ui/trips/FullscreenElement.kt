@@ -31,10 +31,14 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -52,6 +56,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.RectangleShape
@@ -86,6 +91,7 @@ import java.util.Locale
 
 // Feste Papier-Optik: Diese Farben gelten unabhängig vom Systemthema (hell/dunkel).
 private val paper = Color(0xFFF6EFE1)
+private val leftPage = Color(0xFFEFE4CF)
 private val ink = Color(0xFF3B2B20)
 private val frame = Color(0xFFDCCDB4)
 // Comic Sans ist nicht auf allen Geräten installiert. Die systemweite
@@ -252,6 +258,7 @@ fun FullscreenElement(
     val density = LocalDensity.current
     // Die Foto-Detailansicht zeigt wirklich nur das Polaroid – kein Extra-Kartenform.
     val photoOnly = elementKey.startsWith("photo-")
+    val entryOnly = elementKey.startsWith("entry-")
     val detailPhoto = if (photoOnly) {
         photos.firstOrNull { it.id == elementKey.removePrefix("photo-") }
     } else {
@@ -282,7 +289,9 @@ fun FullscreenElement(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(if (photoOnly) Modifier else Modifier.padding(20.dp))
+                .then(
+                    if (photoOnly || entryOnly) Modifier else Modifier.padding(20.dp),
+                )
                 .clickable { onClose() }
                 .then(
                     if (photoOnly) {
@@ -301,8 +310,12 @@ fun FullscreenElement(
                         Modifier
                     },
                 ),
-            // Einträge liegen bündig links oben; das Polaroid bleibt zentriert.
-            contentAlignment = if (photoOnly) Alignment.Center else Alignment.TopStart,
+            // Das aufgeschlagene Buch liegt links am Rand und vertikal in der Mitte.
+            contentAlignment = when {
+                photoOnly -> Alignment.Center
+                entryOnly -> Alignment.CenterStart
+                else -> Alignment.TopStart
+            },
         ) {
             Card(
                 // Keine runden Ecken mehr – das Detailfenster ist eine flache Fläche.
@@ -313,10 +326,34 @@ fun FullscreenElement(
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 modifier = Modifier
                     .then(
-                        if (photoOnly) {
-                            Modifier.fillMaxSize()
-                        } else {
-                            Modifier.fillMaxWidth().heightIn(max = 620.dp)
+                        when {
+                            photoOnly -> Modifier.fillMaxSize()
+                            entryOnly -> Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 620.dp)
+                                // Schmaler Rest der linken Seite, dann der Falz.
+                                .drawBehind {
+                                    val strip = 24.dp.toPx()
+                                    val fold = 3.dp.toPx()
+                                    drawRect(
+                                        color = leftPage,
+                                        topLeft = Offset.Zero,
+                                        size = Size(strip, size.height),
+                                    )
+                                    drawLine(
+                                        color = frame,
+                                        start = Offset(strip, 0f),
+                                        end = Offset(strip, size.height),
+                                        strokeWidth = fold,
+                                    )
+                                    drawLine(
+                                        color = ink.copy(alpha = 0.18f),
+                                        start = Offset(strip + fold, 0f),
+                                        end = Offset(strip + fold, size.height),
+                                        strokeWidth = 1.dp.toPx(),
+                                    )
+                                }
+                            else -> Modifier.fillMaxWidth().heightIn(max = 620.dp)
                         },
                     )
                     // Klicks im Kartenbereich nicht nach außen durchreichen.
@@ -332,9 +369,16 @@ fun FullscreenElement(
                                 ),
                             )
                             .then(
-                                if (photoOnly) Modifier else Modifier.padding(
-                                    horizontal = 16.dp, vertical = 10.dp,
-                                ),
+                                when {
+                                    photoOnly -> Modifier
+                                    entryOnly -> Modifier.padding(
+                                        start = 30.dp, end = 14.dp,
+                                        top = 10.dp, bottom = 10.dp,
+                                    )
+                                    else -> Modifier.padding(
+                                        horizontal = 16.dp, vertical = 10.dp,
+                                    )
+                                },
                             ),
                     ) {
                         // Kein Zurück-Knopf: Tippen daneben oder die Back-Taste schließen.
@@ -559,21 +603,8 @@ fun FullscreenElement(
                                         ).show()
                                     }
 
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            // Buchrücken: eine Linie links, sonst kein Rahmen.
-                                            .drawBehind {
-                                                val x = 2.dp.toPx()
-                                                drawLine(
-                                                    color = frame,
-                                                    start = Offset(x, 0f),
-                                                    end = Offset(x, size.height),
-                                                    strokeWidth = 3.dp.toPx(),
-                                                )
-                                            }
-                                            .padding(start = 16.dp),
-                                    ) {
+                                    // Der Falz wird außen am Buch gezeichnet (siehe Card).
+                                    Column(modifier = Modifier.fillMaxWidth()) {
                                         BasicTextField(
                                             value = titleDraft,
                                             onValueChange = {
@@ -587,14 +618,14 @@ fun FullscreenElement(
                                             modifier = Modifier.fillMaxWidth(),
                                         )
                                         Spacer(Modifier.height(6.dp))
-                                        // Zeit und Ort direkt unterm Titel.
+                                        // Datum und Pin direkt unterm Titel.
                                         Row(
                                             modifier = Modifier.clickable { pickDateTime() },
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             Text(
                                                 text = if (entry.entryAt == null) {
-                                                    "Zeit: wird aus erstem Foto übernommen"
+                                                    "wird aus erstem Foto übernommen"
                                                 } else {
                                                     dateText(entry.entryAt)
                                                 },
@@ -624,7 +655,7 @@ fun FullscreenElement(
                                             Spacer(Modifier.width(4.dp))
                                             Text(
                                                 text = if (stopTitle == null) {
-                                                    "Ort: wird aus erstem Foto übernommen"
+                                                    "wird aus erstem Foto übernommen"
                                                 } else {
                                                     stopTitle
                                                 },
@@ -691,25 +722,36 @@ fun FullscreenElement(
                                             }
                                         }
 
-                                        Spacer(Modifier.height(10.dp))
+                                        Spacer(Modifier.height(12.dp))
                                         Row(
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End,
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
-                                            InkTextButton(onClick = { onAddPhotos(entry.id) }) {
-                                                Text("Fotos hinzufügen")
+                                            IconButton(onClick = { onAddPhotos(entry.id) }) {
+                                                Icon(
+                                                    Icons.Default.Add,
+                                                    contentDescription = "Fotos hinzufügen",
+                                                    tint = ink,
+                                                )
                                             }
-                                            InkTextButton(onClick = {
+                                            IconButton(onClick = {
                                                 viewModel.deleteEntry(entry.id)
                                                 onClose()
-                                            }) { Text("Löschen") }
+                                            }) {
+                                                Icon(
+                                                    Icons.Default.Delete,
+                                                    contentDescription = "Eintrag löschen",
+                                                    tint = ink,
+                                                )
+                                            }
                                         }
                                     }
 
                                     if (placePickerOpen) {
                                         AlertDialog(
                                             onDismissRequest = { placePickerOpen = false },
-                                            title = { Text("Ort auswählen") },
+                                            title = { Text("Pin auswählen") },
                                             text = {
                                                 Column(Modifier.verticalScroll(rememberScrollState())) {
                                                     stops.forEach { stop ->

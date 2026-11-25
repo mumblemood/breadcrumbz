@@ -38,7 +38,9 @@ object RouteStyling {
         routeMode: RouteMode,
         onLineClick: (GeoPoint) -> Unit = {},
     ): List<Polyline> {
-        val ordered = stops.sortedBy { it.sortIndex }
+        // Die Reihenfolge kommt chronologisch aus der Reise (Foto-Zeitstempel).
+        // Der Aufruf sortiert die Stops vor; hier darf nichts mehr umsortiert werden.
+        val ordered = stops
         if (ordered.size < 2) return emptyList()
 
         if (routeMode == RouteMode.DIRECT) {

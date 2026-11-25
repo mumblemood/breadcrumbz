@@ -392,10 +392,6 @@ class TripMapViewModel(
      */
     fun assignElementToEntry(elementKey: String, entryId: String?) {
         viewModelScope.launch(Dispatchers.IO) {
-            fun sameDay(a: Long, b: Long): Boolean =
-                SimpleDateFormat("yyyy-MM-dd", Locale.GERMANY).format(Date(a)) ==
-                    SimpleDateFormat("yyyy-MM-dd", Locale.GERMANY).format(Date(b))
-
             val stopsNow = repository.observeStops(tripId).first()
             val entry = entryId?.let { id ->
                 repository.observeEntriesForTrip(tripId).first().firstOrNull { it.id == id }
@@ -411,13 +407,8 @@ class TripMapViewModel(
                     val id = elementKey.removePrefix("photo-")
                     val photo = repository.observePhotos(tripId).first()
                         .firstOrNull { it.id == id } ?: return@launch
-                    // Ein Bild darf nur in einen Eintrag am selben Tag.
-                    val entryTime = entry?.entryAt ?: entry?.createdAt
-                    if (entryTime != null &&
-                        !sameDay(photo.capturedAt ?: photo.createdAt, entryTime)
-                    ) {
-                        return@launch
-                    }
+                    // Ein Bild kann in jeden anderen Eintrag wandern. Der
+                    // bisherige Eintrag bleibt dabei unverändert bestehen.
                     repository.updatePhoto(
                         photo.copy(
                             entryId = entryId,
@@ -447,6 +438,11 @@ class TripMapViewModel(
 
     fun deletePhoto(photoId: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            val cover = repository.observeTrips().first()
+                .firstOrNull { it.id == tripId }?.coverPhotoId
+            if (cover == photoId) repository.clearCoverPhoto(tripId)
+            // Die Zuordnung zum Eintrag verschwindet mit dem Foto; der Eintrag
+            // selbst bleibt unverändert erhalten.
             repository.deletePhoto(photoId)
         }
     }

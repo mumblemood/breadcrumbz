@@ -191,6 +191,12 @@ fun TripMapScreen(
     var zoomOutToCurrent by remember { mutableStateOf(false) }
     var didRequestEmptyLocation by remember { mutableStateOf(false) }
     var mapBounds by remember { mutableStateOf(Rect.Zero) }
+    /** Foto, das auf Karte und Zeitleiste sanft leuchtet. */
+    var highlightedPhotoId by remember { mutableStateOf<String?>(null) }
+    /** Springt die Zeitleiste gezielt zu einem Foto, statt nach Kartennähe zu raten. */
+    var focusKey by remember { mutableStateOf<String?>(null) }
+    var lastFocusAt by remember { mutableStateOf(0L) }
+    var photoToDelete by remember { mutableStateOf<String?>(null) }
 
     var editingTitle by remember { mutableStateOf(false) }
     var titleDraft by remember { mutableStateOf("") }
@@ -208,8 +214,15 @@ fun TripMapScreen(
     val photoTimes = remember(photos) {
         photos.associate { it.id to (it.capturedAt ?: it.createdAt) }
     }
-    val frontPhotoId = remember(centerKey) {
-        val key = centerKey
+    fun photoKey(id: String): String =
+        if (photos.firstOrNull { it.id == id }?.entryId != null) {
+            "entryphoto-$id"
+        } else {
+            "photo-$id"
+        }
+
+    val frontPhotoId = remember(centerKey, highlightedPhotoId) {
+        val key = highlightedPhotoId?.let { photoKey(it) } ?: centerKey
         when {
             key?.startsWith("photo-") == true -> key.removePrefix("photo-")
             key?.startsWith("entryphoto-") == true -> key.removePrefix("entryphoto-")
@@ -343,6 +356,12 @@ fun TripMapScreen(
     val mapListener = remember {
         object : MapListener {
             override fun onScroll(event: ScrollEvent?): Boolean {
+                // Nach einer gezielten Fokus-Bewegung übernimmt wieder die Kartennähe.
+                if (focusKey != null &&
+                    System.currentTimeMillis() - lastFocusAt > 900L
+                ) {
+                    focusKey = null
+                }
                 if (System.currentTimeMillis() - lastTimelineSync > 700L) {
                     lastTimelineSync = System.currentTimeMillis()
                     mapCenter = GeoPoint(mapView.mapCenter.latitude, mapView.mapCenter.longitude)
@@ -351,6 +370,11 @@ fun TripMapScreen(
             }
 
             override fun onZoom(event: ZoomEvent?): Boolean {
+                if (focusKey != null &&
+                    System.currentTimeMillis() - lastFocusAt > 900L
+                ) {
+                    focusKey = null
+                }
                 lastTimelineSync = System.currentTimeMillis()
                 mapZoom = mapView.zoomLevelDouble.toFloat()
                 mapCenter = GeoPoint(mapView.mapCenter.latitude, mapView.mapCenter.longitude)
@@ -359,7 +383,60 @@ fun TripMapScreen(
         }
     }
 
-    val pinOverlay = remember(stops, activeStopId) {
+    /** Foto in beiden Ansichten markieren, Karte und Zeitleiste darauf ausrichten. */
+    fun focusPhoto(photoId: String, moveMap: Boolean) {
+        val photo = photos.firstOrNull { it.id == photoId } ?: return
+        val key = photoKey(photoId)
+        highlightedPhotoId = photoId
+        centerKey = key
+        focusKey = key
+        lastFocusAt = System.currentTimeMillis()
+        if (moveMap) {
+            val entryStopId = photo.entryId
+                ?.let { id -> allEntries.firstOrNull { it.id == id }?.stopId }
+            val stop = entryStopId?.let { id -> stops.firstOrNull { it.id == id } }
+            val point = if (photo.latitude != null && photo.longitude != null) {
+                GeoPoint(photo.latitude, photo.longitude)
+            } else {
+                stop?.let { GeoPoint(it.latitude, it.longitude) }
+            }
+            if (point != null) {
+                mapView.controller.animateTo(
+                    point,
+                    maxOf(mapZoom.toDouble(), 15.0),
+                    600L,
+                )
+            }
+        }
+        stackPhotoIds = emptyList()
+        fullscreenKey = "photo-$photoId"
+    }
+
+    val placedPhotos = remember(photos) {
+        photos.filter { it.latitude != null && it.longitude != null }
+    }
+    val polaroidOverlay = remember(
+        placedPhotos, viewModel, frontPhotoId, stackPhotoIds, highlightedPhotoId,
+    ) {
+        PolaroidOverlay(
+            photos = placedPhotos,
+            filePath = { name -> viewModel.photoPath(name) },
+            onPhotoClick = { ids ->
+                if (ids.size == 1) {
+                    focusPhoto(ids.first(), moveMap = false)
+                } else {
+                    stackPhotoIds = ids
+                    highlightedPhotoId = ids.first()
+                }
+            },
+            frontPhotoId = frontPhotoId,
+            expandedPhotoIds = stackPhotoIds.toSet(),
+            onPhotoLongClick = { id -> photoToDelete = id },
+            highlightPhotoId = highlightedPhotoId,
+        )
+    }
+
+    val pinOverlay = remember(stops, activeStopId, polaroidOverlay) {
         PinInteractionOverlay(
             markers = markers,
             stops = stops,
@@ -375,21 +452,38 @@ fun TripMapScreen(
             onMove = { id, latitude, longitude ->
                 viewModel.moveStop(id, latitude, longitude)
             },
+            // Halten auf einem Polaroid löscht kein Foto und setzt keinen Pin.
+            ignoreLongPress = { x, y -> polaroidOverlay.isPhotoAt(x, y) },
         )
+    }
+
+    // Die Linie fährt die Pins in der Reihenfolge ihrer Fotos ab. Ohne Foto
+    // bleibt die bisherige Zeit des Pins, danach die Einfügereihenfolge.
+    val orderedRouteStops = remember(stops, photos, allEntries) {
+        val stopOfEntry = allEntries.associate { it.id to it.stopId }
+        fun timeOf(stop: Stop): Long {
+            val photoTimes = photos.filter { photo ->
+                photo.stopId == stop.id || stopOfEntry[photo.entryId] == stop.id
+            }.mapNotNull { it.capturedAt ?: it.createdAt }
+            return photoTimes.minOrNull() ?: stop.visitedAt ?: stop.createdAt
+        }
+        stops.sortedWith(compareBy<Long> { timeOf(it) }.thenBy { it.sortIndex })
     }
 
     // Nur neu bauen, wenn sich Pins oder Verkehrsmittel ändern – nicht bei
     // jeder Kartenbewegung. So bleiben die Striche der Reiselinie stabil.
-    val routeLines = remember(stops, trip?.defaultTransportMode, trip?.routeMode) {
+    val routeLines = remember(
+        orderedRouteStops, trip?.defaultTransportMode, trip?.routeMode,
+    ) {
         RouteStyling.build(
             mapView = mapView,
-            stops = stops,
+            stops = orderedRouteStops,
             defaultMode = trip?.defaultTransportMode ?: TransportMode.CAR,
             routeMode = trip?.routeMode ?: RouteMode.AUTO,
             // Tippen auf die Linie öffnet die Verkehrsmittelwahl,
             // keine Sprechblase (InfoWindow ist in RouteStyling null).
             onLineClick = { clicked ->
-                val nearest = stops.minByOrNull { stop ->
+                val nearest = orderedRouteStops.minByOrNull { stop ->
                     haversineMeters(
                         stop.latitude, stop.longitude,
                         clicked.latitude, clicked.longitude,
@@ -442,7 +536,7 @@ fun TripMapScreen(
     fun handleTimelineClick(item: TimelineItem) {
         when (item.kind) {
             TimelineKind.PHOTO -> {
-                item.photoId?.let { fullscreenKey = "photo-$it" }
+                item.photoId?.let { focusPhoto(it, moveMap = true) }
             }
             TimelineKind.STOP -> {
                 val stop = stops.firstOrNull { it.id == item.stopId }
@@ -663,9 +757,6 @@ fun TripMapScreen(
                         view.overlays.clear()
                         view.overlays.add(locationOverlay)
 
-                        val placedPhotos = photos.filter {
-                            it.latitude != null && it.longitude != null
-                        }
                         val clusterElements = buildList {
                             stops.forEach { stop ->
                                 add(ClusterElement(stop.latitude, stop.longitude, "stop-${stop.id}"))
@@ -692,25 +783,7 @@ fun TripMapScreen(
                                 },
                             )
                         } else {
-                            view.overlays.add(
-                                PolaroidOverlay(
-                                    photos = placedPhotos,
-                                    filePath = { name -> viewModel.photoPath(name) },
-                                    onPhotoClick = { ids ->
-                                        if (ids.size == 1) {
-                                            // Nach dem Auflösen ist jedes Bild einzeln anklickbar.
-                                            stackPhotoIds = emptyList()
-                                            fullscreenKey = "photo-${ids.first()}"
-                                        } else {
-                                            stackPhotoIds = ids
-                                        }
-                                    },
-                                    frontPhotoId = frontPhotoId,
-                                    // Ein Klick auf den Stapel löst ihn vorübergehend auf;
-                                    // danach ist jedes Foto einzeln anklickbar.
-                                    expandedPhotoIds = stackPhotoIds.toSet(),
-                                ),
-                            )
+                            view.overlays.add(polaroidOverlay)
                         }
 
                         // Dieselben Polyline-Objekte bleiben erhalten – beim
@@ -870,15 +943,17 @@ fun TripMapScreen(
             ) {
                 AdventureTimeline(
                     items = timeline,
-                    stops = stops,
+                    stops = orderedRouteStops,
                     photosByEntry = photosByEntry,
                     entryBodies = allEntries.associate { it.id to it.body },
                     onItemClick = { item -> handleTimelineClick(item) },
-                    onPhotoClick = { id -> fullscreenKey = "photo-$id" },
+                    onPhotoClick = { id -> focusPhoto(id, moveMap = true) },
                     photoBitmap = { id -> thumbnails[id] },
                     photoTimes = photoTimes,
                     mapZoom = mapZoom,
-                    externalKey = timeline.getOrNull(nearestIndex ?: -1)?.id,
+                    externalKey = focusKey
+                        ?: timeline.getOrNull(nearestIndex ?: -1)?.id,
+                    highlightPhotoId = highlightedPhotoId,
                     // Wischen in der Zeitleiste holt das Element auf die Karte.
                     // Die Umkehrung (Karte -> Zeitleiste) läuft über externalKey.
                     onUserCenterKey = { key ->
@@ -1027,6 +1102,32 @@ fun TripMapScreen(
                         coverPickerOpen = false
                     }) { Text("Titelbild entfernen") }
                 }
+            },
+        )
+    }
+
+    photoToDelete?.let { id ->
+        AlertDialog(
+            onDismissRequest = { photoToDelete = null },
+            title = { Text("Foto löschen?") },
+            text = {
+                Text(
+                    "Das Foto wird von der Karte und aus seinem Eintrag entfernt. " +
+                        "Der Eintrag selbst bleibt erhalten.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deletePhoto(id)
+                    if (highlightedPhotoId == id) highlightedPhotoId = null
+                    if (focusKey == photoKey(id)) focusKey = null
+                    if (fullscreenKey == "photo-$id") fullscreenKey = null
+                    stackPhotoIds = stackPhotoIds.filterNot { it == id }
+                    photoToDelete = null
+                }) { Text("Löschen") }
+            },
+            dismissButton = {
+                TextButton(onClick = { photoToDelete = null }) { Text("Abbrechen") }
             },
         )
     }

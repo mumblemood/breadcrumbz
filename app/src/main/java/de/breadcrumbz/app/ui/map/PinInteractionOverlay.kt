@@ -26,6 +26,8 @@ class PinInteractionOverlay(
     private val onEmptyTap: () -> Unit,
     private val onCreateStop: (Double, Double) -> Unit,
     private val onMove: (String, Double, Double) -> Unit,
+    /** Foto-Polaroids sollen kein Halten-auf-freier-Fläche auslösen. */
+    private val ignoreLongPress: (Float, Float) -> Boolean = { _, _ -> false },
 ) : Overlay() {
 
     private val handler = Handler(Looper.getMainLooper())
@@ -99,7 +101,7 @@ class PinInteractionOverlay(
                         pendingStopId = hit.id
                         handler.postDelayed(unlock, 2_000L)
                     }
-                } else if (allowCreate) {
+                } else if (allowCreate && !ignoreLongPress(event.x, event.y)) {
                     pendingCreate = true
                     handler.postDelayed(create, 2_000L)
                 }

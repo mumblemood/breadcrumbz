@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -151,6 +152,8 @@ fun AdventureTimeline(
     entryBodies: Map<String, String> = emptyMap(),
     mapZoom: Float = 14f,
     externalKey: String? = null,
+    /** Foto, das von Karte oder Zeitleiste markiert wurde (sanftes Leuchten). */
+    highlightPhotoId: String? = null,
     onScrollFraction: (Float) -> Unit = {},
     onDropElement: (String, String?) -> Unit = { _, _ -> },
     onDropEntry: (String, Float, Float) -> Unit = { _, _, _ -> },
@@ -201,6 +204,8 @@ fun AdventureTimeline(
     }
     // Beim Ziehen wird der Eintrag hervorgehoben, auf den man zusteuert.
     var dragTargetEntryId by remember { mutableStateOf<String?>(null) }
+    // Ein gerade gezogenes Eintragsfoto darf nicht zusätzlich die Eintragskarte ziehen.
+    var photoDragActive by remember { mutableStateOf(false) }
     // Verhindert, dass eine programmgesteuerte Scrollbewegung die Karte zurückzieht.
     var programmaticScroll by remember { mutableStateOf(false) }
     val startPx = with(density) { 34.dp.toPx() }
@@ -352,7 +357,17 @@ fun AdventureTimeline(
     LaunchedEffect(scrollFraction) { onScrollFraction(scrollFraction) }
     LaunchedEffect(externalKey, viewportPx, points) {
         if (externalKey == null) return@LaunchedEffect
-        val index = points.indexOfFirst { it.key == externalKey }
+        // Ein Foto im Eintrag hat keinen eigenen Punkt: wir scrollen zu seinem
+        // Eintrag und markieren das einzelne Bild dort.
+        val targetKey = if (externalKey.startsWith("entryphoto-")) {
+            val photoId = externalKey.removePrefix("entryphoto-")
+            photosByEntry.entries.firstOrNull { photoId in it.value }?.key
+                ?.let { "entry-$it" }
+                ?: externalKey
+        } else {
+            externalKey
+        }
+        val index = points.indexOfFirst { it.key == targetKey }
         if (index >= 0) {
             val maxScroll = (contentWidthPx - viewportPx).coerceAtLeast(0f).roundToInt()
             val target = (points[index].x - viewportPx / 2f)
@@ -396,6 +411,7 @@ fun AdventureTimeline(
             }
 
             val dayPad = with(density) { 12.dp.toPx() }
+            val dayGap = with(density) { 14.dp.toPx() }
             val entryPad = with(density) { 8.dp.toPx() }
             val dayTopPx = with(density) { 46.dp.toPx() }
             val dayBottomPx = with(density) { (maxHeight - 8.dp).toPx() }
@@ -403,7 +419,7 @@ fun AdventureTimeline(
 
             // Die Klammer-Systematik [Tag (Eintrag Bilder) (Eintrag Bilder)]:
             // Jeder Rahmen wird aus den echten Breiten seiner Kinder gebaut.
-            val dayFrames = remember(points, dayPad, dayTopPx, dayBottomPx) {
+            val dayFrames = remember(points, dayPad, dayGap, dayTopPx, dayBottomPx) {
                 val dayKeys = points.filter { it.kind == 0 }
                     .mapNotNull { it.dayKey }
                     .distinct()
@@ -422,7 +438,7 @@ fun AdventureTimeline(
                         val prevLast = prevChildren.first { it.x == prevLastX }
                         val prevEdge = prevLastX + prevLast.slot / 2f + dayPad
                         val nextEdge = firstX - firstPoint.slot / 2f - dayPad
-                        (prevEdge + nextEdge) / 2f
+                        (prevEdge + nextEdge) / 2f + dayGap / 2f
                     }
                     val right = if (index == dayKeys.lastIndex) {
                         lastX + lastPoint.slot / 2f + dayPad
@@ -432,7 +448,7 @@ fun AdventureTimeline(
                         val nextFirst = nextChildren.first { it.x == nextFirstX }
                         val thisEdge = lastX + lastPoint.slot / 2f + dayPad
                         val nextEdge = nextFirstX - nextFirst.slot / 2f - dayPad
-                        (thisEdge + nextEdge) / 2f
+                        (thisEdge + nextEdge) / 2f - dayGap / 2f
                     }
                     val safeLeft = minOf(left, right - 8f)
                     val safeRight = maxOf(right, safeLeft + 8f)
@@ -493,7 +509,8 @@ fun AdventureTimeline(
                             y = with(density) { (rect.top + 6f).toDp() },
                         ),
                     )
-                    // Datum um 90° im Uhrzeigersinn am linken Rand, von rechts lesbar.
+                    // Datum um 90° gegen den Uhrzeigersinn am linken Rand,
+                    // mit kleinem Abstand zum Rahmen und von rechts lesbar.
                     if (dayPoint?.detail?.isNotBlank() == true) {
                         Text(
                             text = dayPoint.detail,
@@ -501,13 +518,13 @@ fun AdventureTimeline(
                             fontSize = 9.sp,
                             modifier = Modifier
                                 .offset(
-                                    x = with(density) { (rect.left + 3f).toDp() },
+                                    x = with(density) { (rect.left + 10f).toDp() },
                                     y = with(density) {
-                                        (rect.top + rect.height / 2f - 7f).toDp()
+                                        (rect.top + rect.height / 2f + 30f).toDp()
                                     },
                                 )
                                 .graphicsLayer(
-                                    rotationZ = 90f,
+                                    rotationZ = -90f,
                                     transformOrigin = TransformOrigin(0f, 0.5f),
                                 ),
                         )
@@ -625,30 +642,33 @@ fun AdventureTimeline(
                                 var grabY = 0f
                                 var grabSet = false
                                 var edgeJob: kotlinx.coroutines.Job? = null
-                                // Ein Foto darf nur in einen Eintrag desselben Tages.
-                                val photoDay = if (point.kind == 3) {
-                                    point.item?.time?.let { dayKey(it) }
-                                } else {
-                                    null
-                                }
-                                fun isAllowedTarget(candidate: TimelinePoint, x: Float): Boolean {
-                                    if (candidate.kind != 2 ||
-                                    abs(candidate.x - x) >= candidate.slot / 2f + 56f
-                                ) {
-                                        return false
-                                    }
-                                    if (photoDay == null) return true
-                                    return candidate.item?.time?.let { dayKey(it) } == photoDay
-                                }
+                                var blockedByPhoto = false
+                                var startScroll = 0
+                                // Bilder dürfen in Einträge jeden Tages wandern;
+                                // der alte Eintrag bleibt dabei erhalten.
+                                fun isAllowedTarget(
+                                    candidate: TimelinePoint,
+                                    x: Float,
+                                ): Boolean = candidate.kind == 2 &&
+                                    abs(candidate.x - x) < candidate.slot / 2f + 56f
+
                                 detectDragGesturesAfterLongPress(
                                     onDragStart = {
+                                        if (photoDragActive) {
+                                            blockedByPhoto = true
+                                            return@detectDragGesturesAfterLongPress
+                                        }
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         dragX = 0f
                                         dragY = 0f
                                         grabSet = false
+                                        startScroll = scrollState.value
                                         dragOffset.value = Offset.Zero
                                     },
                                     onDrag = { change, amount ->
+                                        if (blockedByPhoto) {
+                                            return@detectDragGesturesAfterLongPress
+                                        }
                                         change.consume()
                                         if (!grabSet) {
                                             grabX = change.position.x
@@ -676,13 +696,20 @@ fun AdventureTimeline(
                                                 )
                                             }
                                         }
-                                        // Nur gültige Ziele leuchten auf.
+                                        // Nur gültige Ziele leuchten auf. Das
+                                        // Rand-Scrollen zählt zur Drag-Bewegung dazu.
+                                        val finalX = point.x + dragX +
+                                            (scrollState.value - startScroll)
                                         dragTargetEntryId = points.firstOrNull { candidate ->
-                                            isAllowedTarget(candidate, point.x + dragX)
+                                            isAllowedTarget(candidate, finalX)
                                         }?.item?.entryId
                                     },
                                     onDragEnd = {
                                         edgeJob?.cancel()
+                                        if (blockedByPhoto) {
+                                            blockedByPhoto = false
+                                            return@detectDragGesturesAfterLongPress
+                                        }
                                         dragOffset.value = Offset.Zero
                                         dragTargetEntryId = null
                                         val source = when {
@@ -705,7 +732,8 @@ fun AdventureTimeline(
                                             )
                                         }
                                         if (source != null) {
-                                            val finalX = point.x + dragX
+                                            val finalX = point.x + dragX +
+                                                (scrollState.value - startScroll)
                                             val target = points.firstOrNull { candidate ->
                                                 isAllowedTarget(candidate, finalX)
                                             }?.item?.entryId
@@ -714,6 +742,7 @@ fun AdventureTimeline(
                                     },
                                     onDragCancel = {
                                         edgeJob?.cancel()
+                                        blockedByPhoto = false
                                         dragOffset.value = Offset.Zero
                                         dragTargetEntryId = null
                                     },
@@ -749,11 +778,21 @@ fun AdventureTimeline(
                                     modifier = Modifier
                                         .width(cardWidth)
                                         .rotate(if (point.photoId == centerPhotoId) -4f else -8f)
+                                        .shadow(
+                                            if (point.photoId == highlightPhotoId) 8.dp else 0.dp,
+                                            RoundedCornerShape(4.dp),
+                                            ambientColor = Color(0xFFFFE08A),
+                                            spotColor = Color(0xFFFFE08A),
+                                        )
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(paper)
                                         .border(
-                                            if (highlighted) 2.dp else 1.dp,
-                                            if (highlighted) accent else Color(0xFFDCCDB4),
+                                            if (highlighted ||
+                                                point.photoId == highlightPhotoId
+                                            ) 2.dp else 1.dp,
+                                            if (highlighted ||
+                                                point.photoId == highlightPhotoId
+                                            ) accent else Color(0xFFDCCDB4),
                                             RoundedCornerShape(4.dp),
                                         )
                                         .padding(start = 4.dp, end = 4.dp, top = 4.dp),
@@ -886,13 +925,126 @@ fun AdventureTimeline(
                                                         with(density) { 64.dp.toPx() },
                                                         with(density) { 190.dp.toPx() },
                                                     )
+                                                // Markierte Bilder leuchten sanft.
+                                                val photoMarked = photoId == highlightPhotoId
+                                                var photoDragOffset by remember(photoId) {
+                                                    mutableStateOf(Offset.Zero)
+                                                }
+                                                var photoRootX by remember(photoId) {
+                                                    mutableStateOf(point.x)
+                                                }
                                                 Box(
                                                     modifier = Modifier
                                                         .width(with(density) { widthPx.toDp() })
                                                         .height(with(density) { photoHeightPx.toDp() })
+                                                        .offset(
+                                                            x = with(density) {
+                                                                photoDragOffset.x.toDp()
+                                                            },
+                                                            y = with(density) {
+                                                                photoDragOffset.y.toDp()
+                                                            },
+                                                        )
+                                                        .onGloballyPositioned { coordinates ->
+                                                            if (photoDragOffset == Offset.Zero) {
+                                                                photoRootX = coordinates
+                                                                    .boundsInRoot().center.x
+                                                            }
+                                                        }
+                                                        .pointerInput(photoId) {
+                                                            var dragX = 0f
+                                                            var dragY = 0f
+                                                            var startRootX = photoRootX
+                                                            var edgeJob: kotlinx.coroutines.Job? = null
+                                                            fun targetEntry(x: Float): String? =
+                                                                entryFrames.firstOrNull { (id, rect) ->
+                                                                    id != entryId &&
+                                                                        x >= rect.left - 16f &&
+                                                                        x <= rect.right + 16f
+                                                                }?.key
+
+                                                            detectDragGesturesAfterLongPress(
+                                                                onDragStart = {
+                                                                    haptic.performHapticFeedback(
+                                                                        HapticFeedbackType.LongPress,
+                                                                    )
+                                                                    photoDragActive = true
+                                                                    dragX = 0f
+                                                                    dragY = 0f
+                                                                    startRootX = photoRootX
+                                                                    photoDragOffset = Offset.Zero
+                                                                    dragTargetEntryId = null
+                                                                },
+                                                                onDrag = { change, amount ->
+                                                                    change.consume()
+                                                                    dragX += amount.x
+                                                                    dragY += amount.y
+                                                                    photoDragOffset =
+                                                                        Offset(dragX, dragY)
+                                                                    val rootX = startRootX + dragX
+                                                                    val edge = with(density) {
+                                                                        56.dp.toPx()
+                                                                    }
+                                                                    val edgeDelta = when {
+                                                                        rootX < timelineBounds.left +
+                                                                            edge -> -24f
+                                                                        rootX > timelineBounds.right -
+                                                                            edge -> 24f
+                                                                        else -> 0f
+                                                                    }
+                                                                    if (edgeDelta != 0f) {
+                                                                        edgeJob?.cancel()
+                                                                        edgeJob = scrollScope.launch {
+                                                                            scrollState.scrollTo(
+                                                                                scrollState.value +
+                                                                                    edgeDelta.roundToInt(),
+                                                                            )
+                                                                        }
+                                                                    }
+                                                                    val contentX = rootX -
+                                                                        timelineBounds.left +
+                                                                        scrollState.value
+                                                                    dragTargetEntryId =
+                                                                        targetEntry(contentX)
+                                                                },
+                                                                onDragEnd = {
+                                                                    edgeJob?.cancel()
+                                                                    photoDragActive = false
+                                                                    photoDragOffset = Offset.Zero
+                                                                    val contentX = startRootX + dragX -
+                                                                        timelineBounds.left +
+                                                                        scrollState.value
+                                                                    val target = targetEntry(contentX)
+                                                                    dragTargetEntryId = null
+                                                                    if (target != null) {
+                                                                        onDropElement(
+                                                                            "photo-$photoId",
+                                                                            target,
+                                                                        )
+                                                                    }
+                                                                },
+                                                                onDragCancel = {
+                                                                    edgeJob?.cancel()
+                                                                    photoDragActive = false
+                                                                    photoDragOffset = Offset.Zero
+                                                                    dragTargetEntryId = null
+                                                                },
+                                                            )
+                                                        }
+                                                        .shadow(
+                                                            if (photoMarked) 8.dp else 0.dp,
+                                                            RoundedCornerShape(4.dp),
+                                                            ambientColor = Color(0xFFFFE08A),
+                                                            spotColor = Color(0xFFFFE08A),
+                                                        )
                                                         .clip(RoundedCornerShape(4.dp))
                                                         .background(paper)
-                                                        .border(1.dp, Color(0xFFDCCDB4))
+                                                        .border(
+                                                            if (photoMarked) 2.dp else 1.dp,
+                                                            if (photoMarked) accent
+                                                            else Color(0xFFDCCDB4),
+                                                            RoundedCornerShape(4.dp),
+                                                        )
                                                         .clickable { onPhotoClick(photoId) },
                                                     contentAlignment = Alignment.Center,
                                                 ) {
