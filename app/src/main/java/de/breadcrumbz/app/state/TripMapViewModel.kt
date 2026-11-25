@@ -23,6 +23,7 @@ import de.breadcrumbz.app.domain.util.chronologicalStops
 import de.breadcrumbz.app.domain.util.clusterPhotos
 import de.breadcrumbz.app.domain.util.haversineMeters
 import de.breadcrumbz.app.domain.util.photoMatchesStop
+import de.breadcrumbz.app.domain.util.fittingTimeForNewStop
 import de.breadcrumbz.app.domain.util.segmentKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -781,7 +782,23 @@ class TripMapViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val number = stops.value.size + 1
             val name = placeNameResolver.resolve(latitude, longitude)
-            repository.addStop(tripId, name ?: "Wegpunkt $number", latitude, longitude)
+            // Der neue Pin bekommt gleich eine passende Zeit: so sortiert er
+            // sich an der richtigen Stelle der Route ein.
+            val visitedAt = fittingTimeForNewStop(
+                latitude = latitude,
+                longitude = longitude,
+                stops = repository.observeStops(tripId).first(),
+                entries = repository.observeEntriesForTrip(tripId).first(),
+                photos = repository.observePhotos(tripId).first(),
+            )
+            repository.addStop(
+                tripId = tripId,
+                title = name ?: "Wegpunkt $number",
+                latitude = latitude,
+                longitude = longitude,
+                visitedAt = visitedAt,
+                source = StopSource.MANUAL,
+            )
             autoNameTripFrom(name)
         }
     }

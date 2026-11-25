@@ -221,6 +221,52 @@ private fun dateText(time: Long?): String =
     time?.let { SimpleDateFormat("dd.MM.yyyy · HH:mm", Locale.GERMANY).format(Date(it)) }
         ?: "Ohne Zeit"
 
+/** Breite der linken Lasche und des Falzes im Notizbuch. */
+private val NOTEBOOK_STRIP = 36.dp
+private val NOTEBOOK_FOLD = 5.dp
+
+/** Die weiße, blätternde Seite: Schatten am Falz, Randlinie, feine Linierung. */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNotebookPage() {
+    drawRect(
+        brush = Brush.horizontalGradient(
+            colors = listOf(ink.copy(alpha = 0.22f), ink.copy(alpha = 0.06f), Color.Transparent),
+            startX = 0f,
+            endX = 28.dp.toPx(),
+        ),
+        topLeft = Offset.Zero,
+        size = Size(28.dp.toPx(), size.height),
+    )
+    val marginX = 14.dp.toPx()
+    var lineY = 96.dp.toPx()
+    while (lineY < size.height - 8.dp.toPx()) {
+        drawLine(
+            color = frame.copy(alpha = 0.55f),
+            start = Offset(marginX + 4.dp.toPx(), lineY),
+            end = Offset(size.width - 8.dp.toPx(), lineY),
+            strokeWidth = 1.dp.toPx(),
+        )
+        lineY += 28.dp.toPx()
+    }
+    drawLine(
+        color = marginLine.copy(alpha = 0.38f),
+        start = Offset(marginX, 0f),
+        end = Offset(marginX, size.height),
+        strokeWidth = 1.dp.toPx(),
+    )
+    drawLine(
+        color = pageEdge,
+        start = Offset(0f, size.height - 1.dp.toPx()),
+        end = Offset(size.width, size.height - 1.dp.toPx()),
+        strokeWidth = 1.dp.toPx(),
+    )
+    drawRect(
+        color = ink.copy(alpha = 0.18f),
+        topLeft = Offset.Zero,
+        size = size,
+        style = Stroke(width = 1.dp.toPx()),
+    )
+}
+
 /** Zeit und Ort: bewusst klein, damit der Text des Eintrags im Vordergrund steht. */
 private val MetaTextStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, lineHeight = 13.sp)
 
@@ -502,7 +548,8 @@ fun FullscreenElement(
             // Das aufgeschlagene Buch liegt links am Rand und vertikal in der Mitte.
             contentAlignment = when {
                 photoOnly -> Alignment.Center
-                entryOnly -> Alignment.CenterStart
+                // Das Notizbuch liegt oben und lässt die zl größtenteils frei.
+                entryOnly -> Alignment.TopStart
                 else -> Alignment.TopStart
             },
         ) {
@@ -510,7 +557,8 @@ fun FullscreenElement(
                 // Keine runden Ecken mehr – das Detailfenster ist eine flache Fläche.
                 shape = RectangleShape,
                 colors = CardDefaults.cardColors(
-                    containerColor = if (photoOnly) Color.Transparent else paper,
+                    // Beim Notizbuch malt die Seite selbst ihr Papier (sie blättert).
+                    containerColor = if (photoOnly || entryOnly) Color.Transparent else paper,
                 ),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 modifier = Modifier
@@ -519,14 +567,10 @@ fun FullscreenElement(
                             photoOnly -> Modifier.fillMaxSize()
                             entryOnly -> Modifier
                                 .fillMaxWidth()
-                                // Groß: das Notizbuch nimmt fast den ganzen Bildschirm ein.
-                                .fillMaxHeight(0.9f)
-                                .graphicsLayer {
-                                    // Umblättern: die Seite dreht sich um den Falz.
-                                    rotationY = pageFlip.value
-                                    transformOrigin = TransformOrigin(0f, 0.5f)
-                                    cameraDistance = 14f * this.density
-                                }
+                                // Oben liegend und so hoch, dass es die zl nur
+                                // zu etwa 30 % verdeckt.
+                                .padding(top = 12.dp)
+                                .fillMaxHeight(0.7f)
                                 .pointerInput(elementKey) {
                                     var total = 0f
                                     detectHorizontalDragGestures(
@@ -604,34 +648,29 @@ fun FullscreenElement(
                                 // dahinter – das Buch läuft nicht an den Rand.
                                 .padding(end = 26.dp, bottom = 18.dp)
                                 .drawBehind {
-                                    // Notizbuch: Seitenstapel, Bindungslöcher,
-                                    // Falz und feine Linien auf der rechten Seite.
-                                    val strip = 36.dp.toPx()
-                                    val fold = 5.dp.toPx()
+                                    // Feststehender Teil des Notizbuchs: Seitenstapel,
+                                    // linke Lasche mit Bindungslöchern und Falz. Die
+                                    // weiße Seite darüber blättert für sich allein.
+                                    val strip = NOTEBOOK_STRIP.toPx()
+                                    val fold = NOTEBOOK_FOLD.toPx()
                                     val step = 7.dp.toPx()
-                                    // Drei weitere Seiten liegen deutlich versetzt hinten.
+                                    val pageWidth = size.width - strip - fold
+                                    // Drei weitere Seiten liegen versetzt darunter und
+                                    // schauen rechts und unten hervor.
                                     for (layer in 3 downTo 1) {
                                         val dx = layer * step
                                         val dy = layer * step * 0.6f
-                                        drawRect(
-                                            color = pageEdge,
-                                            topLeft = Offset(dx, dy),
-                                            size = Size(size.width - dx, size.height - dy),
-                                        )
-                                        drawRect(
-                                            color = pageBack,
-                                            topLeft = Offset(dx - 1.5f, dy - 1.5f),
-                                            size = Size(size.width - dx, size.height - dy),
-                                        )
-                                        // Feine Kante jeder Seite.
+                                        val topLeft = Offset(strip + fold + dx * 0.4f, dy)
+                                        val pageSize = Size(pageWidth + dx * 0.6f, size.height)
+                                        drawRect(color = pageBack, topLeft = topLeft, size = pageSize)
                                         drawRect(
                                             color = ink.copy(alpha = 0.22f),
-                                            topLeft = Offset(dx - 1.5f, dy - 1.5f),
-                                            size = Size(size.width - dx, size.height - dy),
+                                            topLeft = topLeft,
+                                            size = pageSize,
                                             style = Stroke(width = 1.dp.toPx()),
                                         )
                                     }
-                                    // Linke Seite: sanft vom Papierton zum Falz hin abgedunkelt.
+                                    // Linke Lasche: sanft vom Papierton zum Falz hin abgedunkelt.
                                     drawRect(
                                         brush = Brush.horizontalGradient(
                                             colors = listOf(leftPage, leftPage, paper),
@@ -641,20 +680,6 @@ fun FullscreenElement(
                                         topLeft = Offset.Zero,
                                         size = Size(strip, size.height),
                                     )
-                                    // Feine Linierung und eine schmale Randlinie.
-                                    val marginX = strip + fold + 14.dp.toPx()
-                                    val lineStartX = marginX + 4.dp.toPx()
-                                    val lineEndX = size.width - 8.dp.toPx()
-                                    var lineY = 104.dp.toPx()
-                                    while (lineY < size.height - 8.dp.toPx()) {
-                                        drawLine(
-                                            color = frame.copy(alpha = 0.55f),
-                                            start = Offset(lineStartX, lineY),
-                                            end = Offset(lineEndX, lineY),
-                                            strokeWidth = 1.dp.toPx(),
-                                        )
-                                        lineY += 30.dp.toPx()
-                                    }
                                     // Drei Bindungslöcher in der linken Lasche.
                                     val holeRadius = 3.dp.toPx()
                                     listOf(84.dp.toPx(), 168.dp.toPx(), 252.dp.toPx())
@@ -673,44 +698,11 @@ fun FullscreenElement(
                                                 )
                                             }
                                         }
-                                    // Sehr weicher Schatten rechts am Falz.
-                                    drawRect(
-                                        brush = Brush.horizontalGradient(
-                                            colors = listOf(
-                                                ink.copy(alpha = 0.28f),
-                                                ink.copy(alpha = 0.08f),
-                                                Color.Transparent,
-                                            ),
-                                            startX = strip - 6.dp.toPx(),
-                                            endX = strip + 30.dp.toPx(),
-                                        ),
-                                        topLeft = Offset(strip - 6.dp.toPx(), 0f),
-                                        size = Size(36.dp.toPx(), size.height),
-                                    )
                                     drawLine(
                                         color = frame,
-                                        start = Offset(strip, 0f),
-                                        end = Offset(strip, size.height),
+                                        start = Offset(strip + fold / 2f, 0f),
+                                        end = Offset(strip + fold / 2f, size.height),
                                         strokeWidth = fold,
-                                    )
-                                    drawLine(
-                                        color = ink.copy(alpha = 0.35f),
-                                        start = Offset(strip + fold, 0f),
-                                        end = Offset(strip + fold, size.height),
-                                        strokeWidth = 1.dp.toPx(),
-                                    )
-                                    drawLine(
-                                        color = marginLine.copy(alpha = 0.38f),
-                                        start = Offset(marginX, 0f),
-                                        end = Offset(marginX, size.height),
-                                        strokeWidth = 1.dp.toPx(),
-                                    )
-                                    // Feine Unterkante der rechten Seite.
-                                    drawLine(
-                                        color = pageEdge,
-                                        start = Offset(strip, size.height - 1.dp.toPx()),
-                                        end = Offset(size.width, size.height - 1.dp.toPx()),
-                                        strokeWidth = 1.dp.toPx(),
                                     )
                                 }
                             else -> Modifier.fillMaxWidth().heightIn(max = 620.dp)
@@ -724,16 +716,30 @@ fun FullscreenElement(
                         modifier = Modifier
                             .fillMaxWidth()
                             .then(
-                                if (photoOnly) Modifier.fillMaxHeight() else Modifier.verticalScroll(
-                                    rememberScrollState(),
-                                ),
+                                when {
+                                    photoOnly -> Modifier.fillMaxHeight()
+                                    // Nur die weiße Seite blättert um den Falz,
+                                    // Lasche, Einband und Bindung bleiben liegen.
+                                    entryOnly -> Modifier
+                                        .fillMaxHeight()
+                                        .padding(start = NOTEBOOK_STRIP + NOTEBOOK_FOLD)
+                                        .graphicsLayer {
+                                            rotationY = pageFlip.value
+                                            transformOrigin = TransformOrigin(0f, 0.5f)
+                                            cameraDistance = 14f * this.density
+                                        }
+                                        .background(paper)
+                                        .drawBehind { drawNotebookPage() }
+                                        .verticalScroll(rememberScrollState())
+                                    else -> Modifier.verticalScroll(rememberScrollState())
+                                },
                             )
                             .then(
                                 when {
                                     photoOnly -> Modifier
                                     entryOnly -> Modifier.padding(
-                                        // Text beginnt rechts der Randlinie des Notizbuchs.
-                                        start = 62.dp, end = 16.dp,
+                                        // Text beginnt rechts der Randlinie der Seite.
+                                        start = 22.dp, end = 14.dp,
                                         top = 10.dp, bottom = 10.dp,
                                     )
                                     else -> Modifier.padding(
@@ -862,47 +868,35 @@ fun FullscreenElement(
                                                 color = ink,
                                             )
                                         }
-                                        if (stop.entryId == null) {
-                                            // Alleinstehender Pin: Datum + Uhrzeit direkt
-                                            // bearbeiten, ohne Umweg über einen Eintrag.
-                                            Row(
-                                                modifier = Modifier.clickable(enabled = !readOnly) {
-                                                    pickStopDateTime()
+                                        // Zeitpunkt immer mit Uhr-Symbol. Ohne eigene Zeit
+                                        // gilt die des Eintrags; Tippen stellt sie ein, der
+                                        // Pin sortiert sich danach in der Route neu ein.
+                                        val shownTime = stop.visitedAt
+                                            ?: linkedEntries.firstNotNullOfOrNull { it.entryAt }
+                                        Spacer(Modifier.height(4.dp))
+                                        Row(
+                                            modifier = Modifier.clickable(enabled = !readOnly) {
+                                                pickStopDateTime()
+                                            },
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_clock),
+                                                contentDescription = "Datum und Uhrzeit",
+                                                tint = ink,
+                                                modifier = Modifier.size(14.dp),
+                                            )
+                                            Spacer(Modifier.width(5.dp))
+                                            Text(
+                                                text = shownTime?.let { dateText(it) } ?: "Datum + Uhrzeit",
+                                                color = if (shownTime == null) ink.copy(alpha = 0.45f) else ink,
+                                                style = MetaTextStyle.copy(fontSize = 12.sp, lineHeight = 14.sp),
+                                                fontStyle = if (stop.visitedAt == null) {
+                                                    FontStyle.Italic
+                                                } else {
+                                                    FontStyle.Normal
                                                 },
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                Icon(
-                                                    painter = painterResource(R.drawable.ic_clock),
-                                                    contentDescription = "Datum und Uhrzeit",
-                                                    tint = ink,
-                                                    modifier = Modifier.size(
-                                                        with(density) {
-                                                            MetaTextStyle.fontSize.toDp()
-                                                        },
-                                                    ),
-                                                )
-                                                Spacer(Modifier.width(4.dp))
-                                                Text(
-                                                    text = if (stop.visitedAt == null) {
-                                                        "Datum + Uhrzeit"
-                                                    } else {
-                                                        dateText(stop.visitedAt)
-                                                    },
-                                                    color = if (stop.visitedAt == null) {
-                                                        ink.copy(alpha = 0.45f)
-                                                    } else {
-                                                        ink
-                                                    },
-                                                    style = MetaTextStyle,
-                                                    fontStyle = if (stop.visitedAt == null) {
-                                                        FontStyle.Italic
-                                                    } else {
-                                                        FontStyle.Normal
-                                                    },
-                                                )
-                                            }
-                                        } else if (stop.visitedAt != null) {
-                                            SmallMeta(dateText(stop.visitedAt))
+                                            )
                                         }
                                         // Pins haben kein Verkehrsmittel. Das
                                         // wird ausschließlich am Reiseabschnitt
@@ -1108,8 +1102,8 @@ fun FullscreenElement(
                                             textStyle = diaryStyle.copy(
                                                 fontFamily = comic,
                                                 fontWeight = FontWeight.Bold,
-                                                fontSize = 30.sp,
-                                                lineHeight = 34.sp,
+                                                fontSize = 27.sp,
+                                                lineHeight = 31.sp,
                                             ),
                                             modifier = Modifier.fillMaxWidth(),
                                             decorationBox = { innerTextField ->
@@ -1121,8 +1115,8 @@ fun FullscreenElement(
                                                         style = diaryStyle.copy(
                                                             fontFamily = comic,
                                                             fontWeight = FontWeight.Bold,
-                                                            fontSize = 30.sp,
-                                                            lineHeight = 34.sp,
+                                                            fontSize = 27.sp,
+                                                            lineHeight = 31.sp,
                                                         ),
                                                     )
                                                 }
@@ -1130,7 +1124,12 @@ fun FullscreenElement(
                                             },
                                         )
                                         Spacer(Modifier.height(6.dp))
-                                        // Datum und Pin direkt unterm Titel.
+                                        // Datum und Pin nebeneinander direkt unterm Titel:
+                                        // spart eine Zeile für den eigentlichen Text.
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
                                         Row(
                                             modifier = Modifier.clickable(enabled = !readOnly) { pickDateTime() },
                                             verticalAlignment = Alignment.CenterVertically,
@@ -1180,6 +1179,8 @@ fun FullscreenElement(
                                             Spacer(Modifier.width(4.dp))
                                             Text(
                                                 text = if (stopTitle == null) "..." else stopTitle,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
                                                 color = if (stopTitle == null) {
                                                     ink.copy(alpha = 0.45f)
                                                 } else {
@@ -1193,7 +1194,8 @@ fun FullscreenElement(
                                                 },
                                             )
                                         }
-                                        Spacer(Modifier.height(10.dp))
+                                        }
+                                        Spacer(Modifier.height(8.dp))
                                         BasicTextField(
                                             value = bodyDraft,
                                             onValueChange = {
@@ -1201,7 +1203,7 @@ fun FullscreenElement(
                                                 viewModel.updateEntryText(entry.id, titleDraft, it)
                                             },
                                             readOnly = readOnly,
-                                            minLines = 5,
+                                            minLines = 4,
                                             textStyle = diaryStyle,
                                             modifier = Modifier.fillMaxWidth(),
                                             decorationBox = { innerTextField ->
@@ -1256,7 +1258,7 @@ fun FullscreenElement(
                                                         }?.coerceIn(0.56f, 1.78f) ?: 1f
                                                         Box(
                                                             modifier = Modifier
-                                                                .size(width = 150.dp * ratio, height = 150.dp)
+                                                                .size(width = 140.dp * ratio, height = 140.dp)
                                                                 .background(frame),
                                                             contentAlignment = Alignment.Center,
                                                         ) {
