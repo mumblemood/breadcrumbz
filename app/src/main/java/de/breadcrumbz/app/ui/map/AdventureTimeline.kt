@@ -395,7 +395,7 @@ fun AdventureTimeline(
             if (current.km >= target) {
                 val span = current.km - previous.km
                 val fraction = if (span > 0.0) {
-                    ((target - previous.km) / span).coerceIn(0f, 1f)
+                    ((target - previous.km) / span).coerceIn(0.0, 1.0).toFloat()
                 } else {
                     1f
                 }

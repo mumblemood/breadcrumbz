@@ -112,7 +112,10 @@ class RouteEditOverlay(
                 }
                 val segment = segmentAt(event.x, event.y)
                 if (segment != null) {
-                    dragGeo = mapView.projection.fromPixels(event.x.toInt(), event.y.toInt())
+                    val touched = mapView.projection.fromPixels(
+                        event.x.toInt(), event.y.toInt(),
+                    )
+                    dragGeo = GeoPoint(touched.latitude, touched.longitude)
                     longPressPending = true
                     handler.postDelayed(startGrab, 600L)
                 }
@@ -122,7 +125,10 @@ class RouteEditOverlay(
             MotionEvent.ACTION_MOVE -> {
                 if (draggingId != null || creatingInSegment != null) {
                     if (draggingId != null) movedWhileDragging = true
-                    dragGeo = mapView.projection.fromPixels(event.x.toInt(), event.y.toInt())
+                    val moved = mapView.projection.fromPixels(
+                        event.x.toInt(), event.y.toInt(),
+                    )
+                    dragGeo = GeoPoint(moved.latitude, moved.longitude)
                     tapCandidate = null
                     mapView.invalidate()
                     return true
