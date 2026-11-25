@@ -220,6 +220,9 @@ private fun dateText(time: Long?): String =
     time?.let { SimpleDateFormat("dd.MM.yyyy · HH:mm", Locale.GERMANY).format(Date(it)) }
         ?: "Ohne Zeit"
 
+/** Zeit und Ort: bewusst klein, damit der Text des Eintrags im Vordergrund steht. */
+private val MetaTextStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, lineHeight = 13.sp)
+
 /** Zeit und Ort stehen klein unter dem Bild und haben ggf. einen Pin davor. */
 @Composable
 private fun SmallMeta(text: String, withPin: Boolean = false) {
@@ -228,7 +231,7 @@ private fun SmallMeta(text: String, withPin: Boolean = false) {
             PlacePinIcon(tint = ink, size = 14.dp)
             Spacer(Modifier.width(4.dp))
         }
-        Text(text, color = ink, style = MaterialTheme.typography.labelSmall)
+        Text(text, color = ink, fontSize = 10.sp, lineHeight = 12.sp)
     }
 }
 
@@ -246,6 +249,8 @@ private fun PhotoPolaroidDetail(
     viewModel: TripMapViewModel,
     scale: Float,
     pan: Offset,
+    /** Mit zwei Fingern gedreht – wie ein Foto in der Hand. */
+    rotation: Float = 0f,
     onOpenOriginal: () -> Unit,
 ) {
     var editingTitle by remember(photo.id) { mutableStateOf(false) }
@@ -284,7 +289,7 @@ private fun PhotoPolaroidDetail(
             .graphicsLayer(
                 scaleX = scale,
                 scaleY = scale,
-                rotationZ = tilt,
+                rotationZ = tilt + rotation,
                 translationX = pan.x,
                 translationY = pan.y,
             )
@@ -425,6 +430,7 @@ fun FullscreenElement(
     // Gesten wirken über den ganzen Bildschirm, nicht nur auf einem Kartenausschnitt.
     var photoScale by remember(detailPhoto?.id) { mutableStateOf(1f) }
     var photoPan by remember(detailPhoto?.id) { mutableStateOf(Offset.Zero) }
+    var photoRotation by remember(detailPhoto?.id) { mutableStateOf(0f) }
     // Blättern im Notizbuch: vorheriger und nächster Eintrag der Reise.
     val pageFlip = remember { Animatable(0f) }
     val flipScope = rememberCoroutineScope()
@@ -470,8 +476,9 @@ fun FullscreenElement(
                 .then(
                     if (photoOnly) {
                         Modifier.pointerInput(detailPhoto?.id) {
-                            detectTransformGestures { _, panChange, zoom, _ ->
+                            detectTransformGestures { _, panChange, zoom, turn ->
                                 photoScale = (photoScale * zoom).coerceIn(1f, 5f)
+                                photoRotation += turn
                                 photoPan = Offset(
                                     (photoPan.x + panChange.x)
                                         .coerceIn(-1_200f * photoScale, 1_200f * photoScale),
@@ -762,6 +769,7 @@ fun FullscreenElement(
                                         viewModel = viewModel,
                                         scale = photoScale,
                                         pan = photoPan,
+                                        rotation = photoRotation,
                                         onOpenOriginal = {
                                             val file = File(viewModel.photoPath(currentPhoto.fileName))
                                             val uri = FileProvider.getUriForFile(
@@ -859,7 +867,7 @@ fun FullscreenElement(
                                                     tint = ink,
                                                     modifier = Modifier.size(
                                                         with(density) {
-                                                            MaterialTheme.typography.bodySmall.fontSize.toDp()
+                                                            MetaTextStyle.fontSize.toDp()
                                                         },
                                                     ),
                                                 )
@@ -875,7 +883,7 @@ fun FullscreenElement(
                                                     } else {
                                                         ink
                                                     },
-                                                    style = MaterialTheme.typography.bodySmall,
+                                                    style = MetaTextStyle,
                                                     fontStyle = if (stop.visitedAt == null) {
                                                         FontStyle.Italic
                                                     } else {
@@ -1122,7 +1130,7 @@ fun FullscreenElement(
                                                 tint = ink,
                                                 modifier = Modifier.size(
                                                     with(density) {
-                                                        MaterialTheme.typography.bodySmall.fontSize.toDp()
+                                                        MetaTextStyle.fontSize.toDp()
                                                     },
                                                 ),
                                             )
@@ -1138,7 +1146,7 @@ fun FullscreenElement(
                                                 } else {
                                                     ink
                                                 },
-                                                style = MaterialTheme.typography.bodySmall,
+                                                style = MetaTextStyle,
                                                 fontStyle = if (entry.entryAt == null || timeIsAuto) {
                                                     FontStyle.Italic
                                                 } else {
@@ -1153,7 +1161,7 @@ fun FullscreenElement(
                                             PlacePinIcon(
                                                 tint = ink,
                                                 size = with(density) {
-                                                    MaterialTheme.typography.bodySmall.fontSize.toDp()
+                                                    MetaTextStyle.fontSize.toDp()
                                                 },
                                             )
                                             Spacer(Modifier.width(4.dp))
@@ -1164,7 +1172,7 @@ fun FullscreenElement(
                                                 } else {
                                                     ink
                                                 },
-                                                style = MaterialTheme.typography.bodySmall,
+                                                style = MetaTextStyle,
                                                 fontStyle = if (stopTitle == null || placeIsAuto) {
                                                     FontStyle.Italic
                                                 } else {

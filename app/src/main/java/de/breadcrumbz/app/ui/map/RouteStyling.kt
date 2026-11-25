@@ -48,6 +48,12 @@ object RouteStyling {
         onLineClick: (GeoPoint) -> Unit = {},
         /** Hier landen die Punkte aller Flug-Abschnitte (für das mitfliegende Flugzeug). */
         planePaths: MutableList<List<GeoPoint>>? = null,
+        /**
+         * Hier landen Fuß- und Autoabschnitte: sie bekommen statt der
+         * gestrichelten Linie Fußspuren bzw. eine Reifenspur ([TrackOverlay]).
+         * Ist die Liste null, bleibt es bei der gestrichelten Linie.
+         */
+        trackPaths: MutableList<TrackPath>? = null,
     ): List<Polyline> {
         // Die Reihenfolge kommt chronologisch aus der Reise (Foto-Zeitstempel).
         // Der Aufruf sortiert die Stops vor; hier darf nichts mehr umsortiert werden.
@@ -104,6 +110,21 @@ object RouteStyling {
                 // An- und Abreise sind nur Rahmen der Reise: dünner und blasser.
                 val subtle = (index == 1 && from.isArrivalDeparture) ||
                     (index == ordered.lastIndex && to.isArrivalDeparture)
+                val track = when (mode) {
+                    TransportMode.WALK -> TrackStyle.FOOTPRINTS
+                    TransportMode.CAR, TransportMode.CAMPER -> TrackStyle.TIRES
+                    else -> null
+                }
+                if (track != null && trackPaths != null) {
+                    trackPaths.add(TrackPath(points, track, subtle))
+                    // Unsichtbare Linien behalten Tippen und Routenverlauf bei.
+                    add(underLine(mapView, points, subtle).apply { color = 0 })
+                    add(topLine(mapView, points, subtle) { _, _, point ->
+                        onLineClick(point ?: GeoPoint(to.latitude, to.longitude))
+                        true
+                    }.apply { color = 0 })
+                    continue
+                }
                 add(underLine(mapView, points, subtle))
                 add(topLine(mapView, points, subtle) { _, _, point ->
                     onLineClick(point ?: GeoPoint(to.latitude, to.longitude))
