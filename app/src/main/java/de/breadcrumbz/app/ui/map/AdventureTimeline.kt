@@ -7,6 +7,7 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.awaitPointerEventScope
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -47,10 +48,12 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
@@ -102,7 +105,8 @@ private val ink = Color(0xFF3B2B20)
 private val paper = Color(0xFFFBF4E4)
 private val accent = Color(0xFFB8782F)
 private val teal = Color(0xFF2E6B6B)
-private val fieldGray = Color(0xFFE8E8E8)
+/** Genau das Papier aus dem tbe-Detailfenster. */
+private val notebookPaper = Color(0xFFF6EFE1)
 private val dayMarker = Color(0xFFCDE3DF)
 
 private fun dayKey(time: Long): String =
@@ -138,6 +142,42 @@ private fun TimelineFrame(
     )
 }
 
+/** Lesezeichen-Lasche, die oben aus dem Tagesrahmen herausragt. */
+@Composable
+private fun BookmarkTab(label: String, rect: Rect) {
+    val density = LocalDensity.current
+    val width = with(density) { 78.dp.toPx() }
+    val height = with(density) { 26.dp.toPx() }
+    Box(
+        modifier = Modifier
+            .offset(
+                x = with(density) { (rect.left + 10.dp.toPx()).toDp() },
+                y = with(density) { (rect.top - 14.dp.toPx()).toDp() },
+            )
+            .size(
+                width = with(density) { width.toDp() },
+                height = with(density) { height.toDp() },
+            )
+            .clip(
+                RoundedCornerShape(
+                    topStart = 9.dp, topEnd = 9.dp,
+                    bottomStart = 0.dp, bottomEnd = 0.dp,
+                ),
+            )
+            .background(teal)
+            .border(1.dp, ink.copy(alpha = 0.4f), RoundedCornerShape(9.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = Color(0xFFFBF4E4),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+        )
+    }
+}
+
 /**
  * Zeitstrom: schwarze gestrichelte Linie mit weißem Rand. Pins und Elemente
  * hängen auf der Linie. Wischen scrollt; erst langes Halten startet das Ziehen.
@@ -158,6 +198,8 @@ fun AdventureTimeline(
     externalKey: String? = null,
     /** Neuer Wert erzwingt das Scrollen, auch wenn der Schlüssel gleich bleibt. */
     externalSeq: Long = 0L,
+    /** "timeline" bedeutet: Ziel kam aus dem Wischen – nicht zurückscrollen. */
+    externalOrigin: String? = null,
     /** Foto, das von Karte oder Zeitleiste markiert wurde (sanftes Leuchten). */
     highlightPhotoId: String? = null,
     onScrollFraction: (Float) -> Unit = {},
@@ -231,8 +273,11 @@ fun AdventureTimeline(
     var photoDragActive by remember { mutableStateOf(false) }
     // Schon beim Antippen blockieren, damit die Karte keinen Drag startet.
     var photoPressed by remember { mutableStateOf(false) }
-    // Verhindert, dass eine programmgesteuerte Scrollbewegung die Karte zurückzieht.
-    var lastProgrammaticScrollAt by remember { mutableStateOf(0L) }
+    // Nur echte Fingerbewegungen dürfen die Karte mitziehen. Programmgesteuerte
+    // Scrolls (Karte -> Zeitleiste) werden dadurch nicht als Wisch erkannt.
+    var userDragging by remember { mutableStateOf(false) }
+    var userGestureId by remember { mutableStateOf(0) }
+    var lastUserCenterAt by remember { mutableStateOf(0L) }
     val startPx = with(density) { 34.dp.toPx() }
     val baseY = with(density) { 74.dp.toPx() }
     // Groß genug, dass die Rahmen der Nachbarn sich nicht berühren, selbst
@@ -242,7 +287,8 @@ fun AdventureTimeline(
     // Rotierte Polaroids (8°) und der Schatten ragen seitlich über ihre Karte.
     val photoVisualExtraPx = with(density) { 16.dp.toPx() } + photoHeightPx * 0.15f
 
-    val orderedStops = remember(stops) { stops.sortedBy { it.sortIndex } }
+    // Die Pins kommen bereits in Reisezeit-Reihenfolge vom Kartenbildschirm.
+    val orderedStops = stops
     val stopKm = remember(orderedStops) {
         val result = mutableMapOf<String, Double>()
         var total = 0.0
@@ -405,8 +451,8 @@ fun AdventureTimeline(
         0f
     }
     LaunchedEffect(scrollFraction) { onScrollFraction(scrollFraction) }
-    LaunchedEffect(externalKey, externalSeq, viewportPx) {
-        if (externalKey == null) return@LaunchedEffect
+    LaunchedEffect(externalKey, externalSeq, externalOrigin, viewportPx) {
+        if (externalKey == null || externalOrigin == "timeline") return@LaunchedEffect
         // Ein Foto im Eintrag hat keinen eigenen Punkt: wir scrollen zu seinem
         // Eintrag und markieren das einzelne Bild dort.
         val targetKey = if (externalKey.startsWith("entryphoto-")) {
@@ -423,10 +469,7 @@ fun AdventureTimeline(
             val target = (points[index].x - viewportPx / 2f)
                 .roundToInt().coerceAtLeast(0).coerceAtMost(maxScroll)
             if (abs(scrollState.value - target) > 24) {
-                // Die Karte hat das gewünschte Element vorgegeben: nicht retour melden.
-                lastProgrammaticScrollAt = System.currentTimeMillis()
                 scrollState.animateScrollTo(target)
-                lastProgrammaticScrollAt = System.currentTimeMillis()
             }
         }
     }
@@ -467,6 +510,19 @@ fun AdventureTimeline(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                // Beobachtet Fingerkontakte, ohne die Scroll-Geste zu verbrauchen.
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val pressed = event.changes.any { it.isPressed }
+                            if (pressed != userDragging) {
+                                userDragging = pressed
+                                if (!pressed) userGestureId += 1
+                            }
+                        }
+                    }
+                }
                 .horizontalScroll(scrollState)
                 .onGloballyPositioned { timelineBounds = it.boundsInRoot() },
         ) {
@@ -478,8 +534,14 @@ fun AdventureTimeline(
             val centerKey = centerPoint?.key
             val centerPhotoId = centerPoint?.photoId
             LaunchedEffect(centerKey) { onCenterKeyChange(centerKey) }
-            LaunchedEffect(centerKey) {
-                if (System.currentTimeMillis() - lastProgrammaticScrollAt > 600L) {
+            // Während des Wischens folgt die Karte fortlaufend dem mittleren
+            // Element – nicht erst beim Loslassen oder bei einer Auswahl.
+            LaunchedEffect(centerKey, userGestureId) {
+                val now = System.currentTimeMillis()
+                if ((userDragging || now - lastUserCenterAt < 200L) &&
+                    now - lastUserCenterAt >= 90L
+                ) {
+                    lastUserCenterAt = now
                     onUserCenterKey(centerKey)
                 }
             }
@@ -553,6 +615,11 @@ fun AdventureTimeline(
                     .width(contentWidth)
                     .fillMaxHeight(),
             ) {
+                // Zuerst die Lesezeichen-Laschen: der Tagesrahmen überdeckt
+                // ihren unteren Teil, dadurch wachsen sie aus dem Rahmen.
+                dayFrames.forEach { (key, rect) ->
+                    BookmarkTab(label = dayLabels[key].orEmpty(), rect = rect)
+                }
                 // Tag-Rahmen außen, Eintragsrahmen darüber – beide liegen hinter
                 // der Linie und hinter den Elementen.
                 dayFrames.forEach { (_, rect) ->
@@ -562,33 +629,25 @@ fun AdventureTimeline(
                     val entryPoint = points.firstOrNull { it.entryId == id && it.item != null }
                     TimelineFrame(
                         rect = rect,
-                        fill = fieldGray,
+                        fill = notebookPaper,
                         highlight = id == dragTargetEntryId,
                         onClick = { entryPoint?.item?.let(onItemClick) },
                     )
                 }
-                // "Tag 1", "Tag 2" … als reiner Text, ohne Etikett-Hintergrund.
                 dayFrames.forEach { (key, rect) ->
                     val dayPoint = points.firstOrNull { it.kind == 0 && it.dayKey == key }
-                    Text(
-                        text = dayLabels[key].orEmpty(),
-                        color = teal,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.offset(
-                            x = with(density) { (rect.left + 18f).toDp() },
-                            y = with(density) { (rect.top + 4f).toDp() },
-                        ),
-                    )
-                    // Das Datum sitzt in der Mitte zwischen Tagesrahmen und
-                    // erstem Eintragsrahmen. So sind beide Abstände gleich und
-                    // der Eintrag rückt deutlich näher heran.
+                    // Das Datum steht dicht am ersten Eintragsrahmen. Der
+                    // Abstand beträgt nur noch etwa eine halbe Schrifthöhe.
                     val firstEntryLeft = points.filter {
                         it.kind == 2 && it.dayKey == key
                     }.mapNotNull { point ->
                         point.item?.entryId?.let { id -> entryFrames[id]?.left }
                     }.minOrNull() ?: (rect.left + with(density) { 60.dp.toPx() })
-                    val dateX = (rect.left + firstEntryLeft) / 2f
+                    val dateFontPx = with(density) { 10.sp.toPx() }
+                    val dateX = maxOf(
+                        rect.left + dateFontPx * 0.5f,
+                        firstEntryLeft - dateFontPx * 1.5f,
+                    )
                     if (dayPoint?.detail?.isNotBlank() == true) {
                         Text(
                             text = dayPoint.detail,
@@ -624,14 +683,23 @@ fun AdventureTimeline(
                         val middle = (points[index - 1].x + points[index].x) / 2
                         path.quadraticBezierTo(middle, yAt(index - 1), points[index].x, yAt(index))
                     }
-                    // Weißer Unterzug, darüber die durchgezogene Linie – wie auf der Karte.
+                    // Weißer Unterzug, darüber die gestrichelte Spline-Linie –
+                    // exakt wie auf der Karte. Die Striche sind etwa einen
+                    // halben Pin lang.
                     drawPath(
                         path, Color(RouteStyling.UNDER_COLOR),
                         style = Stroke(width = RouteStyling.UNDER_WIDTH),
                     )
+                    val dash = PathEffect.dashPathEffect(
+                        floatArrayOf(
+                            with(density) { RouteStyling.DASH_DP.dp.toPx() },
+                            with(density) { RouteStyling.GAP_DP.dp.toPx() },
+                        ),
+                        0f,
+                    )
                     drawPath(
                         path, Color(RouteStyling.LINE_COLOR),
-                        style = Stroke(width = RouteStyling.LINE_WIDTH),
+                        style = Stroke(width = RouteStyling.LINE_WIDTH, pathEffect = dash),
                     )
 
                     val centerIndex = points.indexOfFirst { it.key == centerKey }
@@ -946,7 +1014,7 @@ fun AdventureTimeline(
                                 Row(
                                     modifier = Modifier
                                         .width(cardWidth)
-                                        .background(fieldGray, RoundedCornerShape(8.dp))
+                                        .background(notebookPaper, RoundedCornerShape(8.dp))
                                         .padding(horizontal = 8.dp, vertical = 4.dp)
                                         .clickable { item?.let(onItemClick) },
                                 ) {

@@ -86,12 +86,12 @@ import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.symbol
 import de.breadcrumbz.app.domain.model.TimelineKind
+import de.breadcrumbz.app.domain.util.chronologicalStops
 import de.breadcrumbz.app.domain.util.haversineMeters
+import de.breadcrumbz.app.domain.util.segmentKey
 import de.breadcrumbz.app.domain.util.tripTimeRange
 import de.breadcrumbz.app.state.TripMapViewModel
 import de.breadcrumbz.app.ui.map.AdventureTimeline
-import de.breadcrumbz.app.ui.map.ClusterElement
-import de.breadcrumbz.app.ui.map.ClusterOverlay
 import de.breadcrumbz.app.ui.map.PinInteractionOverlay
 import de.breadcrumbz.app.ui.map.PolaroidOverlay
 import de.breadcrumbz.app.ui.map.RouteEditOverlay
@@ -150,6 +150,13 @@ private data class SyncTarget(
     val key: String?,
     val origin: String,
     val seq: Long,
+)
+
+/** Ein Abschnitt gehört immer zu genau einem Start-Ziel-Paar. */
+private data class RouteSegment(
+    val key: String,
+    val arrivalStopId: String,
+    val points: List<GeoPoint>,
 )
 
 /** Zwei exklusive Stufen: Abschnittsdetails und die Verkehrsmittel-Auswahl. */
@@ -478,33 +485,72 @@ fun TripMapScreen(
         )
     }
 
-    // Die Linie fährt die Pins in der Reihenfolge ihrer Fotos ab. Ohne Foto
-    // bleibt die bisherige Zeit des Pins, danach die Einfügereihenfolge.
+    // Die Linie fährt die Pins in der Reihenfolge ihrer Zeiten ab. Ändert sich
+    // Datum oder Uhrzeit, wandert der Pin und damit der ganze Abschnitt sofort.
     val orderedRouteStops = remember(stops, photos, allEntries) {
-        val stopOfEntry = allEntries.associate { it.id to it.stopId }
-        fun timeOf(stop: Stop): Long {
-            val photoTimes = photos.filter { photo ->
-                photo.stopId == stop.id || stopOfEntry[photo.entryId] == stop.id
-            }.mapNotNull { it.capturedAt ?: it.createdAt }
-            return photoTimes.minOrNull() ?: stop.visitedAt ?: stop.createdAt
+        chronologicalStops(stops, allEntries, photos)
+    }
+
+    // Zieht eine Zeitänderung die Reihenfolge um, wandern Anreise/Abreise mit
+    // an die neuen Endpunkte. Sonst würde ein ehemaliger Endpin irgendwo in
+    // der Mitte fälschlich aus Datum und Kilometern fallen.
+    var previousRouteIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(orderedRouteStops) {
+        val ids = orderedRouteStops.map { it.id }
+        val oldIds = previousRouteIds
+        previousRouteIds = ids
+        if (oldIds.isEmpty() || oldIds == ids) return@LaunchedEffect
+        val oldFirst = oldIds.firstOrNull()
+        val oldLast = oldIds.lastOrNull()
+        val newFirst = ids.firstOrNull()
+        val newLast = ids.lastOrNull()
+        val isFlagged = { id: String? ->
+            id != null && stops.firstOrNull { it.id == id }?.isArrivalDeparture == true
         }
-        stops.sortedWith(compareBy<Stop> { timeOf(it) }.thenBy { it.sortIndex })
+        val clear = mutableSetOf<String>()
+        val flag = mutableSetOf<String>()
+        if (isFlagged(oldFirst) && oldFirst != newFirst && newFirst != null) {
+            oldFirst?.let { clear.add(it) }
+            flag.add(newFirst)
+        }
+        if (isFlagged(oldLast) && oldLast != newLast && newLast != null &&
+            oldLast != oldFirst
+        ) {
+            oldLast?.let { clear.add(it) }
+            flag.add(newLast)
+        }
+        // Bei genau zwei Pins saßen beide Häkchen am selben Stop.
+        if (isFlagged(oldFirst) && oldFirst == oldLast && oldFirst != newFirst &&
+            newFirst != null && newLast != null
+        ) {
+            oldFirst?.let { clear.add(it) }
+            flag.add(newFirst)
+            flag.add(newLast)
+        }
+        clear.forEach { viewModel.setStopArrivalDeparture(it, false) }
+        flag.forEach { viewModel.setStopArrivalDeparture(it, true) }
     }
 
     // Jeder Abschnitt mit allen selbst gesetzten Zwischenpunkten in Fahrtrichtung.
+    // Der Schlüssel enthält Start und Ziel – bei einer neuen Reihenfolge wird
+    // deshalb eine völlig neue Route berechnet.
     val routeSegments = remember(orderedRouteStops, waypoints) {
-        buildList<Pair<String, List<GeoPoint>>> {
+        buildList<RouteSegment> {
             for (index in 1 until orderedRouteStops.size) {
                 val from = orderedRouteStops[index - 1]
                 val to = orderedRouteStops[index]
                 val extra = waypoints.filter { it.afterStopId == to.id }
                     .sortedBy { it.sortIndex }
                 add(
-                    to.id to buildList {
-                        add(GeoPoint(from.latitude, from.longitude))
-                        extra.forEach { add(GeoPoint(it.latitude, it.longitude)) }
-                        add(GeoPoint(to.latitude, to.longitude))
-                    },
+                    RouteSegment(
+                        key = segmentKey(from.id, to.id),
+                        arrivalStopId = to.id,
+                        points = buildList {
+                            add(GeoPoint(from.latitude, from.longitude))
+                            extra.forEach { add(GeoPoint(it.latitude, it.longitude)) }
+                            add(GeoPoint(to.latitude, to.longitude))
+                        },
+                    ),
                 )
             }
         }
@@ -543,10 +589,10 @@ fun TripMapScreen(
         // Routing-Ergebnis weiter zu zeigen.
         onlinePoints = emptyMap()
         val fresh = mutableMapOf<String, List<GeoPoint>>()
-        routeSegments.forEach { (stopId, points) ->
-            val mode = segmentModes[stopId] ?: return@forEach
+        routeSegments.forEach { segment ->
+            val mode = segmentModes[segment.arrivalStopId] ?: return@forEach
             if (mode == TransportMode.CAR || mode == TransportMode.CAMPER) {
-                routingService.route(points)?.let { fresh[stopId] = it }
+                routingService.route(segment.points)?.let { fresh[segment.key] = it }
             }
         }
         onlinePoints = fresh
@@ -554,17 +600,18 @@ fun TripMapScreen(
 
     // Nur Straßenpunkte für Abschnitte verwenden, die auch gerade ein Auto
     // oder Wohnmobil nutzen – doppelter Schutz gegen veraltete Antworten.
-    val effectiveOnlinePoints = remember(onlinePoints, segmentModes) {
-        onlinePoints.filterKeys { id ->
-            val mode = segmentModes[id]
+    val effectiveOnlinePoints = remember(onlinePoints, segmentModes, routeSegments) {
+        val allowed = routeSegments.associate { it.key to it.arrivalStopId }
+        onlinePoints.filterKeys { key ->
+            val mode = allowed[key]?.let { segmentModes[it] }
             mode == TransportMode.CAR || mode == TransportMode.CAMPER
         }
     }
 
     // Zum Antippen zählt die gezeichnete Linie, nicht die gerade Verbindung.
     val routeEditSegments = remember(routeSegments, effectiveOnlinePoints) {
-        routeSegments.map { (stopId, points) ->
-            stopId to (effectiveOnlinePoints[stopId] ?: points)
+        routeSegments.map { segment ->
+            segment.key to (effectiveOnlinePoints[segment.key] ?: segment.points)
         }
     }
 
@@ -587,17 +634,18 @@ fun TripMapScreen(
                 // Die Berührung gehört zum nächsten gezeichneten Abschnitt –
                 // nicht einfach zum nächsten Pin. Der erste Pin hat selbst
                 // keinen Abschnitt und darf hier nicht ausgewählt werden.
-                val nearestSegment = routeEditSegments.minByOrNull { (_, points) ->
+                val nearestKey = routeEditSegments.minByOrNull { (_, points) ->
                     points.minOf { point ->
                         haversineMeters(
                             point.latitude, point.longitude,
                             clicked.latitude, clicked.longitude,
                         )
                     }
-                }
-                segmentDialog = nearestSegment?.first?.let {
-                    SegmentDialog.Detail(it)
-                }
+                }?.first
+                val arrivalId = routeSegments
+                    .firstOrNull { it.key == nearestKey }
+                    ?.arrivalStopId
+                segmentDialog = arrivalId?.let { SegmentDialog.Detail(it) }
             },
         )
     }
@@ -963,34 +1011,9 @@ fun TripMapScreen(
                         // sichtbar und bekommen den Tap zuerst.
                         routeLines.forEach { view.overlays.add(it) }
 
-                        val clusterElements = buildList {
-                            stops.forEach { stop ->
-                                add(ClusterElement(stop.latitude, stop.longitude, "stop-${stop.id}"))
-                            }
-                            placedPhotos.forEach { photo ->
-                                add(
-                                    ClusterElement(
-                                        photo.latitude!!,
-                                        photo.longitude!!,
-                                        "photo-${photo.id}",
-                                    ),
-                                )
-                            }
-                        }
-                        // Erst bei sehr weitem Zoom clustering; dazwischen bleiben
-                        // die verkleinerten Polaroids als einzelne Einträge sichtbar.
-                        val clustered = view.zoomLevelDouble <= 9.0 &&
-                            clusterElements.isNotEmpty()
-
-                        if (clustered) {
-                            view.overlays.add(
-                                ClusterOverlay(clusterElements) { box ->
-                                    view.zoomToBoundingBox(box, true, 80)
-                                },
-                            )
-                        } else {
-                            view.overlays.add(polaroidOverlay)
-                        }
+                        // Polaroids bleiben auch in der Gesamtansicht sichtbar.
+                        // Sie werden nur kleiner, niemals durch Clustering ersetzt.
+                        view.overlays.add(polaroidOverlay)
 
                         markers.clear()
                         stops.forEach { stop ->
@@ -1159,6 +1182,7 @@ fun TripMapScreen(
                         ?: focusKey
                         ?: timeline.getOrNull(nearestIndex ?: -1)?.id,
                     externalSeq = syncTarget?.seq ?: 0L,
+                    externalOrigin = syncTarget?.origin,
                     onPinClick = { stopId ->
                         viewModel.selectStop(stopId)
                         fullscreenKey = "stop-$stopId"
@@ -1174,14 +1198,15 @@ fun TripMapScreen(
                             val item = timeline.firstOrNull { it.id == key }
                             val point = item?.let { geoFor(it) }
                             if (point != null) {
-                                syncLockUntil = System.currentTimeMillis() + 700L
+                                // Kurz sperren, aber weich weiterfolgen.
+                                syncLockUntil = System.currentTimeMillis() + 320L
                                 // Programmbewegung kein Echo: Rohwert und Ziel klar trennen.
                                 rawMapCenter = null
                                 mapCenter = point
                                 mapView.controller.animateTo(
                                     point,
                                     mapView.zoomLevelDouble,
-                                    350L,
+                                    220L,
                                 )
                             }
                         }
@@ -1244,11 +1269,17 @@ fun TripMapScreen(
     }
 
     // Verkehrsmittel und An-/Abreise für einen Abschnitt – nach Tap auf die Linie.
+    fun segmentTitle(stopId: String): String {
+        val index = orderedRouteStops.indexOfFirst { it.id == stopId }
+        val from = orderedRouteStops.getOrNull(index - 1)
+        val to = orderedRouteStops.getOrNull(index)
+        fun label(stop: Stop?) = stop?.title?.takeIf { it.isNotBlank() } ?: "Pin"
+        return "Abschnitt: ${label(from)} → ${label(to)}"
+    }
+
     when (val dialog = segmentDialog) {
         is SegmentDialog.Detail -> {
             val stopId = dialog.stopId
-            val stop = stops.firstOrNull { it.id == stopId }
-            val target = stop?.title?.takeIf { it.isNotBlank() } ?: "diesem Pin"
             val effectiveMode = segmentModes[stopId]
                 ?: trip?.defaultTransportMode
                 ?: TransportMode.CAR
@@ -1272,7 +1303,7 @@ fun TripMapScreen(
             }
             AlertDialog(
                 onDismissRequest = { segmentDialog = null },
-                title = { Text("Abschnitt bis $target") },
+                title = { Text(segmentTitle(stopId)) },
                 text = {
                     Column {
                         Text(
@@ -1315,8 +1346,6 @@ fun TripMapScreen(
         }
         is SegmentDialog.Modes -> {
             val stopId = dialog.stopId
-            val stop = stops.firstOrNull { it.id == stopId }
-            val target = stop?.title?.takeIf { it.isNotBlank() } ?: "diesem Pin"
             AlertDialog(
                 onDismissRequest = {
                     segmentDialog = SegmentDialog.Detail(stopId)

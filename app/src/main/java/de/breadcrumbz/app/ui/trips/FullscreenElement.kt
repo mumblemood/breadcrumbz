@@ -227,6 +227,21 @@ private fun PhotoPolaroidDetail(
     // Bei jedem Öffnen ein neuer, kleiner Schrägwinkel.
     val tilt = remember(photo.id) { (-9..9).random().toFloat() }
     val titleIsEmpty = photo.caption.isBlank()
+    // Ortsnamen wie überall: „Stadt, Staat". Koordinaten erscheinen nie.
+    var resolvedPlace by remember(photo.id, placeText) {
+        mutableStateOf(placeText)
+    }
+    LaunchedEffect(photo.id, photo.latitude, photo.longitude, placeText) {
+        val lat = photo.latitude
+        val lon = photo.longitude
+        if (lat != null && lon != null &&
+            (placeText == "Ort wird geladen" || placeText == "Ohne Ort")
+        ) {
+            resolvedPlace = viewModel.placeName(lat, lon) ?: "Ohne Ort"
+        } else {
+            resolvedPlace = placeText
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -331,7 +346,7 @@ private fun PhotoPolaroidDetail(
             PlacePinIcon(tint = metaInk, size = 13.dp)
             Spacer(Modifier.width(4.dp))
             Text(
-                text = placeText,
+                text = resolvedPlace,
                 color = metaInk,
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
@@ -557,18 +572,7 @@ fun FullscreenElement(
                                     val photoPlaceText = when {
                                         !photoStopTitle.isNullOrBlank() -> photoStopTitle
                                         currentPhoto.latitude != null &&
-                                            currentPhoto.longitude != null -> {
-                                            val lat = currentPhoto.latitude!!
-                                            val lon = currentPhoto.longitude!!
-                                            String.format(
-                                                Locale.GERMANY,
-                                                "%.3f° %s, %.3f° %s",
-                                                Math.abs(lat),
-                                                if (lat >= 0) "N" else "S",
-                                                Math.abs(lon),
-                                                if (lon >= 0) "O" else "W",
-                                            )
-                                        }
+                                            currentPhoto.longitude != null -> "Ort wird geladen"
                                         else -> "Ohne Ort"
                                     }
                                     PhotoPolaroidDetail(

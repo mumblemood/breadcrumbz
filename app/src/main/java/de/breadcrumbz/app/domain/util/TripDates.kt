@@ -14,20 +14,34 @@ fun tripTimeRange(
     entries: List<Entry>,
     photos: List<Photo>,
 ): Pair<Long?, Long?> {
-    // Nullbare Sets, damit auch Einträge/Fotos ohne Pin sicher geprüft werden.
-    val excludedStops: Set<String?> = stops.filter { it.isArrivalDeparture }
+    val excludedStops: Set<String> = stops.filter { it.isArrivalDeparture }
         .map { it.id }.toSet()
-    val excludedEntries: Set<String?> = entries.filter { it.stopId in excludedStops }
-        .map { it.id }.toSet()
+    val excludedStopEntries: Set<String> = stops.filter { it.isArrivalDeparture }
+        .mapNotNull { it.entryId }.toSet()
+
+    // Eintrag und Pin können in beide Richtungen verlinkt sein. Beide Fälle
+    // müssen denselben Eintrag ausschließen, sonst bleibt eine Abreise im Datum.
+    val excludedEntries: Set<String> = buildSet {
+        entries.forEach { entry ->
+            val excludedByStop = entry.stopId in excludedStops
+            val excludedByPin = stops.any { stop ->
+                stop.isArrivalDeparture && stop.entryId == entry.id
+            }
+            if (excludedByStop || excludedByPin) add(entry.id)
+        }
+        addAll(excludedStopEntries)
+    }
+
     val times = mutableListOf<Long>()
     stops.filterNot { it.isArrivalDeparture }
         .mapNotNull { it.visitedAt }
         .let(times::addAll)
-    entries.filter { it.stopId !in excludedStops }
+    entries.filterNot { it.id in excludedEntries }
         .mapNotNull { it.entryAt }
         .let(times::addAll)
-    photos.filter { it.stopId !in excludedStops && it.entryId !in excludedEntries }
-        .mapNotNull { it.capturedAt }
+    photos.filter { photo ->
+        photo.stopId !in excludedStops && photo.entryId !in excludedEntries
+    }.mapNotNull { it.capturedAt }
         .let(times::addAll)
     val sorted = times.sorted()
     return sorted.firstOrNull() to sorted.lastOrNull()

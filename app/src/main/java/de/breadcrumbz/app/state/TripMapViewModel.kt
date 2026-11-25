@@ -18,6 +18,7 @@ import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.TimelineItem
 import de.breadcrumbz.app.domain.model.TimelineKind
 import de.breadcrumbz.app.domain.repository.BreadcrumbzRepository
+import de.breadcrumbz.app.domain.util.chronologicalStops
 import de.breadcrumbz.app.domain.util.clusterPhotos
 import de.breadcrumbz.app.domain.util.haversineMeters
 import de.breadcrumbz.app.domain.util.photoMatchesStop
@@ -152,11 +153,12 @@ class TripMapViewModel(
         }.sortedBy { it.time }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Live-Luftlinie in km. Straßen-km über OSRM kommen in einem späteren Schritt. */
-    val distanceKm = stops.map { list ->
-        val meters = (1 until list.size).sumOf { index ->
-            val previous = list[index - 1]
-            val current = list[index]
+    /** Live-Luftlinie in km in der gleichen Reihenfolge wie die gezeichnete Route. */
+    val distanceKm = combine(stops, allEntries, allPhotos) { list, entries, photos ->
+        val ordered = chronologicalStops(list, entries, photos)
+        val meters = (1 until ordered.size).sumOf { index ->
+            val previous = ordered[index - 1]
+            val current = ordered[index]
             // An-/Abreise zählt nicht mit in die Gesamtstrecke.
             if (previous.isArrivalDeparture || current.isArrivalDeparture) {
                 0.0
@@ -241,8 +243,21 @@ class TripMapViewModel(
             val entry = repository.observeEntriesForTrip(tripId)
                 .first().firstOrNull { it.id == entryId } ?: return@launch
             repository.updateEntry(entry.copy(entryAt = time, timeFromPhoto = false))
+            // Der verlinkte Pin übernimmt dieselbe Zeit. Damit wandert der
+            // Abschnitt in der Route, sobald der Zeitpunkt geändert wird.
+            repository.observeStops(tripId).first()
+                .filter { stop -> stop.entryId == entryId || stop.id == entry.stopId }
+                .forEach { stop ->
+                    if (stop.visitedAt != time) {
+                        repository.updateStop(stop.copy(visitedAt = time))
+                    }
+                }
         }
     }
+
+    /** Lesbarer Ort „Stadt, Staat" für Foto-Details – lokal gecacht. */
+    suspend fun placeName(latitude: Double, longitude: Double): String? =
+        placeNameResolver.resolve(latitude, longitude)
 
     /** Bearbeitbare Zeit eines alleinstehenden Pins; null löscht sie wieder. */
     fun setStopVisitedAt(stopId: String, time: Long?) {

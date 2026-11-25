@@ -1,9 +1,11 @@
 package de.breadcrumbz.app.ui.map
 
+import android.graphics.DashPathEffect
 import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.util.haversineMeters
+import de.breadcrumbz.app.domain.util.segmentKey
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
@@ -14,26 +16,30 @@ import kotlin.math.sin
 
 /**
  * Die Linie auf der Karte sieht genauso aus wie in der Zeitleiste:
- * weißer Untergrund, schwarze durchgezogene Linie darüber. Das Verkehrsmittel
- * bestimmt nur, wie die Punkte geführt werden – nicht die Farbe.
+ * weißer Untergrund, schwarze gestrichelte Spline-Linie darüber. Die schwarzen
+ * Striche sind etwa einen halben Pin lang. Das Verkehrsmittel bestimmt nur,
+ * wie die Punkte geführt werden – nicht die Farbe.
  *
  * Ein Tippen auf die Linie öffnet die Verkehrsmittel-Auswahl des Abschnitts.
  */
 object RouteStyling {
 
     // Dieselben Werte benutzt auch die Zeitleiste – Karte und Timeline sehen
-    // dadurch identisch aus: weißer Unterzug, schwarze durchgezogene Linie.
+    // dadurch identisch aus: weißer Unterzug, schwarze gestrichelte Linie.
     val LINE_COLOR = 0xFF3B2B20.toInt()
     val UNDER_COLOR = 0xFFFFFFFF.toInt()
     const val LINE_WIDTH = 14f
     const val UNDER_WIDTH = 26f
+    /** Etwa die Hälfte eines Pins – in dp, damit es auf allen Geräten passt. */
+    const val DASH_DP = 18f
+    const val GAP_DP = 10f
 
     fun build(
         mapView: MapView,
         stops: List<Stop>,
         defaultMode: TransportMode,
         routeMode: RouteMode,
-        /** Fertige Straßenpunkte pro Abschnitt (Ankunfts-Pin als Schlüssel). */
+        /** Fertige Straßenpunkte pro Abschnitt (Start>Ziel als Schlüssel). */
         overridePoints: Map<String, List<GeoPoint>> = emptyMap(),
         /** Selbst gesetzte Punkte pro Abschnitt – auch offline sichtbar. */
         waypoints: Map<String, List<GeoPoint>> = emptyMap(),
@@ -65,9 +71,13 @@ object RouteStyling {
                 val from = ordered[index - 1]
                 val to = ordered[index]
                 val mode = to.transportMode ?: defaultMode
+                // Der Schlüssel enthält beide Endpunkte. Zieht sich ein Pin
+                // durch eine Zeitänderung nach vorn, darf die alte Straßenroute
+                // nicht am neuen Abschnitt hängen bleiben.
+                val key = segmentKey(from.id, to.id)
                 // Veraltete Straßendaten dürfen niemals in einen anderen Modus
                 // hineinwirken – sonst bleibt CAR sichtbar, obwohl WALK gewählt ist.
-                val online = overridePoints[to.id]?.takeIf {
+                val online = overridePoints[key]?.takeIf {
                     mode == TransportMode.CAR || mode == TransportMode.CAMPER
                 }
                 val raw = online ?: routeVia(
@@ -76,14 +86,15 @@ object RouteStyling {
                     via = waypoints[to.id].orEmpty(),
                     mode = mode,
                 )
-                // Online-Punkte sind sehr genau: nur Wendepunkte behalten,
-                // leicht nachzeichnen und als weichen Spline verbinden.
+                // Online-Punkte werden alle km gesampelt und als Spline
+                // gezeichnet. Auch offline Punkte laufen durch einen Spline,
+                // damit die Linie überall gleich weich aussieht.
                 val points = if (online != null &&
                     (mode == TransportMode.CAR || mode == TransportMode.CAMPER)
                 ) {
                     sketchLine(raw)
                 } else {
-                    raw
+                    smooth(raw)
                 }
                 add(underLine(mapView, points))
                 add(topLine(mapView, points) { _, _, point ->
@@ -95,7 +106,7 @@ object RouteStyling {
     }
 
     private fun underLine(mapView: MapView, points: List<GeoPoint>): Polyline =
-        line(mapView, points, UNDER_COLOR, UNDER_WIDTH).apply {
+        line(mapView, points, UNDER_COLOR, UNDER_WIDTH, dashed = false).apply {
             infoWindow = null
         }
 
@@ -103,7 +114,7 @@ object RouteStyling {
         mapView: MapView,
         points: List<GeoPoint>,
         onClick: Polyline.OnClickListener,
-    ): Polyline = line(mapView, points, LINE_COLOR, LINE_WIDTH).apply {
+    ): Polyline = line(mapView, points, LINE_COLOR, LINE_WIDTH, dashed = true).apply {
         // Keine Sprechblase: ein Tippen öffnet die Verkehrsmittel-Auswahl.
         infoWindow = null
         setOnClickListener(onClick)
@@ -114,11 +125,20 @@ object RouteStyling {
         points: List<GeoPoint>,
         color: Int,
         width: Float,
+        dashed: Boolean,
     ): Polyline = Polyline(mapView).apply {
         setPoints(points)
         this.color = color
         this.width = width
-        paint.pathEffect = null
+        val density = mapView.resources.displayMetrics.density
+        paint.pathEffect = if (dashed) {
+            DashPathEffect(
+                floatArrayOf(DASH_DP * density, GAP_DP * density),
+                0f,
+            )
+        } else {
+            null
+        }
     }
 
     /** Führt die Linie über alle gesetzten Zwischenpunkte des Abschnitts. */
@@ -224,7 +244,7 @@ object RouteStyling {
         }
     }
 
-    /** Catmull-Rom geglättete Punkte für den Modus „direkt". */
+    /** Catmull-Rom-Spline durch alle Punkte; Start und Ende bleiben exakt. */
     private fun smooth(source: List<GeoPoint>): List<GeoPoint> {
         if (source.size < 3) return source
         val result = mutableListOf<GeoPoint>()
