@@ -31,6 +31,10 @@ veröffentlicht.
   Ein Tippen auf die Linie lässt dich das Verkehrsmittel für einen Abschnitt
   wählen. Für Auto und Campingbus wird die Strecke offline handgezeichnet.
   Die Pins werden dabei chronologisch nach dem Datum ihrer Fotos abgefahren.
+  Für Auto und Campingbus holt Breadcrumbz die Straßenführung online (nur
+  Koordinaten, kein Konto). In den Einstellungen lässt sich das ausschalten.
+  Punkte auf der Linie kannst du ziehen: langes Halten und Ziehen setzt einen
+  eigenen Zwischenpunkt für die Routenführung.
   Darunter liegt eine Anzeige der Luftlinie in Kilometern.
 - **Tagebuch schreiben:** Zu einem Pin oder direkt über das „+" in der Karte
   legst du Einträge mit Titel und Text an. Mehrere Einträge pro Tag sind möglich.

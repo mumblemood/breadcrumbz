@@ -129,6 +129,33 @@ data class PhotoEntity(
     val createdAt: Long,
 )
 
+/**
+ * Selbst gesetzter Punkt auf der Reiselinie (Datenbank ab Version 11).
+ * Er ist kein Pin: er erscheint nicht als Marker und nicht in der Zeitleiste.
+ */
+@Entity(
+    tableName = "route_waypoints",
+    foreignKeys = [
+        ForeignKey(
+            entity = TripEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["tripId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("tripId"), Index("tripId", "sortIndex")],
+)
+data class RouteWaypointEntity(
+    @PrimaryKey val id: String,
+    val tripId: String,
+    /** Abschnitt, in dem der Punkt liegt (Ankunfts-Pin). */
+    val afterStopId: String?,
+    val latitude: Double,
+    val longitude: Double,
+    val sortIndex: Int,
+    val createdAt: Long,
+)
+
 /** Lokaler Cache für gefunden Ortsnamen, damit nicht bei jedem Stopp online gefragt wird. */
 @Entity(tableName = "place_names")
 data class PlaceNameEntity(

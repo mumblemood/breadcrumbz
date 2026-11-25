@@ -2,6 +2,7 @@ package de.breadcrumbz.app.domain.repository
 
 import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.Photo
+import de.breadcrumbz.app.domain.model.RouteWaypoint
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.StopSource
@@ -45,6 +46,18 @@ interface BreadcrumbzRepository {
 
     suspend fun updateStop(stop: Stop)
     suspend fun deleteStop(id: String)
+
+    fun observeWaypoints(tripId: String): Flow<List<RouteWaypoint>>
+
+    suspend fun addWaypoint(
+        tripId: String,
+        afterStopId: String?,
+        latitude: Double,
+        longitude: Double,
+    ): RouteWaypoint
+
+    suspend fun updateWaypoint(waypoint: RouteWaypoint)
+    suspend fun deleteWaypoint(id: String)
 
     fun observeEntries(stopId: String): Flow<List<Entry>>
     fun observeEntriesForTrip(tripId: String): Flow<List<Entry>>

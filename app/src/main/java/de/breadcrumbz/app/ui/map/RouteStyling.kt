@@ -36,6 +36,10 @@ object RouteStyling {
         stops: List<Stop>,
         defaultMode: TransportMode,
         routeMode: RouteMode,
+        /** Fertige Straßenpunkte pro Abschnitt (Ankunfts-Pin als Schlüssel). */
+        overridePoints: Map<String, List<GeoPoint>> = emptyMap(),
+        /** Selbst gesetzte Punkte pro Abschnitt – auch offline sichtbar. */
+        waypoints: Map<String, List<GeoPoint>> = emptyMap(),
         onLineClick: (GeoPoint) -> Unit = {},
     ): List<Polyline> {
         // Die Reihenfolge kommt chronologisch aus der Reise (Foto-Zeitstempel).
@@ -44,7 +48,12 @@ object RouteStyling {
         if (ordered.size < 2) return emptyList()
 
         if (routeMode == RouteMode.DIRECT) {
-            val points = smooth(ordered.map { GeoPoint(it.latitude, it.longitude) })
+            val via = mutableListOf<GeoPoint>()
+            ordered.forEachIndexed { index, stop ->
+                if (index > 0) waypoints[stop.id].orEmpty().forEach { via.add(it) }
+                via.add(GeoPoint(stop.latitude, stop.longitude))
+            }
+            val points = smooth(via)
             return listOf(
                 underLine(mapView, points),
                 dashedLine(mapView, points) { _, _, point ->
@@ -59,26 +68,12 @@ object RouteStyling {
                 val from = ordered[index - 1]
                 val to = ordered[index]
                 val mode = to.transportMode ?: defaultMode
-                val points = when (mode) {
-                    TransportMode.PLANE -> arc(
-                        GeoPoint(from.latitude, from.longitude),
-                        GeoPoint(to.latitude, to.longitude),
-                        wave = false,
-                    )
-                    TransportMode.KAYAK -> arc(
-                        GeoPoint(from.latitude, from.longitude),
-                        GeoPoint(to.latitude, to.longitude),
-                        wave = true,
-                    )
-                    TransportMode.CAR, TransportMode.CAMPER -> handDrawnRoad(
-                        GeoPoint(from.latitude, from.longitude),
-                        GeoPoint(to.latitude, to.longitude),
-                    )
-                    else -> listOf(
-                        GeoPoint(from.latitude, from.longitude),
-                        GeoPoint(to.latitude, to.longitude),
-                    )
-                }
+                val points = overridePoints[to.id] ?: routeVia(
+                    from = GeoPoint(from.latitude, from.longitude),
+                    to = GeoPoint(to.latitude, to.longitude),
+                    via = waypoints[to.id].orEmpty(),
+                    mode = mode,
+                )
                 add(underLine(mapView, points))
                 add(dashedLine(mapView, points) { _, _, point ->
                     onLineClick(point ?: GeoPoint(to.latitude, to.longitude))
@@ -117,6 +112,33 @@ object RouteStyling {
         this.color = color
         this.width = width
         paint.pathEffect = dash
+    }
+
+    /** Führt die Linie über alle gesetzten Zwischenpunkte des Abschnitts. */
+    private fun routeVia(
+        from: GeoPoint,
+        to: GeoPoint,
+        via: List<GeoPoint>,
+        mode: TransportMode,
+    ): List<GeoPoint> {
+        val nodes = buildList {
+            add(from)
+            addAll(via)
+            add(to)
+        }
+        return buildList {
+            for (index in 1 until nodes.size) {
+                val start = nodes[index - 1]
+                val end = nodes[index]
+                val segment = when (mode) {
+                    TransportMode.PLANE -> arc(start, end, wave = false)
+                    TransportMode.KAYAK -> arc(start, end, wave = true)
+                    TransportMode.CAR, TransportMode.CAMPER -> handDrawnRoad(start, end)
+                    else -> listOf(start, end)
+                }
+                if (index == 1) addAll(segment) else addAll(segment.drop(1))
+            }
+        }
     }
 
     /**

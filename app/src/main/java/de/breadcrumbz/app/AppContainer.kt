@@ -14,7 +14,10 @@ import de.breadcrumbz.app.data.db.MIGRATION_6_7
 import de.breadcrumbz.app.data.db.MIGRATION_7_8
 import de.breadcrumbz.app.data.db.MIGRATION_8_9
 import de.breadcrumbz.app.data.db.MIGRATION_9_10
+import de.breadcrumbz.app.data.db.MIGRATION_10_11
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
+import de.breadcrumbz.app.data.route.RoutingService
+import de.breadcrumbz.app.data.settings.SettingsStore
 import de.breadcrumbz.app.data.place.PlaceNameRefresher
 import de.breadcrumbz.app.data.place.PlaceNameResolver
 import de.breadcrumbz.app.data.repository.RoomBreadcrumbzRepository
@@ -38,7 +41,7 @@ class AppContainer(context: Context) {
         mapBase.mkdirs()
         tileCache.mkdirs()
         Configuration.getInstance().apply {
-            userAgentValue = "Breadcrumbz/0.5.0 (+https://github.com/mumblemood/breadcrumbz)"
+            userAgentValue = "Breadcrumbz/0.18.0 (+https://github.com/mumblemood/breadcrumbz)"
             osmdroidBasePath = mapBase
             osmdroidTileCache = tileCache
         }
@@ -58,6 +61,7 @@ class AppContainer(context: Context) {
         MIGRATION_7_8,
         MIGRATION_8_9,
         MIGRATION_9_10,
+        MIGRATION_10_11,
     ).build()
 
     private val tripDao = database.tripDao()
@@ -65,6 +69,7 @@ class AppContainer(context: Context) {
     private val entryDao = database.entryDao()
     private val photoDao = database.photoDao()
     private val placeNameDao = database.placeNameDao()
+    private val waypointDao = database.waypointDao()
 
     val photoStore = InternalPhotoStore(appContext)
 
@@ -75,6 +80,7 @@ class AppContainer(context: Context) {
         stopDao = stopDao,
         entryDao = entryDao,
         photoDao = photoDao,
+        waypointDao = waypointDao,
         photoStore = photoStore,
     )
 
@@ -85,9 +91,16 @@ class AppContainer(context: Context) {
         entryDao = entryDao,
         photoDao = photoDao,
         placeNameDao = placeNameDao,
+        waypointDao = waypointDao,
         photoStore = photoStore,
         appVersion = "0.18.0",
     )
+
+    /** Rein lokale Einstellungen, u. a. der Schalter für Online-Routing. */
+    val settingsStore = SettingsStore(appContext)
+
+    /** Holt Straßenlinien – nur Koordinaten, kein Konto. */
+    val routingService = RoutingService()
 
     private val placeRefresher = PlaceNameRefresher(stopDao, placeNameResolver)
     private val settings: SharedPreferences =

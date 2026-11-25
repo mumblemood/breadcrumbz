@@ -6,10 +6,12 @@ import de.breadcrumbz.app.data.photo.ImportedPhoto
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
 import de.breadcrumbz.app.data.photo.PhotoImporter
 import de.breadcrumbz.app.data.place.PlaceNameResolver
+import de.breadcrumbz.app.data.settings.SettingsStore
 import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.OverlayMode
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.RouteMode
+import de.breadcrumbz.app.domain.model.RouteWaypoint
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.StopSource
 import de.breadcrumbz.app.domain.model.TransportMode
@@ -43,6 +45,7 @@ class TripMapViewModel(
     private val repository: BreadcrumbzRepository,
     private val photoStore: InternalPhotoStore,
     private val placeNameResolver: PlaceNameResolver,
+    private val settingsStore: SettingsStore,
     private val tripId: String,
 ) : ViewModel() {
 
@@ -55,6 +58,13 @@ class TripMapViewModel(
 
     val photos = repository.observePhotos(tripId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Selbst gesetzte Punkte auf der Reiselinie. */
+    val waypoints = repository.observeWaypoints(tripId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Online-Routing ist Standard, lässt sich aber in den Einstellungen ausstellen. */
+    val onlineRouting: StateFlow<Boolean> = settingsStore.onlineRouting
 
     private val _selectedStopId = MutableStateFlow<String?>(null)
     val selectedStopId: StateFlow<String?> = _selectedStopId.asStateFlow()
@@ -560,6 +570,15 @@ class TripMapViewModel(
         }
     }
 
+    /** Wieder den Standard der Reise für diesen Abschnitt benutzen. */
+    fun clearStopTransportMode(stopId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val stop = repository.observeStops(tripId).first().firstOrNull { it.id == stopId }
+                ?: return@launch
+            repository.updateStop(stop.copy(transportMode = null))
+        }
+    }
+
     /**
      * Löscht einen Pin. Einträge und Fotos werden automatisch vom Pin getrennt
      * (Datenbank-Regel ON DELETE SET NULL) und bleiben erhalten.
@@ -749,4 +768,30 @@ class TripMapViewModel(
             }
         }
     }
+
+    fun addWaypoint(
+        afterStopId: String?,
+        latitude: Double,
+        longitude: Double,
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.addWaypoint(tripId, afterStopId, latitude, longitude)
+        }
+    }
+
+    fun moveWaypoint(waypoint: RouteWaypoint, latitude: Double, longitude: Double) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.updateWaypoint(
+                waypoint.copy(
+                    latitude = latitude,
+                    longitude = longitude,
+                ),
+            )
+        }
+    }
+
+    fun deleteWaypoint(id: String) {
+        viewModelScope.launch(Dispatchers.IO) { repository.deleteWaypoint(id) }
+    }
+
 }

@@ -147,6 +147,8 @@ fun AdventureTimeline(
     photosByEntry: Map<String, List<String>>,
     onItemClick: (TimelineItem) -> Unit,
     onPhotoClick: (String) -> Unit,
+    /** Das Pin-Symbol öffnet die Pin-Detailansicht – auch bei Einträgen mit Ort. */
+    onPinClick: (String) -> Unit = {},
     photoBitmap: (String) -> ImageBitmap?,
     photoTimes: Map<String, Long> = emptyMap(),
     entryBodies: Map<String, String> = emptyMap(),
@@ -206,8 +208,10 @@ fun AdventureTimeline(
     var dragTargetEntryId by remember { mutableStateOf<String?>(null) }
     // Ein gerade gezogenes Eintragsfoto darf nicht zusätzlich die Eintragskarte ziehen.
     var photoDragActive by remember { mutableStateOf(false) }
+    // Schon beim Antippen blockieren, damit die Karte keinen Drag startet.
+    var photoPressed by remember { mutableStateOf(false) }
     // Verhindert, dass eine programmgesteuerte Scrollbewegung die Karte zurückzieht.
-    var programmaticScroll by remember { mutableStateOf(false) }
+    var lastProgrammaticScrollAt by remember { mutableStateOf(0L) }
     val startPx = with(density) { 34.dp.toPx() }
     val baseY = with(density) { 74.dp.toPx() }
 
@@ -374,11 +378,31 @@ fun AdventureTimeline(
                 .roundToInt().coerceAtLeast(0).coerceAtMost(maxScroll)
             if (abs(scrollState.value - target) > 24) {
                 // Die Karte hat das gewünschte Element vorgegeben: nicht retour melden.
-                programmaticScroll = true
+                lastProgrammaticScrollAt = System.currentTimeMillis()
                 scrollState.animateScrollTo(target)
-                programmaticScroll = false
+                lastProgrammaticScrollAt = System.currentTimeMillis()
             }
         }
+    }
+
+    /** Kilometer-Marke liegt genau zwischen den beiden Punkten, die sie umschließen. */
+    fun milestoneX(target: Double): Float {
+        if (points.isEmpty()) return 0f
+        if (points.first().km >= target) return points.first().x
+        for (index in 1 until points.size) {
+            val previous = points[index - 1]
+            val current = points[index]
+            if (current.km >= target) {
+                val span = current.km - previous.km
+                val fraction = if (span > 0.0) {
+                    ((target - previous.km) / span).coerceIn(0f, 1f)
+                } else {
+                    1f
+                }
+                return previous.x + (current.x - previous.x) * fraction
+            }
+        }
+        return points.last().x
     }
 
     val kmTargets = remember(totalKm) {
@@ -389,7 +413,7 @@ fun AdventureTimeline(
                 value += 100.0
             }
             if (totalKm > 0.0) add(totalKm)
-        }.distinctBy { it.toInt() }
+        }.distinct()
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
@@ -407,7 +431,9 @@ fun AdventureTimeline(
             val centerPhotoId = centerPoint?.photoId
             LaunchedEffect(centerKey) { onCenterKeyChange(centerKey) }
             LaunchedEffect(centerKey) {
-                if (!programmaticScroll) onUserCenterKey(centerKey)
+                if (System.currentTimeMillis() - lastProgrammaticScrollAt > 600L) {
+                    onUserCenterKey(centerKey)
+                }
             }
 
             val dayPad = with(density) { 12.dp.toPx() }
@@ -572,9 +598,7 @@ fun AdventureTimeline(
                     val markerTop = with(density) { 30.dp.toPx() }
                     val markerBottom = with(density) { 44.dp.toPx() }
                     kmTargets.forEach { target ->
-                        val index = points.indexOfFirst { it.km >= target }
-                            .let { if (it < 0) points.lastIndex else it }
-                        val x = points[index].x
+                        val x = milestoneX(target)
                         drawLine(
                             color = accent,
                             start = Offset(x, markerTop),
@@ -621,6 +645,9 @@ fun AdventureTimeline(
                                     y = lineY - 32.dp,
                                 )
                                 .size(34.dp)
+                                .clickable {
+                                    point.item?.stopId?.let(onPinClick)
+                                }
                                 .scale(if (highlighted) 1.15f else 1f),
                         )
                     }
@@ -654,7 +681,7 @@ fun AdventureTimeline(
 
                                 detectDragGesturesAfterLongPress(
                                     onDragStart = {
-                                        if (photoDragActive) {
+                                        if (photoDragActive || photoPressed) {
                                             blockedByPhoto = true
                                             return@detectDragGesturesAfterLongPress
                                         }
@@ -677,7 +704,12 @@ fun AdventureTimeline(
                                         }
                                         dragX += amount.x
                                         dragY += amount.y
-                                        dragOffset.value = Offset(dragX, dragY)
+                                        // Scrollen während des Ziehens mitnehmen,
+                                        // sonst bleibt die Karte unter dem Finger zurück.
+                                        val scrollDelta = scrollState.value - startScroll
+                                        dragOffset.value = Offset(
+                                            dragX + scrollDelta, dragY,
+                                        )
                                         // Am Bildschirmrand scrollt die Zeitleiste mit.
                                         val rootX = timelineBounds.left +
                                             point.x - halfCardPx - scrollState.value +
@@ -721,8 +753,7 @@ fun AdventureTimeline(
                                         }
                                         if (point.kind == 2 && item?.entryId != null) {
                                             val cardLeft = timelineBounds.left +
-                                                point.x - halfCardPx -
-                                                scrollState.value
+                                                point.x - halfCardPx - startScroll
                                             val cardTop = timelineBounds.top +
                                                 with(density) { cardY.toPx() }
                                             onDropEntry(
@@ -946,15 +977,23 @@ fun AdventureTimeline(
                                                             },
                                                         )
                                                         .onGloballyPositioned { coordinates ->
-                                                            if (photoDragOffset == Offset.Zero) {
+                                                            if (!photoPressed && !photoDragActive) {
                                                                 photoRootX = coordinates
                                                                     .boundsInRoot().center.x
                                                             }
                                                         }
                                                         .pointerInput(photoId) {
+                                                            detectTapGestures(onPress = {
+                                                                photoPressed = true
+                                                                tryAwaitRelease()
+                                                                photoPressed = false
+                                                            })
+                                                        }
+                                                        .pointerInput(photoId) {
                                                             var dragX = 0f
                                                             var dragY = 0f
                                                             var startRootX = photoRootX
+                                                            var startScroll = scrollState.value
                                                             var edgeJob: kotlinx.coroutines.Job? = null
                                                             fun targetEntry(x: Float): String? =
                                                                 entryFrames.entries.firstOrNull { entry ->
@@ -972,6 +1011,7 @@ fun AdventureTimeline(
                                                                     dragX = 0f
                                                                     dragY = 0f
                                                                     startRootX = photoRootX
+                                                                    startScroll = scrollState.value
                                                                     photoDragOffset = Offset.Zero
                                                                     dragTargetEntryId = null
                                                                 },
@@ -979,8 +1019,10 @@ fun AdventureTimeline(
                                                                     change.consume()
                                                                     dragX += amount.x
                                                                     dragY += amount.y
+                                                                    val scrollDelta =
+                                                                        scrollState.value - startScroll
                                                                     photoDragOffset =
-                                                                        Offset(dragX, dragY)
+                                                                        Offset(dragX + scrollDelta, dragY)
                                                                     val rootX = startRootX + dragX
                                                                     val edge = with(density) {
                                                                         56.dp.toPx()
@@ -1066,24 +1108,10 @@ fun AdventureTimeline(
                     }
                 }
 
-                Text(
-                    text = "Gesamt: ${String.format(Locale.GERMANY, "%.1f", totalKm)} km",
-                    color = ink,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .offset(x = 8.dp, y = 0.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(paper)
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                )
-
                 if (points.isNotEmpty()) kmTargets.forEach { target ->
-                    val index = points.indexOfFirst { it.km >= target }
-                        .let { if (it < 0) points.lastIndex else it }
-                    val x = with(density) { (points[index].x - 34.dp.toPx()).toDp() }
+                    val x = with(density) { (milestoneX(target) - 34.dp.toPx()).toDp() }
                     val label = if (target == totalKm) {
-                        "${String.format(Locale.GERMANY, "%.1f", totalKm)} km"
+                        "${String.format(Locale.GERMANY, "%.0f", totalKm)} km"
                     } else {
                         "${target.toInt()} km"
                     }

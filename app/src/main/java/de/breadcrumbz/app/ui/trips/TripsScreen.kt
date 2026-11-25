@@ -34,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -55,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.breadcrumbz.app.R
 import de.breadcrumbz.app.data.backup.BackupManager
+import de.breadcrumbz.app.data.settings.SettingsStore
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.Trip
 import de.breadcrumbz.app.state.TripOverview
@@ -77,9 +79,11 @@ fun TripsScreen(
     backupManager: BackupManager,
     onOpenTrip: (String) -> Unit,
     onRefreshPlaces: () -> Unit,
+    settingsStore: SettingsStore,
     modifier: Modifier = Modifier,
 ) {
     val overviews by viewModel.overviews.collectAsStateWithLifecycle()
+    val onlineRouting by settingsStore.onlineRouting.collectAsStateWithLifecycle()
     val sortedTrips = remember(overviews) {
         overviews.sortedByDescending { it.trip.createdAt }
     }
@@ -253,6 +257,21 @@ fun TripsScreen(
                         "Helles und dunkles Systemthema werden automatisch unterstützt.",
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    Spacer(Modifier.height(12.dp))
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Online-Routing")
+                            Text(
+                                "Straßenlinie für Auto und Campingbus aus dem Internet holen. " +
+                                    "Ausgeschaltet bleibt die Linie komplett lokal gezeichnet.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        Switch(
+                            checked = onlineRouting,
+                            onCheckedChange = { settingsStore.setOnlineRouting(it) },
+                        )
+                    }
                     Spacer(Modifier.height(12.dp))
                     TextButton(onClick = {
                         onRefreshPlaces()

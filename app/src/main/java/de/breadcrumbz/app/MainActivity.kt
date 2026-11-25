@@ -30,6 +30,7 @@ class MainActivity : ComponentActivity() {
             container.repository,
             container.photoStore,
             container.placeNameResolver,
+            container.settingsStore,
         )
     }
 
@@ -51,6 +52,7 @@ class MainActivity : ComponentActivity() {
                             backupManager = container.backupManager,
                             onOpenTrip = { openTripId = it },
                             onRefreshPlaces = { container.refreshPlaceNamesNow() },
+                            settingsStore = container.settingsStore,
                         )
                     } else {
                         val mapFactory = remember(tripId) {
@@ -58,6 +60,7 @@ class MainActivity : ComponentActivity() {
                                 container.repository,
                                 container.photoStore,
                                 container.placeNameResolver,
+                                container.settingsStore,
                                 tripId,
                             )
                         }
@@ -67,6 +70,7 @@ class MainActivity : ComponentActivity() {
                         )
                         TripMapScreen(
                             viewModel = mapViewModel,
+                            routingService = container.routingService,
                             onBack = { openTripId = null },
                         )
                     }

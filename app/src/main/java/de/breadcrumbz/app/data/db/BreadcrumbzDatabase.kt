@@ -7,6 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import de.breadcrumbz.app.data.model.EntryEntity
 import de.breadcrumbz.app.data.model.PhotoEntity
 import de.breadcrumbz.app.data.model.PlaceNameEntity
+import de.breadcrumbz.app.data.model.RouteWaypointEntity
 import de.breadcrumbz.app.data.model.StopEntity
 import de.breadcrumbz.app.data.model.TripEntity
 import java.util.UUID
@@ -18,8 +19,9 @@ import java.util.UUID
         EntryEntity::class,
         PhotoEntity::class,
         PlaceNameEntity::class,
+        RouteWaypointEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class BreadcrumbzDatabase : RoomDatabase() {
@@ -28,6 +30,7 @@ abstract class BreadcrumbzDatabase : RoomDatabase() {
     abstract fun entryDao(): EntryDao
     abstract fun photoDao(): PhotoDao
     abstract fun placeNameDao(): PlaceNameDao
+    abstract fun waypointDao(): WaypointDao
 }
 
 /**
@@ -201,6 +204,40 @@ val MIGRATION_9_10 = object : Migration(9, 10) {
         )
         db.execSQL(
             "ALTER TABLE `entries` ADD COLUMN `placeFromPhoto` INTEGER NOT NULL DEFAULT 0",
+        )
+    }
+}
+
+
+/**
+ * Version 11: Selbst gezogene Punkte auf der Reiselinie. Bestehende Reisen
+ * bleiben unverändert; die neue Tabelle startet leer.
+ */
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `route_waypoints` (
+                `id` TEXT NOT NULL,
+                `tripId` TEXT NOT NULL,
+                `afterStopId` TEXT,
+                `latitude` REAL NOT NULL,
+                `longitude` REAL NOT NULL,
+                `sortIndex` INTEGER NOT NULL,
+                `createdAt` INTEGER NOT NULL,
+                PRIMARY KEY(`id`),
+                FOREIGN KEY(`tripId`) REFERENCES `trips`(`id`)
+                    ON UPDATE NO ACTION ON DELETE CASCADE
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_route_waypoints_tripId` " +
+                "ON `route_waypoints` (`tripId`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_route_waypoints_tripId_sortIndex` " +
+                "ON `route_waypoints` (`tripId`, `sortIndex`)",
         )
     }
 }

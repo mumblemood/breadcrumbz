@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -93,6 +94,16 @@ import java.util.Locale
 // Feste Papier-Optik: Diese Farben gelten unabhängig vom Systemthema (hell/dunkel).
 private val paper = Color(0xFFF6EFE1)
 private val leftPage = Color(0xFFEFE4CF)
+
+private fun TransportMode.symbol(): String = when (this) {
+    TransportMode.WALK -> "🚶"
+    TransportMode.BIKE -> "🚲"
+    TransportMode.KAYAK -> "🛶"
+    TransportMode.CAR -> "🚗"
+    TransportMode.TRAIN -> "🚆"
+    TransportMode.PLANE -> "✈️"
+    TransportMode.CAMPER -> "🚐"
+}
 private val ink = Color(0xFF3B2B20)
 private val frame = Color(0xFFDCCDB4)
 // Comic Sans ist nicht auf allen Geräten installiert. Die systemweite
@@ -365,7 +376,7 @@ fun FullscreenElement(
                         modifier = Modifier
                             .fillMaxWidth()
                             .then(
-                                if (photoOnly) Modifier else Modifier.verticalScroll(
+                                if (photoOnly) Modifier.fillMaxHeight() else Modifier.verticalScroll(
                                     rememberScrollState(),
                                 ),
                             )
@@ -381,6 +392,16 @@ fun FullscreenElement(
                                     )
                                 },
                             ),
+                        verticalArrangement = if (photoOnly) {
+                            Arrangement.Center
+                        } else {
+                            Arrangement.Top
+                        },
+                        horizontalAlignment = if (photoOnly) {
+                            Alignment.CenterHorizontally
+                        } else {
+                            Alignment.Start
+                        },
                     ) {
                         // Kein Zurück-Knopf: Tippen daneben oder die Back-Taste schließen.
                         when {
@@ -430,6 +451,9 @@ fun FullscreenElement(
                                     var confirmDeletePin by remember(stop.id) {
                                         mutableStateOf(false)
                                     }
+                                    var modePickerOpen by remember(stop.id) {
+                                        mutableStateOf(false)
+                                    }
                                     Column(modifier = Modifier.fillMaxWidth()) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             PlacePinIcon(
@@ -447,23 +471,59 @@ fun FullscreenElement(
                                             )
                                         }
                                         if (stop.visitedAt != null) SmallMeta(dateText(stop.visitedAt))
-                                        Text(
-                                            "Verkehrsmittel hierher: " +
-                                                (stop.transportMode?.label ?: "Standard der Reise"),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = ink,
-                                        )
-                                        Row(
-                                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        // Nur ein kleines Symbol; ein Tippen darauf
+                                        // öffnet die Auswahl.
+                                        Box(
+                                            modifier = Modifier
+                                                .padding(top = 4.dp)
+                                                .size(34.dp)
+                                                .clip(RoundedCornerShape(17.dp))
+                                                .background(frame)
+                                                .clickable { modePickerOpen = true },
+                                            contentAlignment = Alignment.Center,
                                         ) {
-                                            TransportMode.entries.forEach { mode ->
-                                                InkTextButton(onClick = {
-                                                    viewModel.setStopTransportMode(stop.id, mode)
-                                                }) {
-                                                    Text(mode.label)
-                                                }
-                                            }
+                                            Text(
+                                                (stop.transportMode
+                                                    ?: TransportMode.CAR).symbol(),
+                                                fontSize = 19.sp,
+                                            )
+                                        }
+                                        if (modePickerOpen) {
+                                            AlertDialog(
+                                                onDismissRequest = { modePickerOpen = false },
+                                                title = { Text("Verkehrsmittel bis hierhin") },
+                                                text = {
+                                                    Column(
+                                                        Modifier.verticalScroll(
+                                                            rememberScrollState(),
+                                                        ),
+                                                    ) {
+                                                        TransportMode.entries.forEach { mode ->
+                                                            TextButton(onClick = {
+                                                                viewModel.setStopTransportMode(
+                                                                    stop.id, mode,
+                                                                )
+                                                                modePickerOpen = false
+                                                            }) {
+                                                                Text(
+                                                                    "${mode.symbol()}   ${mode.label}",
+                                                                )
+                                                            }
+                                                        }
+                                                        TextButton(onClick = {
+                                                            viewModel.clearStopTransportMode(stop.id)
+                                                            modePickerOpen = false
+                                                        }) {
+                                                            Text("Standard der Reise")
+                                                        }
+                                                    }
+                                                },
+                                                confirmButton = {
+                                                    TextButton(onClick = {
+                                                        modePickerOpen = false
+                                                    }) { Text("Abbrechen") }
+                                                },
+                                            )
                                         }
                                         linkedEntries.forEach { entry ->
                                             Spacer(Modifier.height(12.dp))
@@ -509,14 +569,23 @@ fun FullscreenElement(
                                         }
                                         Spacer(Modifier.height(12.dp))
                                         Row(
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End,
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
-                                            InkTextButton(onClick = { onAddEntry(stop.id) }) {
-                                                Text("+ Eintrag hier")
+                                            IconButton(onClick = { onAddEntry(stop.id) }) {
+                                                Icon(
+                                                    Icons.Default.Add,
+                                                    contentDescription = "Eintrag hier hinzufügen",
+                                                    tint = ink,
+                                                )
                                             }
-                                            InkTextButton(onClick = { confirmDeletePin = true }) {
-                                                Text("Pin löschen")
+                                            IconButton(onClick = { confirmDeletePin = true }) {
+                                                Icon(
+                                                    Icons.Default.Delete,
+                                                    contentDescription = "Pin löschen",
+                                                    tint = ink,
+                                                )
                                             }
                                         }
                                         if (confirmDeletePin) {

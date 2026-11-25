@@ -7,6 +7,7 @@ import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.StopSource
 import de.breadcrumbz.app.domain.model.RouteMode
+import de.breadcrumbz.app.domain.model.RouteWaypoint
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.Trip
 
@@ -77,6 +78,26 @@ fun Stop.toEntity() = StopEntity(
     distanceUpdatedAt = distanceUpdatedAt,
     createdAt = createdAt,
     updatedAt = updatedAt,
+)
+
+fun RouteWaypointEntity.toDomain() = RouteWaypoint(
+    id = id,
+    tripId = tripId,
+    afterStopId = afterStopId,
+    latitude = latitude,
+    longitude = longitude,
+    sortIndex = sortIndex,
+    createdAt = createdAt,
+)
+
+fun RouteWaypoint.toEntity() = RouteWaypointEntity(
+    id = id,
+    tripId = tripId,
+    afterStopId = afterStopId,
+    latitude = latitude,
+    longitude = longitude,
+    sortIndex = sortIndex,
+    createdAt = createdAt,
 )
 
 fun EntryEntity.toDomain() = Entry(

@@ -75,6 +75,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.breadcrumbz.app.R
 import de.breadcrumbz.app.data.photo.ImportedPhoto
 import de.breadcrumbz.app.data.photo.PhotoSourceReader
+import de.breadcrumbz.app.data.route.RoutingService
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TimelineItem
@@ -89,6 +90,7 @@ import de.breadcrumbz.app.ui.map.ClusterElement
 import de.breadcrumbz.app.ui.map.ClusterOverlay
 import de.breadcrumbz.app.ui.map.PinInteractionOverlay
 import de.breadcrumbz.app.ui.map.PolaroidOverlay
+import de.breadcrumbz.app.ui.map.RouteEditOverlay
 import de.breadcrumbz.app.ui.map.RouteStyling
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -161,6 +163,7 @@ private fun formatDate(time: Long?, withYear: Boolean = false): String {
 @Composable
 fun TripMapScreen(
     viewModel: TripMapViewModel,
+    routingService: RoutingService,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -170,6 +173,8 @@ fun TripMapScreen(
     val entries by viewModel.entries.collectAsStateWithLifecycle()
     val allEntries by viewModel.allEntries.collectAsStateWithLifecycle()
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
+    val waypoints by viewModel.waypoints.collectAsStateWithLifecycle()
+    val onlineRouting by viewModel.onlineRouting.collectAsStateWithLifecycle()
     val activeStopId by viewModel.selectedStopId.collectAsStateWithLifecycle()
     val pendingPhotoId by viewModel.pendingPhotoId.collectAsStateWithLifecycle()
     val pendingEntryId by viewModel.pendingEntryId.collectAsStateWithLifecycle()
@@ -181,6 +186,8 @@ fun TripMapScreen(
     var mapZoom by remember { mutableStateOf(14f) }
     var mapCenter by remember { mutableStateOf<GeoPoint?>(null) }
     var lastTimelineSync by remember { mutableStateOf(0L) }
+    /** Kurz nach einer programmgesteuerten Bewegung kein Echo zurückschicken. */
+    var syncLockUntil by remember { mutableStateOf(0L) }
     var fullscreenKey by remember { mutableStateOf<String?>(null) }
     var centerKey by remember { mutableStateOf<String?>(null) }
     val markers = remember { mutableMapOf<String, Marker>() }
@@ -197,6 +204,7 @@ fun TripMapScreen(
     var focusKey by remember { mutableStateOf<String?>(null) }
     var lastFocusAt by remember { mutableStateOf(0L) }
     var photoToDelete by remember { mutableStateOf<String?>(null) }
+    var waypointToDelete by remember { mutableStateOf<String?>(null) }
 
     var editingTitle by remember { mutableStateOf(false) }
     var titleDraft by remember { mutableStateOf("") }
@@ -356,28 +364,24 @@ fun TripMapScreen(
     val mapListener = remember {
         object : MapListener {
             override fun onScroll(event: ScrollEvent?): Boolean {
-                // Nach einer gezielten Fokus-Bewegung übernimmt wieder die Kartennähe.
-                if (focusKey != null &&
-                    System.currentTimeMillis() - lastFocusAt > 900L
-                ) {
-                    focusKey = null
-                }
-                if (System.currentTimeMillis() - lastTimelineSync > 700L) {
-                    lastTimelineSync = System.currentTimeMillis()
+                val now = System.currentTimeMillis()
+                // Ein bewusster Fokus bleibt kurz erhalten; danach führt die Karte.
+                if (focusKey != null && now - lastFocusAt > 600L) focusKey = null
+                if (now >= syncLockUntil && now - lastTimelineSync > 250L) {
+                    lastTimelineSync = now
                     mapCenter = GeoPoint(mapView.mapCenter.latitude, mapView.mapCenter.longitude)
                 }
                 return false
             }
 
             override fun onZoom(event: ZoomEvent?): Boolean {
-                if (focusKey != null &&
-                    System.currentTimeMillis() - lastFocusAt > 900L
-                ) {
-                    focusKey = null
-                }
-                lastTimelineSync = System.currentTimeMillis()
+                val now = System.currentTimeMillis()
+                if (focusKey != null && now - lastFocusAt > 600L) focusKey = null
                 mapZoom = mapView.zoomLevelDouble.toFloat()
-                mapCenter = GeoPoint(mapView.mapCenter.latitude, mapView.mapCenter.longitude)
+                if (now >= syncLockUntil) {
+                    lastTimelineSync = now
+                    mapCenter = GeoPoint(mapView.mapCenter.latitude, mapView.mapCenter.longitude)
+                }
                 return false
             }
         }
@@ -391,6 +395,7 @@ fun TripMapScreen(
         centerKey = key
         focusKey = key
         lastFocusAt = System.currentTimeMillis()
+        if (moveMap) syncLockUntil = System.currentTimeMillis() + 700L
         if (moveMap) {
             val entryStopId = photo.entryId
                 ?.let { id -> allEntries.firstOrNull { it.id == id }?.stopId }
@@ -403,7 +408,7 @@ fun TripMapScreen(
             if (point != null) {
                 mapView.controller.animateTo(
                     point,
-                    maxOf(mapZoom.toDouble(), 15.0),
+                    mapView.zoomLevelDouble,
                     600L,
                 )
             }
@@ -436,27 +441,6 @@ fun TripMapScreen(
         )
     }
 
-    val pinOverlay = remember(stops, activeStopId, polaroidOverlay) {
-        PinInteractionOverlay(
-            markers = markers,
-            stops = stops,
-            selectedStopId = activeStopId,
-            allowCreate = true,
-            onTap = { id ->
-                viewModel.selectStop(id)
-            },
-            onEmptyTap = { viewModel.selectStop(null) },
-            onCreateStop = { latitude, longitude ->
-                viewModel.onMapLongPress(latitude, longitude)
-            },
-            onMove = { id, latitude, longitude ->
-                viewModel.moveStop(id, latitude, longitude)
-            },
-            // Halten auf einem Polaroid löscht kein Foto und setzt keinen Pin.
-            ignoreLongPress = { x, y -> polaroidOverlay.isPhotoAt(x, y) },
-        )
-    }
-
     // Die Linie fährt die Pins in der Reihenfolge ihrer Fotos ab. Ohne Foto
     // bleibt die bisherige Zeit des Pins, danach die Einfügereihenfolge.
     val orderedRouteStops = remember(stops, photos, allEntries) {
@@ -470,16 +454,73 @@ fun TripMapScreen(
         stops.sortedWith(compareBy<Stop> { timeOf(it) }.thenBy { it.sortIndex })
     }
 
+    // Jeder Abschnitt mit allen selbst gesetzten Zwischenpunkten in Fahrtrichtung.
+    val routeSegments = remember(orderedRouteStops, waypoints) {
+        buildList<Pair<String, List<GeoPoint>>> {
+            for (index in 1 until orderedRouteStops.size) {
+                val from = orderedRouteStops[index - 1]
+                val to = orderedRouteStops[index]
+                val extra = waypoints.filter { it.afterStopId == to.id }
+                    .sortedBy { it.sortIndex }
+                add(
+                    to.id to buildList {
+                        add(GeoPoint(from.latitude, from.longitude))
+                        extra.forEach { add(GeoPoint(it.latitude, it.longitude)) }
+                        add(GeoPoint(to.latitude, to.longitude))
+                    },
+                )
+            }
+        }
+    }
+
+    // Dieselben Zwischenpunkte ein mal als GeoPoint – für Linie und Griff-Overlay.
+    val waypointPointsByStop = remember(waypoints) {
+        waypoints.groupBy({ it.afterStopId.orEmpty() }) { waypoint ->
+            GeoPoint(waypoint.latitude, waypoint.longitude)
+        }
+    }
+
+    var onlinePoints by remember {
+        mutableStateOf<Map<String, List<GeoPoint>>>(emptyMap())
+    }
+    LaunchedEffect(
+        routeSegments, onlineRouting, trip?.defaultTransportMode, trip?.routeMode,
+    ) {
+        if (!onlineRouting || trip?.routeMode == RouteMode.DIRECT) {
+            onlinePoints = emptyMap()
+            return@LaunchedEffect
+        }
+        val fresh = mutableMapOf<String, List<GeoPoint>>()
+        routeSegments.forEach { (stopId, points) ->
+            val stop = orderedRouteStops.firstOrNull { it.id == stopId } ?: return@forEach
+            val mode = stop.transportMode ?: trip?.defaultTransportMode ?: TransportMode.CAR
+            if (mode == TransportMode.CAR || mode == TransportMode.CAMPER) {
+                routingService.route(points)?.let { fresh[stopId] = it }
+            }
+        }
+        onlinePoints = fresh
+    }
+
+    // Zum Antippen zählt die gezeichnete Linie, nicht die gerade Verbindung.
+    val routeEditSegments = remember(routeSegments, onlinePoints) {
+        routeSegments.map { (stopId, points) ->
+            stopId to (onlinePoints[stopId] ?: points)
+        }
+    }
+
     // Nur neu bauen, wenn sich Pins oder Verkehrsmittel ändern – nicht bei
     // jeder Kartenbewegung. So bleiben die Striche der Reiselinie stabil.
     val routeLines = remember(
         orderedRouteStops, trip?.defaultTransportMode, trip?.routeMode,
+        onlinePoints, waypointPointsByStop,
     ) {
         RouteStyling.build(
             mapView = mapView,
             stops = orderedRouteStops,
             defaultMode = trip?.defaultTransportMode ?: TransportMode.CAR,
             routeMode = trip?.routeMode ?: RouteMode.AUTO,
+            overridePoints = onlinePoints,
+            waypoints = waypointPointsByStop,
             // Tippen auf die Linie öffnet die Verkehrsmittelwahl,
             // keine Sprechblase (InfoWindow ist in RouteStyling null).
             onLineClick = { clicked ->
@@ -490,6 +531,48 @@ fun TripMapScreen(
                     )
                 }
                 segmentModeStopId = nearest?.id
+            },
+        )
+    }
+
+    // Griffe auf der Linie: ziehen verschiebt, langes Halten setzt einen neuen Punkt.
+    val routeEditOverlay = remember(mapView, waypoints, routeEditSegments) {
+        RouteEditOverlay(
+            mapView = mapView,
+            waypoints = waypoints,
+            segments = routeEditSegments,
+            onMove = { id, latitude, longitude ->
+                waypoints.firstOrNull { it.id == id }?.let { point ->
+                    viewModel.moveWaypoint(point, latitude, longitude)
+                }
+            },
+            onCreate = { afterStopId, latitude, longitude ->
+                viewModel.addWaypoint(afterStopId, latitude, longitude)
+            },
+            onTapWaypoint = { waypointToDelete = it },
+        )
+    }
+
+    val pinOverlay = remember(stops, activeStopId, polaroidOverlay, routeEditOverlay) {
+        PinInteractionOverlay(
+            markers = markers,
+            stops = stops,
+            selectedStopId = activeStopId,
+            allowCreate = true,
+            onTap = { id ->
+                viewModel.selectStop(id)
+                fullscreenKey = "stop-$id"
+            },
+            onEmptyTap = { viewModel.selectStop(null) },
+            onCreateStop = { latitude, longitude ->
+                viewModel.onMapLongPress(latitude, longitude)
+            },
+            onMove = { id, latitude, longitude ->
+                viewModel.moveStop(id, latitude, longitude)
+            },
+            // Halten auf Foto oder Linie erzeugt weder Pin noch Foto-Löschdialog.
+            ignoreLongPress = { x, y ->
+                polaroidOverlay.isPhotoAt(x, y) || routeEditOverlay.isRouteAt(x, y)
             },
         )
     }
@@ -541,6 +624,7 @@ fun TripMapScreen(
             TimelineKind.STOP -> {
                 val stop = stops.firstOrNull { it.id == item.stopId }
                 if (stop != null) {
+                    syncLockUntil = System.currentTimeMillis() + 700L
                     focusStop(mapView, stop.latitude, stop.longitude)
                     fullscreenKey = "stop-${stop.id}"
                     viewModel.selectStop(stop.id)
@@ -817,7 +901,10 @@ fun TripMapScreen(
                             markers[stop.id] = marker
                             if (!clustered) view.overlays.add(marker)
                         }
-                        if (!clustered) view.overlays.add(pinOverlay)
+                        if (!clustered) {
+                            view.overlays.add(pinOverlay)
+                            view.overlays.add(routeEditOverlay)
+                        }
                         view.invalidate()
                     },
                 )
@@ -953,6 +1040,10 @@ fun TripMapScreen(
                     mapZoom = mapZoom,
                     externalKey = focusKey
                         ?: timeline.getOrNull(nearestIndex ?: -1)?.id,
+                    onPinClick = { stopId ->
+                        viewModel.selectStop(stopId)
+                        fullscreenKey = "stop-$stopId"
+                    },
                     highlightPhotoId = highlightedPhotoId,
                     // Wischen in der Zeitleiste holt das Element auf die Karte.
                     // Die Umkehrung (Karte -> Zeitleiste) läuft über externalKey.
@@ -962,10 +1053,11 @@ fun TripMapScreen(
                             val item = timeline.firstOrNull { it.id == key }
                             val point = item?.let { geoFor(it) }
                             if (point != null) {
+                                syncLockUntil = System.currentTimeMillis() + 700L
                                 mapView.controller.animateTo(
                                     point,
-                                    maxOf(mapView.zoomLevelDouble, 15.0),
-                                    450L,
+                                    mapView.zoomLevelDouble,
+                                    350L,
                                 )
                             }
                         }
@@ -1106,6 +1198,23 @@ fun TripMapScreen(
         )
     }
 
+    waypointToDelete?.let { id ->
+        AlertDialog(
+            onDismissRequest = { waypointToDelete = null },
+            title = { Text("Routenpunkt") },
+            text = { Text("Diesen selbst gesetzten Punkt von der Linie entfernen?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteWaypoint(id)
+                    waypointToDelete = null
+                }) { Text("Entfernen") }
+            },
+            dismissButton = {
+                TextButton(onClick = { waypointToDelete = null }) { Text("Abbrechen") }
+            },
+        )
+    }
+
     photoToDelete?.let { id ->
         AlertDialog(
             onDismissRequest = { photoToDelete = null },
@@ -1155,8 +1264,12 @@ fun TripMapScreen(
 }
 
 private fun focusStop(mapView: MapView, latitude: Double, longitude: Double) {
-    // Etwas weiter rauszoomen und weich bewegen, damit man die Umgebung sieht.
-    mapView.controller.animateTo(GeoPoint(latitude, longitude), 13.0, 600L)
+    // Kein Zoomsprung: die Karte behält ihren Maßstab und bewegt sich nur weich.
+    mapView.controller.animateTo(
+        GeoPoint(latitude, longitude),
+        mapView.zoomLevelDouble,
+        450L,
+    )
 }
 
 /** Kleinster Zoom, bei dem die Weltkartenhöhe den Kartenbildschirm füllt. */

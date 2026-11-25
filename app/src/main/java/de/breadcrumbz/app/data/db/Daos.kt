@@ -8,6 +8,7 @@ import androidx.room.Update
 import de.breadcrumbz.app.data.model.EntryEntity
 import de.breadcrumbz.app.data.model.PhotoEntity
 import de.breadcrumbz.app.data.model.PlaceNameEntity
+import de.breadcrumbz.app.data.model.RouteWaypointEntity
 import de.breadcrumbz.app.data.model.StopEntity
 import de.breadcrumbz.app.data.model.TripEntity
 import kotlinx.coroutines.flow.Flow
@@ -46,6 +47,24 @@ interface StopDao {
     suspend fun deleteById(id: String)
 
     @Query("SELECT COALESCE(MAX(sortIndex), -1) + 1 FROM stops WHERE tripId = :tripId")
+    suspend fun nextSortIndex(tripId: String): Int
+}
+
+@Dao
+interface WaypointDao {
+    @Query("SELECT * FROM route_waypoints WHERE tripId = :tripId ORDER BY sortIndex ASC")
+    fun observeForTrip(tripId: String): Flow<List<RouteWaypointEntity>>
+
+    @Query("SELECT * FROM route_waypoints ORDER BY tripId, sortIndex ASC")
+    fun observeAll(): Flow<List<RouteWaypointEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(waypoint: RouteWaypointEntity)
+
+    @Query("DELETE FROM route_waypoints WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("SELECT COALESCE(MAX(sortIndex), -1) + 1 FROM route_waypoints WHERE tripId = :tripId")
     suspend fun nextSortIndex(tripId: String): Int
 }
 

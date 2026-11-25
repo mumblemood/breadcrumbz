@@ -2,6 +2,7 @@ package de.breadcrumbz.app.data.repository
 
 import de.breadcrumbz.app.data.db.EntryDao
 import de.breadcrumbz.app.data.db.PhotoDao
+import de.breadcrumbz.app.data.db.WaypointDao
 import de.breadcrumbz.app.data.db.StopDao
 import de.breadcrumbz.app.data.db.TripDao
 import de.breadcrumbz.app.data.model.toDomain
@@ -11,6 +12,7 @@ import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.OverlayMode
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.RouteMode
+import de.breadcrumbz.app.domain.model.RouteWaypoint
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.StopSource
@@ -26,6 +28,7 @@ class RoomBreadcrumbzRepository(
     private val stopDao: StopDao,
     private val entryDao: EntryDao,
     private val photoDao: PhotoDao,
+    private val waypointDao: WaypointDao,
     private val photoStore: InternalPhotoStore,
 ) : BreadcrumbzRepository {
 
@@ -113,6 +116,33 @@ class RoomBreadcrumbzRepository(
     }
 
     override suspend fun deleteStop(id: String) = stopDao.deleteById(id)
+
+    override fun observeWaypoints(tripId: String): Flow<List<RouteWaypoint>> =
+        waypointDao.observeForTrip(tripId).map { rows -> rows.map { it.toDomain() } }
+
+    override suspend fun addWaypoint(
+        tripId: String,
+        afterStopId: String?,
+        latitude: Double,
+        longitude: Double,
+    ): RouteWaypoint {
+        val waypoint = RouteWaypoint(
+            id = UUID.randomUUID().toString(),
+            tripId = tripId,
+            afterStopId = afterStopId,
+            latitude = latitude,
+            longitude = longitude,
+            sortIndex = waypointDao.nextSortIndex(tripId),
+            createdAt = System.currentTimeMillis(),
+        )
+        waypointDao.upsert(waypoint.toEntity())
+        return waypoint
+    }
+
+    override suspend fun updateWaypoint(waypoint: RouteWaypoint) =
+        waypointDao.upsert(waypoint.toEntity())
+
+    override suspend fun deleteWaypoint(id: String) = waypointDao.deleteById(id)
 
     override fun observeEntries(stopId: String): Flow<List<Entry>> =
         entryDao.observeForStop(stopId).map { rows -> rows.map { it.toDomain() } }

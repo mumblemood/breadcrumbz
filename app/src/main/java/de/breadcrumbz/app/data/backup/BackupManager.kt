@@ -7,9 +7,11 @@ import de.breadcrumbz.app.data.db.PhotoDao
 import de.breadcrumbz.app.data.db.PlaceNameDao
 import de.breadcrumbz.app.data.db.StopDao
 import de.breadcrumbz.app.data.db.TripDao
+import de.breadcrumbz.app.data.db.WaypointDao
 import de.breadcrumbz.app.data.model.EntryEntity
 import de.breadcrumbz.app.data.model.PhotoEntity
 import de.breadcrumbz.app.data.model.PlaceNameEntity
+import de.breadcrumbz.app.data.model.RouteWaypointEntity
 import de.breadcrumbz.app.data.model.StopEntity
 import de.breadcrumbz.app.data.model.TripEntity
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
@@ -36,6 +38,7 @@ class BackupManager(
     private val entryDao: EntryDao,
     private val photoDao: PhotoDao,
     private val placeNameDao: PlaceNameDao,
+    private val waypointDao: WaypointDao,
     private val photoStore: InternalPhotoStore,
     private val appVersion: String,
 ) {
@@ -45,6 +48,7 @@ class BackupManager(
         val entries = entryDao.observeAll().first()
         val photos = photoDao.observeAll().first()
         val places = placeNameDao.observeAll().first()
+        val waypoints = waypointDao.observeAll().first()
 
         val data = JSONObject().apply {
             put("format", "breadcrumbz-backup")
@@ -54,6 +58,7 @@ class BackupManager(
             put("entries", JSONArray(entries.map { it.toJson() }))
             put("photos", JSONArray(photos.map { it.toJson() }))
             put("placeNames", JSONArray(places.map { it.toJson() }))
+            put("waypoints", JSONArray(waypoints.map { it.toJson() }))
         }
         val manifest = JSONObject().apply {
             put("format", "breadcrumbz-backup")
@@ -64,6 +69,7 @@ class BackupManager(
             put("stops", stops.size)
             put("entries", entries.size)
             put("photos", photos.size)
+            put("waypoints", waypoints.size)
         }
 
         var writtenImages = 0
@@ -89,7 +95,8 @@ class BackupManager(
             }
         }
         "Backup gespeichert: ${trips.size} Reisen, ${stops.size} Pins, " +
-            "${entries.size} Einträge, $writtenImages Bilder."
+            "${entries.size} Einträge, $writtenImages Bilder, " +
+            "${waypoints.size} Routenpunkte."
     }
 
     suspend fun importFrom(uri: Uri): String = withContext(Dispatchers.IO) {
@@ -133,6 +140,7 @@ class BackupManager(
         var entries = 0
         var photos = 0
         var places = 0
+        var waypoints = 0
         root.optJSONArray("trips").forEachRow { obj ->
             tripDao.upsert(obj.toTrip()); trips++
         }
@@ -151,8 +159,12 @@ class BackupManager(
         root.optJSONArray("placeNames").forEachRow { obj ->
             placeNameDao.upsert(obj.toPlace()); places++
         }
+        root.optJSONArray("waypoints").forEachRow { obj ->
+            waypointDao.upsert(obj.toWaypoint()); waypoints++
+        }
         "Import fertig: $trips Reisen, $stops Pins, $entries Einträge, " +
-            "$photos Fotos, $places Ortsnamen. Alter Stand liegt im Snapshot."
+            "$photos Fotos, $waypoints Routenpunkte, $places Ortsnamen. " +
+            "Alter Stand liegt im Snapshot."
     }
 
     /** Kopiert die Datenbank vor einem Import – nichts wird endgültig überschrieben. */
@@ -334,6 +346,26 @@ class BackupManager(
     private fun JSONObject.toPlace() = PlaceNameEntity(
         key = optString("key"),
         name = optString("name"),
+        createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
+    )
+
+    private fun RouteWaypointEntity.toJson() = JSONObject().apply {
+        put("id", id)
+        put("tripId", tripId)
+        put("afterStopId", afterStopId ?: JSONObject.NULL)
+        put("latitude", latitude)
+        put("longitude", longitude)
+        put("sortIndex", sortIndex)
+        put("createdAt", createdAt)
+    }
+
+    private fun JSONObject.toWaypoint() = RouteWaypointEntity(
+        id = optString("id").ifBlank { UUID.randomUUID().toString() },
+        tripId = optString("tripId"),
+        afterStopId = if (isNull("afterStopId")) null else optString("afterStopId"),
+        latitude = doubleOrNull("latitude") ?: 0.0,
+        longitude = doubleOrNull("longitude") ?: 0.0,
+        sortIndex = optInt("sortIndex", 0),
         createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
     )
 }
