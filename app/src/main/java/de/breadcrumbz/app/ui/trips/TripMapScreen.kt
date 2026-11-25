@@ -104,10 +104,13 @@ import de.breadcrumbz.app.domain.util.tripTimeRange
 import de.breadcrumbz.app.state.TripMapViewModel
 import de.breadcrumbz.app.ui.map.AdventureTimeline
 import de.breadcrumbz.app.ui.map.PinInteractionOverlay
+import de.breadcrumbz.app.ui.map.PlaneOverlay
 import de.breadcrumbz.app.ui.map.PolaroidOverlay
 import de.breadcrumbz.app.ui.map.RouteEditOverlay
 import de.breadcrumbz.app.ui.map.RouteStyling
 import de.breadcrumbz.app.ui.theme.Ink
+import androidx.compose.ui.draw.shadow
+import de.breadcrumbz.app.ui.theme.Parchment
 import de.breadcrumbz.app.ui.theme.PaperAlertDialog
 import de.breadcrumbz.app.ui.theme.PaperCard
 import de.breadcrumbz.app.ui.theme.PaperIconButton
@@ -141,7 +144,7 @@ import kotlin.math.hypot
 import kotlin.math.log2
 import kotlin.math.roundToInt
 
-private fun standardTiles() = XYTileSource(
+internal fun standardTiles() = XYTileSource(
     "OSM-Standard",
     0,
     19,
@@ -174,7 +177,7 @@ private fun contrastTiles() = XYTileSource(
  * zum Papierton #F4E9D2, Schwarz bleibt Schwarz. Die Kacheln selbst bleiben
  * unverändert, es ist nur ein Farbfilter beim Zeichnen.
  */
-private fun paperTileFilter() = ColorMatrixColorFilter(
+internal fun paperTileFilter() = ColorMatrixColorFilter(
     ColorMatrix(
         floatArrayOf(
             0.534f, 0.339f, 0.083f, 0f, 0f,
@@ -257,25 +260,31 @@ private sealed interface SegmentDialog {
     data class Modes(override val segment: RouteSegment) : SegmentDialog
 }
 
-/** Schieberegler zwischen Karte und Zeitleiste: zeigt die Reiseposition. */
+/**
+ * Schieberegler zwischen Karte und Zeitleiste: ein Pergamentband mit der
+ * gestrichelten Reisespur. Der Griff zeigt das Standard-Verkehrsmittel der
+ * Reise; Ziehen bewegt Karte und zl mit.
+ */
 @Composable
 private fun RouteScrollbar(
     fraction: Float,
+    mode: TransportMode,
     onFraction: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
     var width by remember { mutableStateOf(0f) }
-    val thumbPx = with(density) { 22.dp.toPx() }
-    val padPx = with(density) { 8.dp.toPx() }
+    val thumbPx = with(density) { 36.dp.toPx() }
+    val padPx = with(density) { 12.dp.toPx() }
     fun fractionAt(x: Float): Float {
         val usable = width - thumbPx - padPx * 2f
-        return if (usable > 0f) ((x - padPx) / usable).coerceIn(0f, 1f) else 0f
+        return if (usable > 0f) ((x - padPx - thumbPx / 2f) / usable).coerceIn(0f, 1f) else 0f
     }
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(20.dp)
+            .height(44.dp)
+            .padding(horizontal = 6.dp, vertical = 4.dp)
             .onGloballyPositioned { width = it.size.width.toFloat() }
             .pointerInput(Unit) {
                 detectHorizontalDragGestures { change, _ ->
@@ -286,40 +295,71 @@ private fun RouteScrollbar(
                 detectTapGestures { offset -> onFraction(fractionAt(offset.x)) }
             },
     ) {
-        // Gestrichelte Spur wie ein Weg auf der Karte.
+        val usable = (width - thumbPx - padPx * 2f).coerceAtLeast(1f)
+        // Pergamentband mit Tintenrand, darauf die Spur: zurückgelegt in
+        // Tinte, noch vor einem blass. Start als rotes Siegel, Ziel als Kreuz.
         Canvas(
             modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(horizontal = 8.dp)
                 .fillMaxWidth()
-                .height(2.dp),
+                .height(24.dp)
+                .align(Alignment.Center),
         ) {
+            val radius = size.height / 2f
+            drawRoundRect(
+                color = Parchment,
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
+            )
+            drawRoundRect(
+                color = Ink,
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()),
+            )
+            val y = size.height / 2f
+            val startX = padPx + thumbPx / 2f - 6.dp.toPx()
+            val endX = size.width - padPx - thumbPx / 2f + 6.dp.toPx()
+            val thumbX = padPx + thumbPx / 2f - 6.dp.toPx() + fraction * usable
+            val dash = PathEffect.dashPathEffect(floatArrayOf(7.dp.toPx(), 5.dp.toPx()))
             drawLine(
-                color = Sepia,
-                start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f),
-                end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f),
-                strokeWidth = size.height,
-                pathEffect = PathEffect.dashPathEffect(
-                    floatArrayOf(8.dp.toPx(), 5.dp.toPx()),
-                ),
+                color = Sepia.copy(alpha = 0.45f),
+                start = androidx.compose.ui.geometry.Offset(thumbX, y),
+                end = androidx.compose.ui.geometry.Offset(endX, y),
+                strokeWidth = 2.dp.toPx(),
+                pathEffect = dash,
+            )
+            drawLine(
+                color = Ink,
+                start = androidx.compose.ui.geometry.Offset(startX, y),
+                end = androidx.compose.ui.geometry.Offset(thumbX, y),
+                strokeWidth = 2.5.dp.toPx(),
+                pathEffect = dash,
+            )
+            drawCircle(SealRed, radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(startX, y))
+            val cross = 4.dp.toPx()
+            drawLine(
+                SealRed,
+                androidx.compose.ui.geometry.Offset(endX - cross, y - cross),
+                androidx.compose.ui.geometry.Offset(endX + cross, y + cross),
+                strokeWidth = 2.5.dp.toPx(),
+            )
+            drawLine(
+                SealRed,
+                androidx.compose.ui.geometry.Offset(endX - cross, y + cross),
+                androidx.compose.ui.geometry.Offset(endX + cross, y - cross),
+                strokeWidth = 2.5.dp.toPx(),
             )
         }
-        val usable = (width - thumbPx - padPx * 2f).coerceAtLeast(1f)
-        // Griff: Papierknopf mit Tintenrand und einem Tintenpunkt.
+        // Griff: Papierknopf mit dem Verkehrsmittel der Reise.
         Box(
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .offset(x = with(density) { (padPx + fraction * usable).toDp() })
-                .size(22.dp)
+                .offset(x = with(density) { (padPx - 6.dp.toPx() + fraction * usable).toDp() })
+                .size(36.dp)
+                .shadow(3.dp, CircleShape)
                 .background(PaperCard, CircleShape)
                 .border(2.dp, Ink, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .background(Ink, CircleShape),
-            )
+            TransportIcon(mode = mode, size = 22.dp)
         }
     }
 }
@@ -888,11 +928,14 @@ fun TripMapScreen(
 
     // Nur neu bauen, wenn sich Pins oder Verkehrsmittel ändern – nicht bei
     // jeder Kartenbewegung. So bleiben die Striche der Reiselinie stabil.
+    val planePaths = remember { mutableListOf<List<GeoPoint>>() }
     val routeLines = remember(
         orderedRouteStops, segmentModes, trip?.defaultTransportMode, trip?.routeMode,
         effectiveOnlinePoints, waypointPointsByStop, routeEditSegments,
     ) {
+        planePaths.clear()
         RouteStyling.build(
+            planePaths = planePaths,
             mapView = mapView,
             stops = orderedRouteStops,
             defaultMode = trip?.defaultTransportMode ?: TransportMode.CAR,
@@ -912,6 +955,13 @@ fun TripMapScreen(
                 val nearest = routeSegments.firstOrNull { it.key == nearestKey }
                 segmentDialog = nearest?.let { SegmentDialog.Detail(it) }
             },
+        )
+    }
+
+    val planeOverlay = remember(routeLines) {
+        PlaneOverlay(
+            paths = planePaths.toList(),
+            icon = ContextCompat.getDrawable(context, R.drawable.ic_mode_plane)?.mutate(),
         )
     }
 
@@ -1052,6 +1102,39 @@ fun TripMapScreen(
         }
     }
 
+    // Beim Wischen durch die zl zoomt die Karte auf den Bereich des Tages,
+    // sobald ein neuer Tag in die Mitte kommt.
+    var lastZoomDay by remember { mutableStateOf<String?>(null) }
+    var dayZoomUntil by remember { mutableStateOf(0L) }
+    val dayFormat = remember { SimpleDateFormat("yyyyMMdd", Locale.GERMANY) }
+    fun zoomToDayOf(key: String?) {
+        val item = timeline.firstOrNull { it.id == key } ?: return
+        val day = dayFormat.format(Date(item.time))
+        if (day == lastZoomDay) return
+        lastZoomDay = day
+        val dayPoints = timeline
+            .filter { dayFormat.format(Date(it.time)) == day }
+            .mapNotNull { geoFor(it) }
+        if (dayPoints.isEmpty()) return
+        val now = System.currentTimeMillis()
+        dayZoomUntil = now + 900L
+        syncLockUntil = now + 1_100L
+        rawMapCenter = null
+        if (dayPoints.size == 1 ||
+            dayPoints.all { it.distanceToAsDouble(dayPoints.first()) < 150.0 }
+        ) {
+            mapView.controller.animateTo(
+                dayPoints.first(),
+                maxOf(mapView.zoomLevelDouble, 13.0),
+                700L,
+            )
+        } else {
+            val box = BoundingBox.fromGeoPoints(dayPoints)
+            val padded = box.increaseByScale(1.35f)
+            mapView.zoomToBoundingBox(padded, true, 90, 16.0, 700L)
+        }
+    }
+
     /** Die Karte folgt einer Position, ohne das Echo als Nutzerwisch zu melden. */
     fun moveMapTo(point: GeoPoint, duration: Long = 140L) {
         syncLockUntil = System.currentTimeMillis() + duration + 200L
@@ -1080,10 +1163,6 @@ fun TripMapScreen(
     val effectiveRange = remember(stops, allEntries, photos) {
         tripTimeRange(stops, allEntries, photos)
     }
-    val dateRange = listOfNotNull(
-        trip?.startDate?.let { formatDate(it) } ?: effectiveRange.first?.let { formatDate(it) },
-        trip?.endDate?.let { formatDate(it) } ?: effectiveRange.second?.let { formatDate(it) },
-    ).joinToString(" - ")
 
     fun commitTitle() {
         if (titleDraft.isNotBlank()) {
@@ -1112,11 +1191,8 @@ fun TripMapScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     } else {
-                        val titleText = if (dateRange.isBlank()) {
-                            trip?.title ?: "Reise"
-                        } else {
-                            "${trip?.title ?: "Reise"} · $dateRange"
-                        }
+                        // Nur der Reisetitel – das Datum steht in der zl.
+                        val titleText = trip?.title ?: "Reise"
                         Text(
                             text = titleText,
                             maxLines = 1,
@@ -1274,6 +1350,8 @@ fun TripMapScreen(
                         // Die Route liegt unter den Bildern: Fotos sind immer
                         // sichtbar und bekommen den Tap zuerst.
                         routeLines.forEach { view.overlays.add(it) }
+                        // Kleines Flugzeug fliegt auf Flug-Abschnitten mit.
+                        view.overlays.add(planeOverlay)
 
                         // Polaroids bleiben auch in der Gesamtansicht sichtbar.
                         // Sie werden nur kleiner, niemals durch Clustering ersetzt.
@@ -1452,6 +1530,7 @@ fun TripMapScreen(
             ) {
                 RouteScrollbar(
                     fraction = scrollSync.fraction,
+                    mode = trip?.defaultTransportMode ?: TransportMode.CAR,
                     onFraction = { fraction ->
                         syncSeq += 1
                         scrollSync = ScrollSync(fraction, "bar", syncSeq)
@@ -1500,6 +1579,8 @@ fun TripMapScreen(
                         if (!fromUser) return@AdventureTimeline
                         val now = System.currentTimeMillis()
                         if (now - lastTimelineMoveAt < 70L) return@AdventureTimeline
+                        // Während des Tages-Zooms nicht dazwischenfunken.
+                        if (now < dayZoomUntil) return@AdventureTimeline
                         lastTimelineMoveAt = now
                         syncSeq += 1
                         scrollSync = ScrollSync(fraction, "timeline", syncSeq)
@@ -1508,7 +1589,10 @@ fun TripMapScreen(
                         pointAtFraction(fraction)?.let { moveMapTo(it) }
                     },
                     // Das mittlere Element dient nur noch der Markierung.
-                    onUserCenterKey = { key -> centerKey = key },
+                    onUserCenterKey = { key ->
+                        centerKey = key
+                        zoomToDayOf(key)
+                    },
                     onDropElement = { source, entryId ->
                         viewModel.assignElementToEntry(source, entryId)
                     },

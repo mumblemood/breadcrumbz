@@ -1,5 +1,7 @@
 package de.breadcrumbz.app.ui.map
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -81,6 +83,10 @@ import kotlinx.coroutines.launch
 import kotlin.math.sin
 
 // Schrift wie überall in der App: Titel in Handschrift (Caveat), Text in Nunito.
+// Die Linie schwingt deutlich, aber ruhig: 12 dp hoch und runter.
+private const val WAVE_DP = 12f
+private const val WAVE_FREQUENCY = 0.7f
+
 private val TimelineTitle = TextStyle(
     fontFamily = HandFont,
     fontWeight = FontWeight.Bold,
@@ -282,14 +288,15 @@ fun AdventureTimeline(
         with(density) { 320.dp.toPx() }
     }
     // Feste Ebenen von oben nach unten: km-Leiste, Tagesrahmen (ab 46 dp),
-    // Linie mit Pins (68–80 dp), Eintragsrahmen (ab 90 dp), Karten (ab 98 dp).
+    // geschwungene Linie mit Pins (64–88 dp), Eintragsrahmen (ab 96 dp),
+    // Karten (ab 104 dp).
     // Alle Karten beginnen auf derselben Höhe – sie folgen nicht mehr der
     // Welle der Linie, sonst ragen sie unten aus ihrem Rahmen.
-    val cardTopDp = 98.dp
-    val entryTopPx = with(density) { 90.dp.toPx() }
+    val cardTopDp = 104.dp
+    val entryTopPx = with(density) { 96.dp.toPx() }
     // Unter der Karte: 4 dp Kartenpolsterung, 8 dp bis zum Eintragsrahmen,
     // 10 dp bis zum Tagesrahmen, 10 dp bis zum unteren Rand.
-    val photoHeightPx = (availableHeightPx - with(density) { (98 + 8 + 8 + 10 + 10).dp.toPx() })
+    val photoHeightPx = (availableHeightPx - with(density) { (104 + 8 + 8 + 10 + 10).dp.toPx() })
         .coerceAtLeast(with(density) { 76.dp.toPx() })
     val photoCaptionHeightPx = with(density) { 20.dp.toPx() }
 
@@ -324,8 +331,9 @@ fun AdventureTimeline(
         } else {
             4f / 3f
         }
-        return (heightPx * ratio.coerceIn(0.75f, 1.5f) * zoomFactor)
-            .coerceIn(with(density) { 64.dp.toPx() }, with(density) { 190.dp.toPx() })
+        // Fast das echte Seitenverhältnis: Hochformat bis 9:16, Querformat bis 16:9.
+        return (heightPx * ratio.coerceIn(0.56f, 1.78f) * zoomFactor)
+            .coerceIn(with(density) { 56.dp.toPx() }, with(density) { 250.dp.toPx() })
     }
     // Beim Ziehen wird der Eintrag hervorgehoben, auf den man zusteuert.
     var dragTargetEntryId by remember { mutableStateOf<String?>(null) }
@@ -338,7 +346,7 @@ fun AdventureTimeline(
     var programmaticScrollUntil by remember { mutableStateOf(0L) }
     var lastUserCenterAt by remember { mutableStateOf(0L) }
     val startPx = with(density) { 34.dp.toPx() }
-    val baseY = with(density) { 74.dp.toPx() }
+    val baseY = with(density) { 76.dp.toPx() }
     // Groß genug, dass die Rahmen der Nachbarn sich nicht berühren, selbst
     // wenn beide 10 dp Innenabstand zum Kartenrand haben.
     val itemGapPx = with(density) { 30.dp.toPx() }
@@ -387,7 +395,7 @@ fun AdventureTimeline(
         val gapPx = itemGapPx
         val padPx = with(density) { 16.dp.toPx() }
         val iconPx = with(density) { 22.dp.toPx() }
-        val daySlotPx = with(density) { 54.dp.toPx() }
+        val daySlotPx = with(density) { 22.dp.toPx() }
         val dateFormat = SimpleDateFormat("dd.MM.yyyy", Locale.GERMANY)
 
         items.groupBy { dayKey(it.time) }.toSortedMap().forEach { (key, dayItems) ->
@@ -487,15 +495,16 @@ fun AdventureTimeline(
             }
         }
         var cursor = startPx
+        // Der erste Eintrag eines Tages rückt nah an das senkrechte Datum.
+        val dayGapPx = with(density) { 6.dp.toPx() }
         result.forEachIndexed { index, point ->
             result[index] = point.copy(x = cursor + point.slot / 2f)
-            cursor += point.slot + gapPx
+            cursor += point.slot + if (point.kind == 0) dayGapPx else gapPx
         }
         result
     }
 
-    val contentWidthPx = startPx + points.sumOf { it.slot.toDouble() }.toFloat() +
-        (points.size - 1).coerceAtLeast(0) * itemGapPx +
+    val contentWidthPx = (points.lastOrNull()?.let { it.x + it.slot / 2f } ?: startPx) +
         with(density) { 56.dp.toPx() }
     val contentWidth = with(density) { contentWidthPx.toDp() }
 
@@ -645,6 +654,41 @@ fun AdventureTimeline(
             val centerKey = centerPoint?.key
             val centerPhotoId = centerPoint?.photoId
             LaunchedEffect(centerKey) { onCenterKeyChange(centerKey) }
+            // Beim Wischen: ein leichtes Ticken bei jedem neuen Element in der Mitte.
+            LaunchedEffect(centerKey) {
+                if (centerKey != null && scrollState.isScrollInProgress &&
+                    System.currentTimeMillis() >= programmaticScrollUntil
+                ) {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                }
+            }
+            // Nach dem Loslassen rastet das nächste Element weich in der Mitte
+            // ein – mit kurzem Nachfedern und einem spürbaren Klick.
+            val snapping = scrollState.isScrollInProgress
+            var hadUserScroll by remember { mutableStateOf(false) }
+            LaunchedEffect(snapping) {
+                if (snapping) {
+                    if (System.currentTimeMillis() >= programmaticScrollUntil) hadUserScroll = true
+                    return@LaunchedEffect
+                }
+                if (!hadUserScroll) return@LaunchedEffect
+                hadUserScroll = false
+                if (photoDragActive || dragTargetEntryId != null) return@LaunchedEffect
+                val nearest = points.filter { it.kind != 0 }
+                    .minByOrNull { abs(it.x - (scrollState.value + viewportPx / 2f)) }
+                    ?: return@LaunchedEffect
+                val maxScroll = scrollState.maxValue
+                val target = (nearest.x - viewportPx / 2f).roundToInt().coerceIn(0, maxScroll)
+                if (abs(scrollState.value - target) < 3) return@LaunchedEffect
+                programmaticScrollUntil = System.currentTimeMillis() + 520L
+                scrollState.animateScrollTo(
+                    target,
+                    spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                )
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                // Karte bekommt den eingerasteten Punkt als Nutzerauswahl.
+                onUserCenterKey(nearest.key)
+            }
             // Während des Wischens folgt die Karte fortlaufend dem mittleren
             // Element – nicht erst beim Loslassen oder bei einer Auswahl.
             LaunchedEffect(centerKey) {
@@ -795,28 +839,65 @@ fun AdventureTimeline(
                     if (points.isEmpty()) return@Canvas
 
                     val yAt = { index: Int ->
-                        baseY + (sin(index * 0.85f) * with(density) { 6.dp.toPx() }).toFloat()
+                        baseY + (sin(index * WAVE_FREQUENCY) * with(density) { WAVE_DP.dp.toPx() })
                     }
                     // Identische Werte wie auf der Karte (RouteStyling).
                     val path = Path()
-                    if (hasAnreiseLine) {
-                        // Anreise-Abschnitt läuft von links in den ersten Punkt.
-                        path.moveTo(anreiseEndX, yAt(-1))
-                        val middle = (anreiseEndX + points.first().x) / 2
-                        path.quadraticBezierTo(middle, yAt(-1), points.first().x, yAt(0))
-                    } else {
-                        path.moveTo(points.first().x, yAt(0))
-                    }
+                    path.moveTo(points.first().x, yAt(0))
                     for (index in 1 until points.size) {
+                        // Weiche S-Kurve: waagerecht aus dem einen Punkt
+                        // heraus, waagerecht in den nächsten hinein.
                         val middle = (points[index - 1].x + points[index].x) / 2
-                        path.quadraticBezierTo(middle, yAt(index - 1), points[index].x, yAt(index))
+                        path.cubicTo(
+                            middle, yAt(index - 1),
+                            middle, yAt(index),
+                            points[index].x, yAt(index),
+                        )
                     }
-                    if (hasAbreiseLine) {
-                        // Abreise-Abschnitt läuft vom letzten Punkt nach rechts.
-                        val lastIndex = points.lastIndex
-                        val middle = (points.last().x + abreiseEndX) / 2
-                        path.quadraticBezierTo(
-                            middle, yAt(lastIndex), abreiseEndX, yAt(lastIndex + 1),
+                    // An- und Abreise: eigene, dezente Stücke links und rechts.
+                    val outerPaths = buildList {
+                        if (hasAnreiseLine) {
+                            val middle = (anreiseEndX + points.first().x) / 2
+                            add(
+                                Path().apply {
+                                    moveTo(anreiseEndX, yAt(-1))
+                                    cubicTo(middle, yAt(-1), middle, yAt(0), points.first().x, yAt(0))
+                                },
+                            )
+                        }
+                        if (hasAbreiseLine) {
+                            val lastIndex = points.lastIndex
+                            val middle = (points.last().x + abreiseEndX) / 2
+                            add(
+                                Path().apply {
+                                    moveTo(points.last().x, yAt(lastIndex))
+                                    cubicTo(
+                                        middle, yAt(lastIndex),
+                                        middle, yAt(lastIndex + 1),
+                                        abreiseEndX, yAt(lastIndex + 1),
+                                    )
+                                },
+                            )
+                        }
+                    }
+                    val subtleDash = PathEffect.dashPathEffect(
+                        floatArrayOf(
+                            with(density) { (RouteStyling.DASH_DP / 2f).dp.toPx() },
+                            with(density) { (RouteStyling.GAP_DP / 2f).dp.toPx() },
+                        ),
+                        0f,
+                    )
+                    outerPaths.forEach { outer ->
+                        drawPath(
+                            outer, Color(RouteStyling.SUBTLE_UNDER_COLOR),
+                            style = Stroke(width = RouteStyling.SUBTLE_UNDER_WIDTH),
+                        )
+                        drawPath(
+                            outer, Color(RouteStyling.SUBTLE_LINE_COLOR),
+                            style = Stroke(
+                                width = RouteStyling.SUBTLE_LINE_WIDTH,
+                                pathEffect = subtleDash,
+                            ),
                         )
                     }
                     // Weißer Unterzug, darüber die gestrichelte Spline-Linie –
@@ -838,17 +919,17 @@ fun AdventureTimeline(
                         style = Stroke(width = RouteStyling.LINE_WIDTH, pathEffect = dash),
                     )
                     // Kleiner, blasser Endpunkt für den An-/Abreise-Pin.
-                    val endRadius = with(density) { 5.dp.toPx() }
-                    val endStroke = with(density) { 1.5.dp.toPx() }
+                    val endRadius = with(density) { 4.dp.toPx() }
+                    val endStroke = with(density) { 1.dp.toPx() }
                     if (hasAnreiseLine) {
                         val end = Offset(anreiseEndX, yAt(-1))
-                        drawCircle(Color(0xFF9E3B2E).copy(alpha = 0.6f), endRadius, end)
-                        drawCircle(ink, endRadius, end, style = Stroke(width = endStroke))
+                        drawCircle(Color(0xFF9E3B2E).copy(alpha = 0.35f), endRadius, end)
+                        drawCircle(ink.copy(alpha = 0.5f), endRadius, end, style = Stroke(width = endStroke))
                     }
                     if (hasAbreiseLine) {
                         val end = Offset(abreiseEndX, yAt(points.lastIndex + 1))
-                        drawCircle(Color(0xFF9E3B2E).copy(alpha = 0.6f), endRadius, end)
-                        drawCircle(ink, endRadius, end, style = Stroke(width = endStroke))
+                        drawCircle(Color(0xFF9E3B2E).copy(alpha = 0.35f), endRadius, end)
+                        drawCircle(ink.copy(alpha = 0.5f), endRadius, end, style = Stroke(width = endStroke))
                     }
 
                     val centerIndex = points.indexOfFirst { it.key == centerKey }
@@ -910,7 +991,7 @@ fun AdventureTimeline(
                     // Dieselbe Welle wie die gezeichnete Linie (6 dp, nicht 6 px),
                     // damit Pins und Karten genau auf der Linie sitzen.
                     val lineY = with(density) {
-                        (baseY + sin(index * 0.85f) * 6.dp.toPx()).toDp()
+                        (baseY + sin(index * WAVE_FREQUENCY) * WAVE_DP.dp.toPx()).toDp()
                     }
                     val cardY = cardTopDp
                     val highlighted = point.key == centerKey

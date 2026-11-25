@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.breadcrumbz.app.R
 import de.breadcrumbz.app.data.photo.PhotoImporter
+import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.state.TripOverview
 import de.breadcrumbz.app.ui.theme.BodyFont
 import de.breadcrumbz.app.ui.theme.HandFont
@@ -67,8 +68,8 @@ private fun shortDate(value: Long): String =
 
 /**
  * Reiseliste: jede Reise als Postkarte aus der alten Karte.
- * Links das Titelbild als Polaroid, rechts die Skizze der Route mit allen
- * Pins, unten das Etikett mit Titel, Zeitraum, Ort und Gesamt-km.
+ * Links das Titelbild als Polaroid, rechts die echte Karte mit der Route
+ * und allen Pins, unten das Etikett mit Titel, Zeitraum, Ort und Gesamt-km.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -77,6 +78,7 @@ fun TripMapCard(
     coverPath: String?,
     onOpen: () -> Unit,
     onEdit: () -> Unit,
+    segmentModes: Map<String, TransportMode> = emptyMap(),
 ) {
     val shape = RoundedCornerShape(16.dp)
     val coverBitmap = remember(coverPath) {
@@ -99,16 +101,34 @@ fun TripMapCard(
                 .height(150.dp)
                 .background(Paper),
         ) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                drawMapBackground()
-                val left = if (coverBitmap != null) size.width * 0.44f else 28.dp.toPx()
-                drawRouteSketch(
-                    points = points,
-                    left = left,
-                    right = size.width - 28.dp.toPx(),
-                    top = 22.dp.toPx(),
-                    bottom = size.height - 22.dp.toPx(),
+            if (overview.routeStops.isNotEmpty()) {
+                // Echte alte Papierkarte mit der Route wie im Kartenbildschirm.
+                TripMiniMap(
+                    stops = overview.routeStops,
+                    segmentModes = segmentModes,
+                    defaultMode = overview.trip.defaultTransportMode,
+                    routeMode = overview.trip.routeMode,
+                    leaveRoomLeft = coverBitmap != null,
+                    modifier = Modifier.fillMaxSize(),
                 )
+                // Fängt die Gesten ab: Tippen öffnet, Halten bearbeitet die Reise.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .combinedClickable(onClick = onOpen, onLongClick = onEdit),
+                )
+            } else {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawMapBackground()
+                    val left = if (coverBitmap != null) size.width * 0.44f else 28.dp.toPx()
+                    drawRouteSketch(
+                        points = points,
+                        left = left,
+                        right = size.width - 28.dp.toPx(),
+                        top = 22.dp.toPx(),
+                        bottom = size.height - 22.dp.toPx(),
+                    )
+                }
             }
 
             // Kleine Kompassrose oben rechts.

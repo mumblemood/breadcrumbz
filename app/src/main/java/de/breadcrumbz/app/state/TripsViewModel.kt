@@ -32,6 +32,8 @@ data class TripOverview(
     val routePoints: List<Pair<Double, Double>> = emptyList(),
     /** Gleiche Luftlinien-Summe wie auf dem Kartenbildschirm. */
     val distanceKm: Double = 0.0,
+    /** Alle Pins in Reisereihenfolge (mit An-/Abreise) – für die echte Mini-Karte. */
+    val routeStops: List<Stop> = emptyList(),
 )
 
 class TripsViewModel(
@@ -58,8 +60,8 @@ class TripsViewModel(
 
             // An-/Abreise-Pins und ihre Inhalte zählen nicht zur Gesamtreise.
             val range = tripTimeRange(tripStops, tripEntries, tripPhotos)
-            val ordered = chronologicalStops(tripStops, tripEntries, tripPhotos)
-                .filterNot { it.isArrivalDeparture }
+            val chronological = chronologicalStops(tripStops, tripEntries, tripPhotos)
+            val ordered = chronological.filterNot { it.isArrivalDeparture }
             val meters = (1 until ordered.size).sumOf { index ->
                 haversineMeters(
                     ordered[index - 1].latitude, ordered[index - 1].longitude,
@@ -78,11 +80,15 @@ class TripsViewModel(
                 coverPhoto = tripPhotos.firstOrNull { it.id == trip.coverPhotoId },
                 routePoints = ordered.map { it.latitude to it.longitude },
                 distanceKm = meters / 1_000.0,
+                routeStops = chronological,
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun photoPath(fileName: String): String = photoStore.fileFor(fileName).absolutePath
+
+    /** Verkehrsmittel je Abschnitt einer Reise – für die Linie in der Vorschau. */
+    fun segmentModes(tripId: String) = repository.observeSegmentModes(tripId)
 
     /** Neue Reise direkt anlegen und sofort die Karte öffnen – ohne Dialog. */
     fun createTrip(onCreated: (String) -> Unit) {
