@@ -23,10 +23,14 @@ veröffentlicht.
   importiert. Datum und Ort liest die App aus dem Originalbild und übernimmt sie
   in die Reise. Auf der Karte erscheinen die Bilder als Polaroids. Fotos, die
   nahe beieinander liegen, werden zu einem Stapel zusammengefasst; ein Tippen
-  löst den Stapel auf, danach kannst du jedes Bild einzeln öffnen.
+  löst den Stapel auf, danach kannst du jedes Bild einzeln öffnen. Bilder lassen
+  sich zwischen Einträgen verschieben; der bisherige Eintrag bleibt erhalten.
+  Langes Halten auf der Karte löscht ein Foto nach kurzer Rückfrage und entfernt
+  es auch aus seinem Eintrag.
 - **Route festhalten:** Karte und Zeitleiste zeigen dieselbe gestrichelte Linie.
   Ein Tippen auf die Linie lässt dich das Verkehrsmittel für einen Abschnitt
   wählen. Für Auto und Campingbus wird die Strecke offline handgezeichnet.
+  Die Pins werden dabei chronologisch nach dem Datum ihrer Fotos abgefahren.
   Darunter liegt eine Anzeige der Luftlinie in Kilometern.
 - **Tagebuch schreiben:** Zu einem Pin oder direkt über das „+" in der Karte
   legst du Einträge mit Titel und Text an. Mehrere Einträge pro Tag sind möglich.
@@ -36,10 +40,14 @@ veröffentlicht.
   Uhrzeiten. Die Tage sind nummeriert, das Datum steht am Rand. Unten liegt eine
   Scrollbar zum Springen und Ziehen. Mit längerem Halten kannst du Fotos und
   Pins in einen Eintrag ziehen oder Einträge auf der Karte neu verorten.
+  Tippen auf ein Foto richtet Karte und Zeitleiste danach aus und markiert es
+  mit einem leichten Leuchten.
 - **Details ansehen:** Ein Tippen auf ein Foto, einen Pin oder einen Eintrag
   öffnet die Detailansicht. Dort kannst du Titel und Text bearbeiten, Bilder
   einzeln ansehen oder das Original im Android-Bildviewer öffnen. Geschlossen
-  wird mit einem Tippen daneben oder der Back-Taste.
+  wird mit einem Tippen daneben oder der Back-Taste. Die Eintragsansicht ist
+  wie ein aufgeschlagenes Buch aufgebaut: ein schmaler Streifen der linken Seite,
+  der Falz und die vollständige rechte Seite mit Text und Bildern.
 - **Sichern und wiederherstellen:** Über die Systemauswahl kannst du ein
   Backup als ZIP-Datei exportieren oder einspielen. Vor einem Import wird die
   bestehende Datenbank als Snapshot gesichert.
