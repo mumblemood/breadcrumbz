@@ -28,8 +28,9 @@ object RouteStyling {
     val UNDER_COLOR = 0xFFFFFFFF.toInt()
     const val LINE_WIDTH = 14f
     const val UNDER_WIDTH = 26f
-    const val DASH = 30f
-    const val GAP = 18f
+    // Längere Pause zwischen den Strichen, damit die Lücken deutlich sichtbar sind.
+    const val DASH = 26f
+    const val GAP = 22f
 
     fun build(
         mapView: MapView,
@@ -68,12 +69,22 @@ object RouteStyling {
                 val from = ordered[index - 1]
                 val to = ordered[index]
                 val mode = to.transportMode ?: defaultMode
-                val points = overridePoints[to.id] ?: routeVia(
+                val online = overridePoints[to.id]
+                val raw = online ?: routeVia(
                     from = GeoPoint(from.latitude, from.longitude),
                     to = GeoPoint(to.latitude, to.longitude),
                     via = waypoints[to.id].orEmpty(),
                     mode = mode,
                 )
+                // Online-Punkte sind sehr genau: nur Wendepunkte behalten,
+                // leicht nachzeichnen und als weichen Spline verbinden.
+                val points = if (online != null &&
+                    (mode == TransportMode.CAR || mode == TransportMode.CAMPER)
+                ) {
+                    sketchLine(raw)
+                } else {
+                    raw
+                }
                 add(underLine(mapView, points))
                 add(dashedLine(mapView, points) { _, _, point ->
                     onLineClick(point ?: GeoPoint(to.latitude, to.longitude))
@@ -139,6 +150,66 @@ object RouteStyling {
                 if (index == 1) addAll(segment) else addAll(segment.drop(1))
             }
         }
+    }
+
+    /**
+     * Aus den vielen Online-Punkten nur die Stellen behalten, an denen die
+     * Route wirklich abbiegt. Danach ein kleiner, gleichmäßiger Schwung – wie
+     * mit dem Stift nachgezogen – und alles als Spline geglättet. Start und
+     * Ziel bleiben exakt auf ihren Pins.
+     */
+    private fun sketchLine(source: List<GeoPoint>): List<GeoPoint> {
+        if (source.size < 3) return source
+        val kept = mutableListOf(source.first())
+        for (index in 1 until source.lastIndex) {
+            val point = source[index]
+            val distance = haversineMeters(
+                kept.last().latitude, kept.last().longitude,
+                point.latitude, point.longitude,
+            )
+            val turn = turnDegrees(source[index - 1], point, source[index + 1])
+            if (distance >= 120.0 || turn >= 22.0) kept.add(point)
+        }
+        kept.add(source.last())
+        if (kept.size < 3) return smooth(kept)
+
+        val seed = source.first().latitude * 13.0 + source.first().longitude * 7.0
+        val wobbled = kept.mapIndexed { index, point ->
+            if (index == 0 || index == kept.lastIndex) {
+                point
+            } else {
+                val t = index.toDouble() / kept.lastIndex
+                val envelope = Math.sin(t * Math.PI)
+                val lateral = Math.sin(index * 1.7 + seed) * 26.0 * envelope
+                val before = kept[index - 1]
+                val after = kept[index + 1]
+                val cosLat = Math.cos(Math.toRadians(point.latitude)).coerceAtLeast(0.01)
+                val dx = (after.longitude - before.longitude) * cosLat * 111_320.0
+                val dy = (after.latitude - before.latitude) * 111_320.0
+                val length = Math.hypot(dx, dy).coerceAtLeast(1.0)
+                val nx = -dy / length
+                val ny = dx / length
+                GeoPoint(
+                    point.latitude + ny * lateral / 111_320.0,
+                    point.longitude + nx * lateral / (111_320.0 * cosLat),
+                )
+            }
+        }
+        return smooth(wobbled)
+    }
+
+    /** Winkel zwischen zwei aufeinanderfolgenden Teilen der Route in Grad. */
+    private fun turnDegrees(a: GeoPoint, b: GeoPoint, c: GeoPoint): Double {
+        val cosLat = Math.cos(Math.toRadians(b.latitude)).coerceAtLeast(0.01)
+        val ax = (b.longitude - a.longitude) * cosLat
+        val ay = b.latitude - a.latitude
+        val bx = (c.longitude - b.longitude) * cosLat
+        val by = c.latitude - b.latitude
+        return Math.abs(
+            Math.toDegrees(
+                Math.atan2(ax * by - ay * bx, ax * bx + ay * by),
+            ),
+        )
     }
 
     /**

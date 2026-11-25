@@ -95,10 +95,11 @@ class PolaroidOverlay(
         if (shadow) return
         hitAreas.clear()
 
-        // Zoom 14 entspricht der bisherigen Größe. Beim Rauszoomen werden die
-        // Polaroids kleiner, beim Hineinzoomen etwas größer – oben und unten
-        // begrenzt, damit sie nie unlesbar oder überdimensional werden.
-        val zoomFactor = (mapView.zoomLevelDouble / 14.0).coerceIn(0.4, 1.4).toFloat()
+        // Zoom 14 entspricht der Normalgröße. Die Bilder wachsen nur etwa
+        // 30 % mit, nicht 1:1 mit der Karte – dadurch bleiben sie gut lesbar
+        // und verdecken auch bei starkem Hineinzoomen nicht die Umgebung.
+        val zoomFactor = (1.0 + (mapView.zoomLevelDouble - 14.0) * 0.075)
+            .coerceIn(0.8, 1.3).toFloat()
         val scale = 5f * zoomFactor
         val imageWidth = 88f * scale
         val padding = 5f * scale

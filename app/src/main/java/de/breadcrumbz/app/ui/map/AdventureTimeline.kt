@@ -438,7 +438,9 @@ fun AdventureTimeline(
 
             val dayPad = with(density) { 12.dp.toPx() }
             val dayGap = with(density) { 14.dp.toPx() }
-            val entryPad = with(density) { 8.dp.toPx() }
+            // Kleiner als der Abstand zwischen zwei Punkten (8 dp), sonst
+            // berühren sich die Rahmen benachbarter Einträge.
+            val entryPad = with(density) { 6.dp.toPx() }
             val dayTopPx = with(density) { 46.dp.toPx() }
             val dayBottomPx = with(density) { (maxHeight - 8.dp).toPx() }
             val entryBottomPx = with(density) { (maxHeight - 14.dp).toPx() }
@@ -481,26 +483,54 @@ fun AdventureTimeline(
                     key to Rect(safeLeft, dayTopPx, safeRight, dayBottomPx)
                 }.filter { it.second != Rect.Zero }.toMap()
             }
-            // Eintragsrahmen bleiben immer innerhalb ihres Tagesrahmens.
+            // Eintragsrahmen bleiben innerhalb ihres Tagesrahmens und
+            // überschneiden sich garantiert nicht: pro Tag werden sie in
+            // Leserichtung sortiert und mit Mindestabstand getrennt.
             val entryFrames = remember(
                 points, dayFrames, entryPad, entryTopPx, entryBottomPx,
             ) {
-                points.filter { it.kind == 2 && it.item?.entryId != null }.mapNotNull { entry ->
-                    val id = entry.item?.entryId ?: return@mapNotNull null
-                    val children = points.filter { it.entryId == id }
-                    if (children.isEmpty()) return@mapNotNull null
-                    val minX = children.minOf { it.x }
-                    val maxX = children.maxOf { it.x }
-                    val minPoint = children.first { it.x == minX }
-                    val maxPoint = children.first { it.x == maxX }
-                    val dayRect = entry.dayKey?.let { dayFrames[it] }
-                    val rawLeft = minX - minPoint.slot / 2f - entryPad
-                    val rawRight = maxX + maxPoint.slot / 2f + entryPad
-                    val left = if (dayRect != null) maxOf(rawLeft, dayRect.left) else rawLeft
-                    val right = if (dayRect != null) minOf(rawRight, dayRect.right) else rawRight
-                    if (right <= left) return@mapNotNull null
-                    id to Rect(left, entryTopPx, right, entryBottomPx)
-                }.toMap()
+                val raw = points.filter { it.kind == 2 && it.item?.entryId != null }
+                    .mapNotNull { entry ->
+                        val id = entry.item?.entryId ?: return@mapNotNull null
+                        val children = points.filter { it.entryId == id }
+                        if (children.isEmpty()) return@mapNotNull null
+                        val minX = children.minOf { it.x }
+                        val maxX = children.maxOf { it.x }
+                        val minPoint = children.first { it.x == minX }
+                        val maxPoint = children.first { it.x == maxX }
+                        val dayRect = entry.dayKey?.let { dayFrames[it] }
+                        val rawLeft = minX - minPoint.slot / 2f - entryPad
+                        val rawRight = maxX + maxPoint.slot / 2f + entryPad
+                        val left = if (dayRect != null) maxOf(rawLeft, dayRect.left) else rawLeft
+                        val right = if (dayRect != null) minOf(rawRight, dayRect.right) else rawRight
+                        if (right <= left + 4f) return@mapNotNull null
+                        Triple(entry.dayKey, id, Rect(left, entryTopPx, right, entryBottomPx))
+                    }
+                val minGap = with(density) { 4.dp.toPx() }
+                val separated = linkedMapOf<String, Rect>()
+                raw.groupBy({ it.first }, { it.second to it.third })
+                    .forEach { (dayKey, items) ->
+                        val dayRect = dayKey?.let { dayFrames[it] }
+                        var lastRight = Float.NEGATIVE_INFINITY
+                        items.sortedBy { it.second.left }.forEach { (id, rect) ->
+                            var left = if (lastRight == Float.NEGATIVE_INFINITY) {
+                                rect.left
+                            } else {
+                                maxOf(rect.left, lastRight + minGap)
+                            }
+                            var right = rect.right
+                            if (dayRect != null) {
+                                left = left.coerceAtMost(dayRect.right - 8f)
+                                    .coerceAtLeast(dayRect.left)
+                                right = minOf(right, dayRect.right)
+                            }
+                            if (right > left + 4f) {
+                                separated[id] = Rect(left, rect.top, right, rect.bottom)
+                                lastRight = right
+                            }
+                        }
+                    }
+                separated
             }
 
             Box(
@@ -535,16 +565,17 @@ fun AdventureTimeline(
                             y = with(density) { (rect.top + 6f).toDp() },
                         ),
                     )
-                    // Datum um 90° gegen den Uhrzeigersinn am linken Rand,
-                    // mit kleinem Abstand zum Rahmen und von rechts lesbar.
+                    // Datum um 90° gegen den Uhrzeigersinn am linken Rand.
+                    // Der Abstand zum Rahmen verhindert, dass die Schrift am
+                    // Rand klebt; von rechts lesbar und gut erkennbar.
                     if (dayPoint?.detail?.isNotBlank() == true) {
                         Text(
                             text = dayPoint.detail,
-                            color = ink.copy(alpha = 0.72f),
-                            fontSize = 9.sp,
+                            color = ink.copy(alpha = 0.85f),
+                            fontSize = 10.sp,
                             modifier = Modifier
                                 .offset(
-                                    x = with(density) { (rect.left + 10f).toDp() },
+                                    x = with(density) { (rect.left + 22f).toDp() },
                                     y = with(density) {
                                         (rect.top + rect.height / 2f + 30f).toDp()
                                     },
@@ -617,21 +648,6 @@ fun AdventureTimeline(
                     val cardWidth = with(density) { point.slot.toDp() }
                     val halfCardPx = point.slot / 2f
 
-                    // Datum direkt über der Nadel des Eintrags.
-                    if (point.kind == 2) {
-                        Text(
-                            text = SimpleDateFormat("dd.MM.yyyy", Locale.GERMANY)
-                                .format(Date(item?.time ?: System.currentTimeMillis())),
-                            color = ink,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.offset(
-                                x = with(density) { (point.x - 44.dp.toPx()).toDp() },
-                                y = lineY - 50.dp,
-                            ),
-                        )
-                    }
-
                     // Genau ein Pin je Ereignis: Eintrag oder einzelner Pin.
                     // Fotos bekommen keinen eigenen Pin mehr.
                     if (point.kind == 1 || point.kind == 2) {
@@ -661,7 +677,9 @@ fun AdventureTimeline(
                                 y = cardY + with(density) { dragOffset.value.y.toDp() },
                             )
                             .width(cardWidth)
-                            .scale(if (highlighted) 1.08f else 1f)
+                            // Nur minimal vergrößern, sonst schiebt die Karte
+                            // in den Rahmen des Nachbarn.
+                            .scale(if (highlighted) 1.03f else 1f)
                             .pointerInput(point.key) {
                                 var dragX = 0f
                                 var dragY = 0f
@@ -935,13 +953,14 @@ fun AdventureTimeline(
                                     }
                                     if (ordered.isNotEmpty()) {
                                         Spacer(Modifier.width(8.dp))
+                                        // Derselbe Abstand wie bei der Breitenberechnung,
+                                        // sonst ragt der Streifen über den Rahmen hinaus.
                                         val stripWidth = point.photoWidthsPx.sum() +
-                                            (point.photoWidthsPx.size - 1).coerceAtLeast(0) *
-                                            with(density) { 4.dp.toPx() }
+                                            (point.photoWidthsPx.size - 1).coerceAtLeast(0) * gapPx
                                         Row(
                                             modifier = Modifier
                                                 .width(with(density) { stripWidth.toDp() }),
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         ) {
                                             ordered.forEach { photoId ->
                                                 val bitmap = photoBitmap(photoId)

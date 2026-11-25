@@ -59,6 +59,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.RectangleShape
@@ -69,6 +70,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -79,6 +81,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.FileProvider
+import de.breadcrumbz.app.R
 import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.Stop
@@ -94,6 +97,9 @@ import java.util.Locale
 // Feste Papier-Optik: Diese Farben gelten unabhängig vom Systemthema (hell/dunkel).
 private val paper = Color(0xFFF6EFE1)
 private val leftPage = Color(0xFFEFE4CF)
+// Die Seiten hinter der aktuellen Seite – leicht dunkler, damit man sie sieht.
+private val pageBack = Color(0xFFE8D9BF)
+private val pageEdge = Color(0xFFCDBB9C)
 
 private fun TransportMode.symbol(): String = when (this) {
     TransportMode.WALK -> "🚶"
@@ -343,14 +349,46 @@ fun FullscreenElement(
                             entryOnly -> Modifier
                                 .fillMaxWidth()
                                 .heightIn(max = 620.dp)
-                                // Schmaler Rest der linken Seite, dann der Falz.
+                                // Rechts und unten bleibt Platz für die Seiten
+                                // dahinter – das Buch läuft nicht an den Rand.
+                                .padding(end = 20.dp, bottom = 14.dp)
                                 .drawBehind {
-                                    val strip = 24.dp.toPx()
+                                    val strip = 26.dp.toPx()
                                     val fold = 3.dp.toPx()
+                                    val step = 6.dp.toPx()
+                                    // Zwei weitere Seiten liegen leicht versetzt hinten.
+                                    for (layer in 2 downTo 1) {
+                                        val dx = layer * step
+                                        val dy = layer * step * 0.7f
+                                        drawRect(
+                                            color = pageEdge,
+                                            topLeft = Offset(dx, dy),
+                                            size = Size(size.width - dx, size.height - dy),
+                                        )
+                                        drawRect(
+                                            color = pageBack,
+                                            topLeft = Offset(dx - 1f, dy - 1f),
+                                            size = Size(size.width - dx, size.height - dy),
+                                        )
+                                    }
+                                    // Schmaler Rest der linken Seite mit Buchfalz.
                                     drawRect(
                                         color = leftPage,
                                         topLeft = Offset.Zero,
                                         size = Size(strip, size.height),
+                                    )
+                                    // Weicher Schatten am Falz.
+                                    drawRect(
+                                        brush = Brush.horizontalGradient(
+                                            colors = listOf(
+                                                ink.copy(alpha = 0.16f),
+                                                Color.Transparent,
+                                            ),
+                                            startX = strip - 8.dp.toPx(),
+                                            endX = strip + 10.dp.toPx(),
+                                        ),
+                                        topLeft = Offset(strip - 8.dp.toPx(), 0f),
+                                        size = Size(18.dp.toPx(), size.height),
                                     )
                                     drawLine(
                                         color = frame,
@@ -359,7 +397,7 @@ fun FullscreenElement(
                                         strokeWidth = fold,
                                     )
                                     drawLine(
-                                        color = ink.copy(alpha = 0.18f),
+                                        color = ink.copy(alpha = 0.22f),
                                         start = Offset(strip + fold, 0f),
                                         end = Offset(strip + fold, size.height),
                                         strokeWidth = 1.dp.toPx(),
@@ -384,7 +422,7 @@ fun FullscreenElement(
                                 when {
                                     photoOnly -> Modifier
                                     entryOnly -> Modifier.padding(
-                                        start = 30.dp, end = 14.dp,
+                                        start = 34.dp, end = 16.dp,
                                         top = 10.dp, bottom = 10.dp,
                                     )
                                     else -> Modifier.padding(
@@ -686,6 +724,19 @@ fun FullscreenElement(
                                                 fontWeight = FontWeight.Bold,
                                             ),
                                             modifier = Modifier.fillMaxWidth(),
+                                            decorationBox = { innerTextField ->
+                                                if (titleDraft.isEmpty()) {
+                                                    Text(
+                                                        text = "Titel",
+                                                        color = ink.copy(alpha = 0.45f),
+                                                        fontStyle = FontStyle.Italic,
+                                                        style = diaryStyle.copy(
+                                                            fontWeight = FontWeight.Bold,
+                                                        ),
+                                                    )
+                                                }
+                                                innerTextField()
+                                            },
                                         )
                                         Spacer(Modifier.height(6.dp))
                                         // Datum und Pin direkt unterm Titel.
@@ -693,15 +744,34 @@ fun FullscreenElement(
                                             modifier = Modifier.clickable { pickDateTime() },
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_clock),
+                                                contentDescription = "Uhrzeit",
+                                                tint = ink,
+                                                modifier = Modifier.size(
+                                                    with(density) {
+                                                        MaterialTheme.typography.bodySmall.fontSize.toDp()
+                                                    },
+                                                ),
+                                            )
+                                            Spacer(Modifier.width(4.dp))
                                             Text(
                                                 text = if (entry.entryAt == null) {
-                                                    "wird aus erstem Foto übernommen"
+                                                    "..."
                                                 } else {
                                                     dateText(entry.entryAt)
                                                 },
-                                                color = ink,
+                                                color = if (entry.entryAt == null) {
+                                                    ink.copy(alpha = 0.45f)
+                                                } else {
+                                                    ink
+                                                },
                                                 style = MaterialTheme.typography.bodySmall,
-                                                fontStyle = if (timeIsAuto) FontStyle.Italic else FontStyle.Normal,
+                                                fontStyle = if (entry.entryAt == null || timeIsAuto) {
+                                                    FontStyle.Italic
+                                                } else {
+                                                    FontStyle.Normal
+                                                },
                                             )
                                             if (timeIsAuto) {
                                                 Text(
@@ -724,14 +794,18 @@ fun FullscreenElement(
                                             )
                                             Spacer(Modifier.width(4.dp))
                                             Text(
-                                                text = if (stopTitle == null) {
-                                                    "wird aus erstem Foto übernommen"
+                                                text = if (stopTitle == null) "..." else stopTitle,
+                                                color = if (stopTitle == null) {
+                                                    ink.copy(alpha = 0.45f)
                                                 } else {
-                                                    stopTitle
+                                                    ink
                                                 },
-                                                color = ink,
                                                 style = MaterialTheme.typography.bodySmall,
-                                                fontStyle = if (placeIsAuto) FontStyle.Italic else FontStyle.Normal,
+                                                fontStyle = if (stopTitle == null || placeIsAuto) {
+                                                    FontStyle.Italic
+                                                } else {
+                                                    FontStyle.Normal
+                                                },
                                             )
                                             if (placeIsAuto) {
                                                 Text(
@@ -752,6 +826,17 @@ fun FullscreenElement(
                                             minLines = 5,
                                             textStyle = diaryStyle,
                                             modifier = Modifier.fillMaxWidth(),
+                                            decorationBox = { innerTextField ->
+                                                if (bodyDraft.isEmpty()) {
+                                                    Text(
+                                                        text = "Tagebuch",
+                                                        color = ink.copy(alpha = 0.45f),
+                                                        fontStyle = FontStyle.Italic,
+                                                        style = diaryStyle,
+                                                    )
+                                                }
+                                                innerTextField()
+                                            },
                                         )
 
                                         // Angehängte Fotos direkt im Eintrag zeigen.
