@@ -256,7 +256,7 @@ fun AdventureTimeline(
         result
     }
 
-    val contentWidthPx = startPx + points.sumOf { it.slot.toDouble() } +
+    val contentWidthPx = startPx + points.sumOf { it.slot.toDouble() }.toFloat() +
         with(density) { 56.dp.toPx() }
     val contentWidth = with(density) { contentWidthPx.toDp() }
     val viewportPx = if (timelineBounds.width > 0f) {
@@ -842,6 +842,7 @@ private fun TimelineScrollbar(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
+    val scrollScope = rememberCoroutineScope()
     var trackWidthPx by remember { mutableStateOf(0f) }
     val maxScroll = scrollState.maxValue
     val thumbFraction = if (maxScroll <= 0) {
@@ -859,7 +860,7 @@ private fun TimelineScrollbar(
         } else {
             raw
         }
-        scrollState.scrollTo((fraction * maxScroll).roundToInt())
+        scrollScope.launch { scrollState.scrollTo((fraction * maxScroll).roundToInt()) }
     }
 
     Box(
