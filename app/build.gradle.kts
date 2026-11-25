@@ -15,7 +15,7 @@ android {
         applicationId = "de.breadcrumbz.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 33
+        versionCode = 34
         versionName = "0.18.0"
     }
 

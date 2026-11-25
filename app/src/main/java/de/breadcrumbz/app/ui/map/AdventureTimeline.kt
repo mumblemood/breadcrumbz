@@ -1,5 +1,6 @@
 package de.breadcrumbz.app.ui.map
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -150,50 +152,66 @@ private fun TimelineFrame(
     )
 }
 
-/** Lesezeichen-Lasche, die mit dem Tagesrahmen eine Fläche bildet. */
+/** Tagesrahmen und Lesezeichen als eine Fläche mit nur einer Außenlinie. */
 @Composable
-private fun BookmarkTab(label: String, rect: Rect) {
+private fun DayFrameWithTab(label: String, rect: Rect) {
     val density = LocalDensity.current
-    val widthPx = with(density) { 78.dp.toPx() }
-    val heightPx = with(density) { 28.dp.toPx() }
-    val overlapPx = with(density) { 8.dp.toPx() }
-    val shape = RoundedCornerShape(
-        topStart = 9.dp, topEnd = 9.dp,
-        bottomStart = 0.dp, bottomEnd = 0.dp,
-    )
+    val extraTopPx = with(density) { 20.dp.toPx() }
+    val widthPx = rect.width
+    val heightPx = rect.height + extraTopPx
+    val radius = with(density) { 14.dp.toPx() }
+    val tabWidth = with(density) { 78.dp.toPx() }
+    val tabRadius = with(density) { 9.dp.toPx() }
+    val edgeGap = with(density) { 4.dp.toPx() }
+    val minTabLeft = radius + edgeGap
+    val maxTabLeft = (widthPx - tabWidth - edgeGap).coerceAtLeast(minTabLeft)
+    val tabLeft = with(density) { 18.dp.toPx() }.coerceIn(minTabLeft, maxTabLeft)
+    val strokeWidth = with(density) { 1.dp.toPx() }
+    val tabTextX = with(density) { (tabLeft + 8.dp.toPx()).toDp() }
+
     Box(
         modifier = Modifier
             .offset(
-                // Der Tagesrahmen beginnt mit 14 dp Rundung. Die Lasche sitzt
-                // deshalb weiter innen und wächst ohne Knick aus dem Rahmen.
-                x = with(density) { (rect.left + 18.dp.toPx()).toDp() },
-                y = with(density) { (rect.top - heightPx + overlapPx).toDp() },
+                x = with(density) { rect.left.toDp() },
+                y = with(density) { (rect.top - extraTopPx).toDp() },
             )
             .size(
                 width = with(density) { widthPx.toDp() },
                 height = with(density) { heightPx.toDp() },
-            )
-            .clip(shape)
-            .background(dayMarker)
-            .border(1.dp, ink.copy(alpha = 0.45f), shape),
-        contentAlignment = Alignment.TopCenter,
+            ),
     ) {
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val top = extraTopPx
+            val bottom = heightPx
+            val right = widthPx
+            val path = Path().apply {
+                moveTo(radius, top)
+                lineTo(tabLeft, top)
+                lineTo(tabLeft, tabRadius)
+                quadraticBezierTo(tabLeft, 0f, tabLeft + tabRadius, 0f)
+                lineTo(tabLeft + tabWidth - tabRadius, 0f)
+                quadraticBezierTo(tabLeft + tabWidth, 0f, tabLeft + tabWidth, tabRadius)
+                lineTo(tabLeft + tabWidth, top)
+                lineTo(right - radius, top)
+                quadraticBezierTo(right, top, right, top + radius)
+                lineTo(right, bottom - radius)
+                quadraticBezierTo(right, bottom, right - radius, bottom)
+                lineTo(radius, bottom)
+                quadraticBezierTo(0f, bottom, 0f, bottom - radius)
+                lineTo(0f, top + radius)
+                quadraticBezierTo(0f, top, radius, top)
+                close()
+            }
+            drawPath(path, dayMarker)
+            drawPath(path, ink.copy(alpha = 0.45f), style = Stroke(width = strokeWidth))
+        }
         Text(
             text = label,
             color = ink,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-        // Die untere Rahmenlinie wird überdeckt. Dadurch entsteht kein Strich
-        // zwischen Lasche und Tagesfläche.
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(2.dp)
-                .background(dayMarker),
+            modifier = Modifier.offset(x = tabTextX, y = 3.dp),
         )
     }
 }
@@ -605,20 +623,23 @@ fun AdventureTimeline(
                 }
             }
 
-            val dayPad = with(density) { 12.dp.toPx() }
+            // Tages- und Eintragsrahmen haben rundum dieselbe Polsterung.
+            val dayPad = with(density) { 10.dp.toPx() }
             val dayGap = with(density) { 14.dp.toPx() }
             // Kleiner als der Abstand zwischen zwei Punkten (8 dp), sonst
             // berühren sich die Rahmen benachbarter Einträge.
             // Größer als die Innen-Padding der Karten (8 dp), damit kein Text
             // über den Rahmen ragt. Die Trennung der Rahmen erfolgt weiter unten.
             val entryPad = entryPadPx
-            // Schrifthöhe des vertikalen Datums. Die Hälfte davon ist der
-            // gewünschte Abstand zu Rahmenkanten.
+            // Schrifthöhe des vertikalen Datums. Die Hälfte davon korrigiert
+            // nur die Drehung; der sichtbare Abstand bleibt 5 dp.
             val dayFontPx = with(density) { 10.sp.toPx() }
             val halfFontPx = dayFontPx / 2f
+            val endGapPx = with(density) { 5.dp.toPx() }
             val dayTopPx = with(density) { 46.dp.toPx() }
-            val dayBottomPx = with(density) { (maxHeight - 8.dp).toPx() }
-            val entryBottomPx = with(density) { (maxHeight - 14.dp).toPx() }
+            val dayBottomPx = with(density) { (maxHeight - 10.dp).toPx() }
+            // Unten ebenfalls 10 dp zwischen Eintrags- und Tagesrahmen.
+            val entryBottomPx = dayBottomPx - dayPad
 
             // Die Klammer-Systematik [Tag (Eintrag Bilder) (Eintrag Bilder)]:
             // Jeder Rahmen wird aus den echten Breiten seiner Kinder gebaut.
@@ -656,7 +677,7 @@ fun AdventureTimeline(
             // gebaut. Sie werden nie verschoben, ohne dass sich die Karten
             // mitbewegen – das war die Ursache für überlagerte Textfelder.
             val entryFrames = remember(
-                points, dayFrames, entryPad, entryTopPx, entryBottomPx, halfFontPx,
+                points, dayFrames, entryPad, entryTopPx, entryBottomPx, endGapPx,
             ) {
                 points.filter { it.kind == 2 && it.item?.entryId != null }
                     .mapNotNull { entry ->
@@ -667,10 +688,9 @@ fun AdventureTimeline(
                         val rawLeft = children.minOf { it.x - it.slot / 2f } - entryPad
                         val rawRight = children.maxOf { it.x + it.slot / 2f } + entryPad
                         val left = if (dayRect != null) maxOf(rawLeft, dayRect.left) else rawLeft
-                        // Nicht bündig mit der Tageskante: sonst bleibt beim
-                        // letzten Ereignis kein Abstand zum Rahmen.
+                        // Das letzte Ereignis endet 5 dp vor der Tageskante.
                         val right = if (dayRect != null) {
-                            minOf(rawRight, dayRect.right - halfFontPx)
+                            minOf(rawRight, dayRect.right - endGapPx)
                         } else {
                             rawRight
                         }
@@ -678,21 +698,27 @@ fun AdventureTimeline(
                         id to Rect(left, entryTopPx, right, entryBottomPx)
                     }.toMap()
             }
+            // Das letzte sichtbare Ereignis eines Tages wird um den Unterschied
+            // zwischen Rahmenpolsterung und gewünschtem Endabstand nach rechts
+            // gesetzt. Die Linie selbst bleibt an ihrer Zeitposition.
+            val lastContentKeyByDay = remember(points) {
+                points.filter { it.kind != 0 }
+                    .groupBy { it.dayKey }
+                    .mapValues { (_, dayPoints) ->
+                        dayPoints.maxByOrNull { it.x + it.slot / 2f }?.key
+                    }
+            }
+            val endShiftPx = (dayPad - endGapPx).coerceAtLeast(0f)
 
             Box(
                 modifier = Modifier
                     .width(contentWidth)
                     .fillMaxHeight(),
             ) {
-                // Tag-Rahmen außen, Eintragsrahmen darüber – beide liegen hinter
-                // der Linie und hinter den Elementen.
-                dayFrames.forEach { (_, rect) ->
-                    TimelineFrame(rect = rect, fill = dayMarker)
-                }
-                // Die Lasche liegt über dem Rahmen. Sie hat dieselbe Farbe und
-                // keine untere Linie, daher entsteht eine zusammenhängende Fläche.
+                // Tag-Rahmen und Lasche sind eine gezeichnete Fläche. Die
+                // Eintragsrahmen liegen darüber, aber noch hinter der Linie.
                 dayFrames.forEach { (key, rect) ->
-                    BookmarkTab(label = dayLabels[key].orEmpty(), rect = rect)
+                    DayFrameWithTab(label = dayLabels[key].orEmpty(), rect = rect)
                 }
                 entryFrames.forEach { (id, rect) ->
                     val entryPoint = points.firstOrNull { it.entryId == id && it.item != null }
@@ -705,10 +731,11 @@ fun AdventureTimeline(
                 }
                 dayFrames.forEach { (key, rect) ->
                     val dayPoint = points.firstOrNull { it.kind == 0 && it.dayKey == key }
-                    // Das Datum steht jetzt am linken Rand des Tagesbereichs.
-                    // Wegen des Drehpunkts (0; 0,5) liegt seine linke Kante
-                    // eine halbe Schrifthöhe innerhalb des Rahmens.
-                    val dateX = rect.left + dayFontPx
+                    // Fester Abstand von 5 dp ab dem linken Tagesrand. Die
+                    // halbe Schrifthöhe ist nur die Dreh-Korrektur, damit die
+                    // sichtbare Kante bei 5 dp liegt.
+                    val dateGapPx = with(density) { 5.dp.toPx() }
+                    val dateX = rect.left + dateGapPx + halfFontPx
                     if (dayPoint?.detail?.isNotBlank() == true) {
                         Text(
                             text = dayPoint.detail,
@@ -820,6 +847,9 @@ fun AdventureTimeline(
                     val dragOffset = remember(point.key) { mutableStateOf(Offset.Zero) }
                     val cardWidth = with(density) { point.slot.toDp() }
                     val halfCardPx = point.slot / 2f
+                    val cardEndShiftPx = if (
+                        point.kind != 0 && lastContentKeyByDay[point.dayKey] == point.key
+                    ) endShiftPx else 0f
 
                     // Genau ein Pin je Ereignis: Eintrag oder einzelner Pin.
                     // Fotos bekommen keinen eigenen Pin mehr.
@@ -845,7 +875,8 @@ fun AdventureTimeline(
                         modifier = Modifier
                             .offset(
                                 x = with(density) {
-                                    (point.x - halfCardPx).toDp() + dragOffset.value.x.toDp()
+                                    (point.x - halfCardPx + cardEndShiftPx).toDp() +
+                                        dragOffset.value.x.toDp()
                                 },
                                 y = cardY + with(density) { dragOffset.value.y.toDp() },
                             )
