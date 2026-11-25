@@ -52,8 +52,6 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.awaitPointerEventScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
@@ -273,10 +271,9 @@ fun AdventureTimeline(
     var photoDragActive by remember { mutableStateOf(false) }
     // Schon beim Antippen blockieren, damit die Karte keinen Drag startet.
     var photoPressed by remember { mutableStateOf(false) }
-    // Nur echte Fingerbewegungen dürfen die Karte mitziehen. Programmgesteuerte
-    // Scrolls (Karte -> Zeitleiste) werden dadurch nicht als Wisch erkannt.
-    var userDragging by remember { mutableStateOf(false) }
-    var userGestureId by remember { mutableStateOf(0) }
+    // Nur echte Fingerbewegungen dürfen die Karte mitziehen. Ein Scroll, den
+    // die Karte ausgelöst hat, wird kurz als solcher markiert.
+    var programmaticScrollUntil by remember { mutableStateOf(0L) }
     var lastUserCenterAt by remember { mutableStateOf(0L) }
     val startPx = with(density) { 34.dp.toPx() }
     val baseY = with(density) { 74.dp.toPx() }
@@ -469,6 +466,7 @@ fun AdventureTimeline(
             val target = (points[index].x - viewportPx / 2f)
                 .roundToInt().coerceAtLeast(0).coerceAtMost(maxScroll)
             if (abs(scrollState.value - target) > 24) {
+                programmaticScrollUntil = System.currentTimeMillis() + 420L
                 scrollState.animateScrollTo(target)
             }
         }
@@ -510,19 +508,6 @@ fun AdventureTimeline(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                // Beobachtet Fingerkontakte, ohne die Scroll-Geste zu verbrauchen.
-                .pointerInput(Unit) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            val event = awaitPointerEvent(PointerEventPass.Initial)
-                            val pressed = event.changes.any { it.pressed }
-                            if (pressed != userDragging) {
-                                userDragging = pressed
-                                if (!pressed) userGestureId += 1
-                            }
-                        }
-                    }
-                }
                 .horizontalScroll(scrollState)
                 .onGloballyPositioned { timelineBounds = it.boundsInRoot() },
         ) {
@@ -536,11 +521,9 @@ fun AdventureTimeline(
             LaunchedEffect(centerKey) { onCenterKeyChange(centerKey) }
             // Während des Wischens folgt die Karte fortlaufend dem mittleren
             // Element – nicht erst beim Loslassen oder bei einer Auswahl.
-            LaunchedEffect(centerKey, userGestureId) {
+            LaunchedEffect(centerKey) {
                 val now = System.currentTimeMillis()
-                if ((userDragging || now - lastUserCenterAt < 200L) &&
-                    now - lastUserCenterAt >= 90L
-                ) {
+                if (now >= programmaticScrollUntil && now - lastUserCenterAt >= 90L) {
                     lastUserCenterAt = now
                     onUserCenterKey(centerKey)
                 }
