@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.breadcrumbz.app.R
+import de.breadcrumbz.app.ui.theme.HandFont
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TimelineItem
 import de.breadcrumbz.app.domain.model.TimelineKind
@@ -116,7 +117,8 @@ private val accent = Color(0xFFB8782F)
 private val teal = Color(0xFF2E6B6B)
 /** Genau das Papier aus dem tbe-Detailfenster. */
 private val notebookPaper = Color(0xFFF6EFE1)
-private val dayMarker = Color(0xFFCDE3DF)
+// zl A: Lesezeichen in Pergament statt Mint – passt zur alten Karte.
+private val dayMarker = Color(0xFFEFE4CF)
 
 private fun dayKey(time: Long): String =
     SimpleDateFormat("yyyy-MM-dd", Locale.GERMANY).format(Date(time))
@@ -207,10 +209,12 @@ private fun DayFrameWithTab(label: String, rect: Rect) {
         Text(
             text = label,
             color = ink,
-            fontSize = 11.sp,
+            fontFamily = HandFont,
+            fontSize = 16.sp,
+            lineHeight = 18.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
-            modifier = Modifier.offset(x = tabTextX, y = 3.dp),
+            modifier = Modifier.offset(x = tabTextX, y = 1.dp),
         )
     }
 }

@@ -70,6 +70,10 @@ class PolaroidOverlay(
     private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#FBF4E4")
     }
+    // Halbdurchsichtiges Klebeband auf der vorderen Ecke.
+    private val tapePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#D9D6BE8C")
+    }
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#55000000")
     }
@@ -211,6 +215,22 @@ class PolaroidOverlay(
                 null,
             )
             canvas.drawRect(rect, borderPaint)
+            // Klebeband schräg über der linken oberen Ecke. Die Mitte des
+            // oberen Rands bleibt frei für die Nadel.
+            val tapeX = rect.left + padding * 1.2f
+            val tapeY = rect.top + padding * 1.2f
+            val tapeHalfWidth = cardWidth * 0.16f
+            val tapeHalfHeight = 4.5f * scale
+            canvas.save()
+            canvas.rotate(-38f, tapeX, tapeY)
+            canvas.drawRect(
+                tapeX - tapeHalfWidth,
+                tapeY - tapeHalfHeight,
+                tapeX + tapeHalfWidth,
+                tapeY + tapeHalfHeight,
+                tapePaint,
+            )
+            canvas.restore()
             val title = group.representative.caption.take(12)
             if (title.isNotBlank()) {
                 canvas.drawText(title, 0f, rect.bottom - 14f * zoomFactor, captionPaint)

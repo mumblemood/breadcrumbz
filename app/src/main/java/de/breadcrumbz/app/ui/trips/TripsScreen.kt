@@ -6,6 +6,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,7 +25,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -64,6 +66,10 @@ import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.Trip
 import de.breadcrumbz.app.state.TripOverview
 import de.breadcrumbz.app.state.TripsViewModel
+import de.breadcrumbz.app.ui.theme.PaperCard
+import de.breadcrumbz.app.ui.theme.PaperAlertDialog
+import de.breadcrumbz.app.ui.theme.SealRed
+import de.breadcrumbz.app.ui.theme.SealRedDark
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -139,15 +145,31 @@ fun TripsScreen(
             TopAppBar(
                 title = { Text("Breadcrumbz") },
                 navigationIcon = {
-                    IconButton(onClick = {}) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_launcher_foreground),
-                            contentDescription = "Breadcrumbz",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
+                    Icon(
+                        painter = painterResource(R.drawable.ic_compass),
+                        contentDescription = null,
+                        tint = Color.Unspecified,
+                        modifier = Modifier
+                            .padding(start = 12.dp, end = 4.dp)
+                            .size(34.dp),
+                    )
                 },
                 actions = {
+                    // Neue Reise: rotes Siegel oben rechts.
+                    IconButton(
+                        onClick = { viewModel.createTrip(onOpenTrip) },
+                        modifier = Modifier
+                            .padding(end = 4.dp)
+                            .size(44.dp)
+                            .background(SealRed, CircleShape)
+                            .border(3.dp, SealRedDark, CircleShape),
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_add),
+                            contentDescription = "Neue Reise anlegen",
+                            tint = PaperCard,
+                        )
+                    }
                     Box {
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(
@@ -194,23 +216,7 @@ fun TripsScreen(
                 .padding(padding)
                 .padding(20.dp),
         ) {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                // Plus oben mittig innerhalb der Liste.
-                item(key = "add-trip") {
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = androidx.compose.ui.Alignment.Center,
-                    ) {
-                        IconButton(onClick = { viewModel.createTrip(onOpenTrip) }) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_add),
-                                contentDescription = "Neue Reise anlegen",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(48.dp),
-                            )
-                        }
-                    }
-                }
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 if (sortedTrips.isEmpty()) {
                     item(key = "empty") {
                         Card(
@@ -218,7 +224,7 @@ fun TripsScreen(
                             shape = RoundedCornerShape(24.dp),
                         ) {
                             Text(
-                                text = "Noch keine Reise angelegt.\nTippe auf „+“ über der Liste.",
+                                text = "Noch keine Reise angelegt.\nTippe oben rechts auf das rote „+“.",
                                 style = MaterialTheme.typography.bodyLarge,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
@@ -232,7 +238,7 @@ fun TripsScreen(
                         val coverPath = overview.coverPhoto?.let {
                             viewModel.photoPath(it.fileName)
                         }
-                        TripCard(
+                        TripMapCard(
                             overview = overview,
                             coverPath = coverPath,
                             onOpen = { onOpenTrip(overview.trip.id) },
@@ -245,7 +251,7 @@ fun TripsScreen(
     }
 
     if (showSettings) {
-        AlertDialog(
+        PaperAlertDialog(
             onDismissRequest = { showSettings = false },
             title = { Text("Einstellungen") },
             text = {
@@ -291,7 +297,7 @@ fun TripsScreen(
     }
 
     if (showEditor) {
-        AlertDialog(
+        PaperAlertDialog(
             onDismissRequest = { showEditor = false },
             title = { Text("Reise bearbeiten") },
             text = {
@@ -361,7 +367,7 @@ fun TripsScreen(
     }
 
     deleteCandidate?.let { trip ->
-        AlertDialog(
+        PaperAlertDialog(
             onDismissRequest = { deleteCandidate = null },
             title = { Text("Reise löschen?") },
             text = { Text("${trip.title} und alle zugehörigen Daten werden gelöscht.") },
@@ -385,62 +391,3 @@ fun TripsScreen(
 }
 
 @OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun TripCard(
-    overview: TripOverview,
-    coverPath: String?,
-    onOpen: () -> Unit,
-    onEdit: () -> Unit,
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = onOpen,
-                onLongClick = onEdit,
-            ),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        ),
-    ) {
-        // Ein festgelegtes Titelbild liegt nur ganz leicht sichtbar hinter den Feldern.
-        val coverBitmap = remember(coverPath) {
-            coverPath?.let { PhotoImporter.decode(it, sampleSize = 4) }?.asImageBitmap()
-        }
-        Box {
-            if (coverBitmap != null) {
-                Image(
-                    bitmap = coverBitmap,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clip(RoundedCornerShape(24.dp))
-                        .alpha(0.35f),
-                )
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f),
-                        ),
-                )
-            }
-            Column(modifier = Modifier.padding(20.dp)) {
-                val range = listOfNotNull(
-                    overview.startDate?.let { formatDate(it) },
-                    overview.endDate?.let { formatDate(it) },
-                ).joinToString(" - ")
-                val headline = listOfNotNull(
-                    overview.trip.title,
-                    range.ifBlank { null },
-                ).joinToString(" · ")
-                Text(
-                    text = headline,
-                    style = MaterialTheme.typography.titleLarge,
-                )
-            }
-        }
-    }
-}

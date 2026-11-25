@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Strich-Symbol in Tinte; die Farbe setzt der Code über tint. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="26"
+    android:viewportHeight="26">
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M4,16L6,10C7,8 8,8 10,8H16C18,8 19,8 20,10L22,16V19H4Z"
+        android:strokeColor="#FF3B2B20"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M6,19a2,2 0,1 0,4 0a2,2 0,1 0,-4 0"
+        android:strokeColor="#FF3B2B20"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M16,19a2,2 0,1 0,4 0a2,2 0,1 0,-4 0"
+        android:strokeColor="#FF3B2B20"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

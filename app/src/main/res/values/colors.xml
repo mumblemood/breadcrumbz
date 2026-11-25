@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="petrol_dark">#0E3540</color>
-    <color name="amber">#F5A93B</color>
-    <color name="cream">#FFF4DC</color>
+    <color name="paper">#F4E9D2</color>
+    <color name="ink">#3B2B20</color>
+    <color name="seal_red">#9E3B2E</color>
 </resources>
