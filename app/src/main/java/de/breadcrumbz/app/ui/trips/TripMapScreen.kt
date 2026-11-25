@@ -1112,10 +1112,18 @@ fun TripMapScreen(
         val day = dayFormat.format(Date(item.time))
         if (day == lastZoomDay) return
         lastZoomDay = day
-        val dayPoints = timeline
-            .filter { dayFormat.format(Date(it.time)) == day }
-            .mapNotNull { geoFor(it) }
+        val dayItems = timeline.filter { dayFormat.format(Date(it.time)) == day }
+        val dayPoints = dayItems.mapNotNull { geoFor(it) }
         if (dayPoints.isEmpty()) return
+        // Stapel mit Fotos dieses Tages fächern sich auf.
+        val dayPhotoIds = dayItems.flatMap { item ->
+            when (item.kind) {
+                TimelineKind.PHOTO -> listOfNotNull(item.photoId)
+                TimelineKind.ENTRY -> item.entryId?.let { photosByEntry[it] }.orEmpty()
+                else -> emptyList()
+            }
+        }.distinct()
+        stackPhotoIds = dayPhotoIds
         val now = System.currentTimeMillis()
         dayZoomUntil = now + 900L
         syncLockUntil = now + 1_100L

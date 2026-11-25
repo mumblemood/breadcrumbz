@@ -287,16 +287,16 @@ fun AdventureTimeline(
     } else {
         with(density) { 320.dp.toPx() }
     }
-    // Feste Ebenen von oben nach unten: km-Leiste, Tagesrahmen (ab 46 dp),
-    // geschwungene Linie mit Pins (64–88 dp), Eintragsrahmen (ab 96 dp),
-    // Karten (ab 104 dp).
+    // Feste Ebenen von oben nach unten: Lasche (ab 4 dp), Tagesrahmen (ab 24 dp),
+    // geschwungene Linie mit Pins und km-Steinen (38–62 dp), Eintragsrahmen
+    // (ab 70 dp), Karten (ab 78 dp).
     // Alle Karten beginnen auf derselben Höhe – sie folgen nicht mehr der
     // Welle der Linie, sonst ragen sie unten aus ihrem Rahmen.
-    val cardTopDp = 104.dp
-    val entryTopPx = with(density) { 96.dp.toPx() }
+    val cardTopDp = 78.dp
+    val entryTopPx = with(density) { 70.dp.toPx() }
     // Unter der Karte: 4 dp Kartenpolsterung, 8 dp bis zum Eintragsrahmen,
     // 10 dp bis zum Tagesrahmen, 10 dp bis zum unteren Rand.
-    val photoHeightPx = (availableHeightPx - with(density) { (104 + 8 + 8 + 10 + 10).dp.toPx() })
+    val photoHeightPx = (availableHeightPx - with(density) { (78 + 8 + 8 + 10 + 10).dp.toPx() })
         .coerceAtLeast(with(density) { 76.dp.toPx() })
     val photoCaptionHeightPx = with(density) { 20.dp.toPx() }
 
@@ -346,7 +346,7 @@ fun AdventureTimeline(
     var programmaticScrollUntil by remember { mutableStateOf(0L) }
     var lastUserCenterAt by remember { mutableStateOf(0L) }
     val startPx = with(density) { 34.dp.toPx() }
-    val baseY = with(density) { 76.dp.toPx() }
+    val baseY = with(density) { 50.dp.toPx() }
     // Groß genug, dass die Rahmen der Nachbarn sich nicht berühren, selbst
     // wenn beide 10 dp Innenabstand zum Kartenrand haben.
     val itemGapPx = with(density) { 30.dp.toPx() }
@@ -627,6 +627,25 @@ fun AdventureTimeline(
         return points.last().x
     }
 
+    /** Wie milestoneX, aber als Position zwischen den Punkten (für die Höhe auf der Welle). */
+    fun milestoneIndex(target: Double): Float {
+        if (points.isEmpty() || points.first().km >= target) return 0f
+        for (index in 1 until points.size) {
+            val previous = points[index - 1]
+            val current = points[index]
+            if (current.km >= target) {
+                val span = current.km - previous.km
+                val fraction = if (span > 0.0) {
+                    ((target - previous.km) / span).coerceIn(0.0, 1.0).toFloat()
+                } else {
+                    1f
+                }
+                return index - 1 + fraction
+            }
+        }
+        return points.lastIndex.toFloat()
+    }
+
     val kmTargets = remember(totalKm) {
         buildList {
             var value = 100.0
@@ -712,7 +731,7 @@ fun AdventureTimeline(
             val dayFontPx = with(density) { 10.sp.toPx() }
             val halfFontPx = dayFontPx / 2f
             val endGapPx = with(density) { 5.dp.toPx() }
-            val dayTopPx = with(density) { 46.dp.toPx() }
+            val dayTopPx = with(density) { 24.dp.toPx() }
             val dayBottomPx = with(density) { (maxHeight - 10.dp).toPx() }
             // Unten ebenfalls 10 dp zwischen Eintrags- und Tagesrahmen.
             val entryBottomPx = dayBottomPx - dayPad
@@ -939,17 +958,39 @@ fun AdventureTimeline(
                         drawCircle(accent, radius = 27f, center = center, style = Stroke(width = 3f))
                     }
 
-                    // Kilometerleiste in einem schmalen Streifen oben; die Pins
-                    // beginnen erst darunter.
-                    val markerTop = with(density) { 30.dp.toPx() }
-                    val markerBottom = with(density) { 44.dp.toPx() }
-                    kmTargets.forEach { target ->
-                        val x = milestoneX(target)
-                        drawLine(
-                            color = accent,
-                            start = Offset(x, markerTop),
-                            end = Offset(x, markerBottom),
-                            strokeWidth = 3f,
+                }
+
+                // Kilometersteine sitzen direkt auf der Linie – wie Meilensteine
+                // am Weg. Sie liegen unter Pins und Karten.
+                if (points.isNotEmpty()) kmTargets.forEach { target ->
+                    val position = milestoneIndex(target)
+                    val lineY = with(density) {
+                        (baseY + sin(position * WAVE_FREQUENCY) * WAVE_DP.dp.toPx()).toDp()
+                    }
+                    val x = with(density) { milestoneX(target).toDp() }
+                    val label = if (target == totalKm) {
+                        "${String.format(Locale.GERMANY, "%.0f", totalKm)} km"
+                    } else {
+                        "${target.toInt()} km"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .offset(x = x - 40.dp, y = lineY - 10.dp)
+                            .width(80.dp)
+                            .height(20.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = label,
+                            color = ink,
+                            fontSize = 10.sp,
+                            lineHeight = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .background(paper, RoundedCornerShape(50))
+                                .border(1.5.dp, ink, RoundedCornerShape(50))
+                                .padding(horizontal = 7.dp, vertical = 1.dp),
                         )
                     }
                 }
@@ -1480,25 +1521,6 @@ fun AdventureTimeline(
                     }
                 }
 
-                if (points.isNotEmpty()) kmTargets.forEach { target ->
-                    val x = with(density) { (milestoneX(target) - 34.dp.toPx()).toDp() }
-                    val label = if (target == totalKm) {
-                        "${String.format(Locale.GERMANY, "%.0f", totalKm)} km"
-                    } else {
-                        "${target.toInt()} km"
-                    }
-                    Text(
-                        text = label,
-                        color = ink,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .offset(x = x, y = 16.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(paper)
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                    )
-                }
             }
         }
     }

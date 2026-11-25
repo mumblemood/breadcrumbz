@@ -1,5 +1,15 @@
 package de.breadcrumbz.app.ui.trips
 
+import kotlinx.coroutines.launch
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Intent
@@ -415,6 +425,22 @@ fun FullscreenElement(
     // Gesten wirken über den ganzen Bildschirm, nicht nur auf einem Kartenausschnitt.
     var photoScale by remember(detailPhoto?.id) { mutableStateOf(1f) }
     var photoPan by remember(detailPhoto?.id) { mutableStateOf(Offset.Zero) }
+    // Blättern im Notizbuch: vorheriger und nächster Eintrag der Reise.
+    val pageFlip = remember { Animatable(0f) }
+    val flipScope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    val orderedEntries = remember(entries) {
+        entries.sortedWith(compareBy<Entry>({ it.entryAt ?: Long.MAX_VALUE }, { it.createdAt }))
+    }
+    val currentEntryIndex = if (entryOnly) {
+        orderedEntries.indexOfFirst { it.id == elementKey.removePrefix("entry-") }
+    } else {
+        -1
+    }
+    val nextEntryKey = orderedEntries.getOrNull(currentEntryIndex + 1)
+        ?.takeIf { currentEntryIndex >= 0 }?.let { "entry-${it.id}" }
+    val previousEntryKey = orderedEntries.getOrNull(currentEntryIndex - 1)
+        ?.let { "entry-${it.id}" }
 
     Dialog(
         onDismissRequest = onClose,
@@ -478,7 +504,49 @@ fun FullscreenElement(
                             photoOnly -> Modifier.fillMaxSize()
                             entryOnly -> Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 620.dp)
+                                // Groß: das Notizbuch nimmt fast den ganzen Bildschirm ein.
+                                .fillMaxHeight(0.9f)
+                                .graphicsLayer {
+                                    // Umblättern: die Seite dreht sich um den Falz.
+                                    rotationY = pageFlip.value
+                                    transformOrigin = TransformOrigin(0f, 0.5f)
+                                    cameraDistance = 14f * density
+                                }
+                                .pointerInput(elementKey) {
+                                    var total = 0f
+                                    detectHorizontalDragGestures(
+                                        onDragStart = { total = 0f },
+                                        onHorizontalDrag = { change, amount ->
+                                            total += amount
+                                            change.consume()
+                                        },
+                                        onDragEnd = {
+                                            val target = when {
+                                                total < -90f -> nextEntryKey
+                                                total > 90f -> previousEntryKey
+                                                else -> null
+                                            }
+                                            if (target != null) {
+                                                val forward = total < 0f
+                                                flipScope.launch {
+                                                    haptic.performHapticFeedback(
+                                                        HapticFeedbackType.TextHandleMove,
+                                                    )
+                                                    pageFlip.animateTo(
+                                                        if (forward) -90f else 90f,
+                                                        tween(230, easing = FastOutLinearInEasing),
+                                                    )
+                                                    onOpenElement(target)
+                                                    pageFlip.snapTo(if (forward) 90f else -90f)
+                                                    pageFlip.animateTo(
+                                                        0f,
+                                                        tween(320, easing = LinearOutSlowInEasing),
+                                                    )
+                                                }
+                                            }
+                                        },
+                                    )
+                                }
                                 // Ledereinband hinter allen Seiten, Lesebändchen
                                 // oben rechts über der Seite.
                                 .drawWithContent {
@@ -519,15 +587,15 @@ fun FullscreenElement(
                                 }
                                 // Rechts und unten bleibt Platz für die Seiten
                                 // dahinter – das Buch läuft nicht an den Rand.
-                                .padding(end = 20.dp, bottom = 14.dp)
+                                .padding(end = 26.dp, bottom = 18.dp)
                                 .drawBehind {
                                     // Notizbuch: Seitenstapel, Bindungslöcher,
                                     // Falz und feine Linien auf der rechten Seite.
                                     val strip = 36.dp.toPx()
-                                    val fold = 4.dp.toPx()
-                                    val step = 6.dp.toPx()
-                                    // Zwei weitere Seiten liegen versetzt hinten.
-                                    for (layer in 2 downTo 1) {
+                                    val fold = 5.dp.toPx()
+                                    val step = 7.dp.toPx()
+                                    // Drei weitere Seiten liegen deutlich versetzt hinten.
+                                    for (layer in 3 downTo 1) {
                                         val dx = layer * step
                                         val dy = layer * step * 0.6f
                                         drawRect(
@@ -537,8 +605,15 @@ fun FullscreenElement(
                                         )
                                         drawRect(
                                             color = pageBack,
-                                            topLeft = Offset(dx - 1f, dy - 1f),
+                                            topLeft = Offset(dx - 1.5f, dy - 1.5f),
                                             size = Size(size.width - dx, size.height - dy),
+                                        )
+                                        // Feine Kante jeder Seite.
+                                        drawRect(
+                                            color = ink.copy(alpha = 0.22f),
+                                            topLeft = Offset(dx - 1.5f, dy - 1.5f),
+                                            size = Size(size.width - dx, size.height - dy),
+                                            style = Stroke(width = 1.dp.toPx()),
                                         )
                                     }
                                     // Linke Seite: sanft vom Papierton zum Falz hin abgedunkelt.
@@ -587,14 +662,15 @@ fun FullscreenElement(
                                     drawRect(
                                         brush = Brush.horizontalGradient(
                                             colors = listOf(
-                                                ink.copy(alpha = 0.10f),
+                                                ink.copy(alpha = 0.28f),
+                                                ink.copy(alpha = 0.08f),
                                                 Color.Transparent,
                                             ),
-                                            startX = 0f,
-                                            endX = 22.dp.toPx(),
+                                            startX = strip - 6.dp.toPx(),
+                                            endX = strip + 30.dp.toPx(),
                                         ),
-                                        topLeft = Offset(strip - 10.dp.toPx(), 0f),
-                                        size = Size(22.dp.toPx(), size.height),
+                                        topLeft = Offset(strip - 6.dp.toPx(), 0f),
+                                        size = Size(36.dp.toPx(), size.height),
                                     )
                                     drawLine(
                                         color = frame,
@@ -603,7 +679,7 @@ fun FullscreenElement(
                                         strokeWidth = fold,
                                     )
                                     drawLine(
-                                        color = ink.copy(alpha = 0.16f),
+                                        color = ink.copy(alpha = 0.35f),
                                         start = Offset(strip + fold, 0f),
                                         end = Offset(strip + fold, size.height),
                                         strokeWidth = 1.dp.toPx(),
@@ -1069,14 +1145,6 @@ fun FullscreenElement(
                                                     FontStyle.Normal
                                                 },
                                             )
-                                            if (timeIsAuto) {
-                                                Text(
-                                                    " (aus erstem Foto)",
-                                                    color = ink,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontStyle = FontStyle.Italic,
-                                                )
-                                            }
                                         }
                                         Row(
                                             modifier = Modifier.clickable { placePickerOpen = true },
@@ -1103,14 +1171,6 @@ fun FullscreenElement(
                                                     FontStyle.Normal
                                                 },
                                             )
-                                            if (placeIsAuto) {
-                                                Text(
-                                                    " (aus erstem Foto)",
-                                                    color = ink,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontStyle = FontStyle.Italic,
-                                                )
-                                            }
                                         }
                                         Spacer(Modifier.height(10.dp))
                                         BasicTextField(
@@ -1149,7 +1209,7 @@ fun FullscreenElement(
                                             ) {
                                                 entryPhotos.forEachIndexed { index, photo ->
                                                     val bitmap = photoBitmap(photo.id)
-                                                    // Eingeklebtes Polaroid mit Klebeband.
+                                                    // Eingeklebtes Polaroid.
                                                     Box(
                                                         modifier = Modifier
                                                             .padding(vertical = 10.dp, horizontal = 2.dp)
@@ -1162,15 +1222,19 @@ fun FullscreenElement(
                                                                 onOpenElement("photo-${photo.id}")
                                                             }
                                                             .padding(
-                                                                start = 5.dp,
-                                                                end = 5.dp,
-                                                                top = 5.dp,
-                                                                bottom = 14.dp,
+                                                                start = 7.dp,
+                                                                end = 7.dp,
+                                                                top = 7.dp,
+                                                                bottom = 20.dp,
                                                             ),
                                                     ) {
+                                                        // Groß und fast im Originalformat.
+                                                        val ratio = bitmap?.let {
+                                                            it.width.toFloat() / it.height.coerceAtLeast(1)
+                                                        }?.coerceIn(0.56f, 1.78f) ?: 1f
                                                         Box(
                                                             modifier = Modifier
-                                                                .size(80.dp)
+                                                                .size(width = 150.dp * ratio, height = 150.dp)
                                                                 .background(frame),
                                                             contentAlignment = Alignment.Center,
                                                         ) {
