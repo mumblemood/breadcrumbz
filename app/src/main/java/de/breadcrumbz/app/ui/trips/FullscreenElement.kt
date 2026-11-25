@@ -1,5 +1,12 @@
 package de.breadcrumbz.app.ui.trips
 
+import androidx.compose.ui.zIndex
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.math.PI
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -553,7 +560,9 @@ fun FullscreenElement(
                 else -> Alignment.TopStart
             },
         ) {
-            Card(
+            DetailSurface(
+                // Das Notizbuch schneidet nichts ab: Fotos dürfen über den Rand gleiten.
+                plain = entryOnly,
                 // Keine runden Ecken mehr – das Detailfenster ist eine flache Fläche.
                 shape = RectangleShape,
                 colors = CardDefaults.cardColors(
@@ -730,7 +739,6 @@ fun FullscreenElement(
                                         }
                                         .background(paper)
                                         .drawBehind { drawNotebookPage() }
-                                        .verticalScroll(rememberScrollState())
                                     else -> Modifier.verticalScroll(rememberScrollState())
                                 },
                             )
@@ -1072,7 +1080,8 @@ fun FullscreenElement(
                                     }
 
                                     // Der Falz wird außen am Buch gezeichnet (siehe Card).
-                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                    // Feste Seite: nur der Text scrollt, der Fotostapel bleibt liegen.
+                                    Column(modifier = Modifier.fillMaxSize()) {
                                         // Kleines Register, damit die Seite wie ein
                                         // echtes Notizbuch wirkt.
                                         Box(
@@ -1204,9 +1213,12 @@ fun FullscreenElement(
                                                 viewModel.updateEntryText(entry.id, titleDraft, it)
                                             },
                                             readOnly = readOnly,
-                                            minLines = 4,
+                                            minLines = 3,
                                             textStyle = diaryStyle,
-                                            modifier = Modifier.fillMaxWidth(),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .weight(1f)
+                                                .verticalScroll(rememberScrollState()),
                                             decorationBox = { innerTextField ->
                                                 if (bodyDraft.isEmpty()) {
                                                     Text(
@@ -1225,57 +1237,12 @@ fun FullscreenElement(
                                             it.entryId == entry.id
                                         }
                                         if (entryPhotos.isNotEmpty()) {
-                                            Spacer(Modifier.height(10.dp))
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .horizontalScroll(rememberScrollState()),
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            ) {
-                                                entryPhotos.forEachIndexed { index, photo ->
-                                                    val bitmap = photoBitmap(photo.id)
-                                                    // Eingeklebtes Polaroid.
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .padding(vertical = 10.dp, horizontal = 2.dp)
-                                                            .graphicsLayer(
-                                                                rotationZ = if (index % 2 == 0) -3f else 3f,
-                                                            )
-                                                            .background(PolaroidWhite)
-                                                            .border(1.dp, pageEdge)
-                                                            .clickable {
-                                                                onOpenElement("photo-${photo.id}")
-                                                            }
-                                                            .padding(
-                                                                start = 7.dp,
-                                                                end = 7.dp,
-                                                                top = 7.dp,
-                                                                bottom = 20.dp,
-                                                            ),
-                                                    ) {
-                                                        // Groß und fast im Originalformat.
-                                                        val ratio = bitmap?.let {
-                                                            it.width.toFloat() / it.height.coerceAtLeast(1)
-                                                        }?.coerceIn(0.56f, 1.78f) ?: 1f
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .size(width = 140.dp * ratio, height = 140.dp)
-                                                                .background(frame),
-                                                            contentAlignment = Alignment.Center,
-                                                        ) {
-                                                            if (bitmap != null) {
-                                                                Image(
-                                                                    bitmap = bitmap,
-                                                                    contentDescription =
-                                                                        photo.caption.ifBlank { "Foto" },
-                                                                    contentScale = ContentScale.Crop,
-                                                                    modifier = Modifier.fillMaxSize(),
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
+                                            Spacer(Modifier.height(8.dp))
+                                            NotebookPhotoStack(
+                                                photos = entryPhotos,
+                                                photoBitmap = photoBitmap,
+                                                onOpen = { id -> onOpenElement("photo-$id") },
+                                            )
                                         }
 
                                         Spacer(Modifier.height(12.dp))
@@ -1365,5 +1332,139 @@ private fun MissingElement(onClose: () -> Unit) {
                 contentColor = paper,
             ),
         ) { Text("← Zurück", color = paper) }
+    }
+}
+
+/** Wie eine Card – im Notizbuch aber ohne Zuschnitt, damit Fotos über den Rand dürfen. */
+@Composable
+private fun DetailSurface(
+    plain: Boolean,
+    shape: androidx.compose.ui.graphics.Shape,
+    colors: androidx.compose.material3.CardColors,
+    elevation: androidx.compose.material3.CardElevation,
+    modifier: Modifier,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    if (plain) {
+        Column(modifier = modifier, content = content)
+    } else {
+        Card(shape = shape, colors = colors, elevation = elevation, modifier = modifier, content = content)
+    }
+}
+
+/**
+ * Fotos eines Eintrags als Stapel. Mit einem Finger nach rechts wischen
+ * blättert durch, ohne abzusetzen: Das obere Foto gleitet nach rechts auf
+ * einen Stapel, der halb über den Seitenrand ragt. Zurückwischen holt es
+ * wieder. Tippen öffnet das Foto.
+ */
+@Composable
+private fun NotebookPhotoStack(
+    photos: List<Photo>,
+    photoBitmap: (String) -> ImageBitmap?,
+    onOpen: (String) -> Unit,
+) {
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val ids = photos.map { it.id }
+    // 0 = alle links; 1 = das erste liegt rechts; Zwischenwerte = mitten in der Bewegung.
+    val position = remember(ids) { Animatable(0f) }
+    val last = (photos.size - 1).coerceAtLeast(0).toFloat()
+    val photoHeight = 196.dp
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(236.dp)
+            .pointerInput(ids) {
+                // So weit wischen, bis das nächste Foto drüben liegt.
+                val step = 150.dp.toPx()
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        scope.launch {
+                            position.animateTo(
+                                position.value.roundToInt().toFloat().coerceIn(0f, last),
+                                spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow),
+                            )
+                        }
+                    },
+                    onDragCancel = {
+                        scope.launch {
+                            position.animateTo(position.value.roundToInt().toFloat().coerceIn(0f, last))
+                        }
+                    },
+                ) { change, amount ->
+                    change.consume()
+                    scope.launch {
+                        position.snapTo((position.value + amount / step).coerceIn(-0.12f, last + 0.12f))
+                    }
+                }
+            },
+    ) {
+        val areaWidth = maxWidth
+        val maxPhotoWidth = areaWidth * 0.72f
+        // Der rechte Stapel liegt etwa zur Hälfte jenseits des Seitenrands.
+        val pileShift = with(density) { (areaWidth * 0.62f).toPx() }
+        photos.forEachIndexed { index, photo ->
+            val bitmap = photoBitmap(photo.id)
+            val ratio = bitmap?.let { it.width.toFloat() / it.height.coerceAtLeast(1) }
+                ?.coerceIn(0.56f, 1.78f) ?: 1.33f
+            val imageWidth = minOf(photoHeight * ratio, maxPhotoWidth)
+            val imageHeight = imageWidth / ratio
+            val progress = (position.value - index).coerceIn(0f, 1f)
+            // Links leicht gefächert, rechts locker hingeworfen.
+            val restTilt = listOf(-3f, 2f, -1.5f, 3.5f, -2.5f)[index % 5]
+            val pileTilt = listOf(6f, 9f, 4f, 11f, 7f)[index % 5]
+            val lift = sin(PI.toFloat() * progress)
+            Box(
+                modifier = Modifier
+                    .zIndex(
+                        when {
+                            progress > 0f && progress < 1f -> 10_000f
+                            progress >= 1f -> index.toFloat()
+                            else -> 5_000f - index
+                        },
+                    )
+                    .padding(top = 8.dp, start = (index.coerceAtMost(3) * 3).dp)
+                    .graphicsLayer {
+                        translationX = pileShift * progress
+                        translationY = -10.dp.toPx() * lift
+                        rotationZ = restTilt + (pileTilt - restTilt) * progress
+                        val scale = 1f + 0.05f * lift - 0.08f * progress
+                        scaleX = scale
+                        scaleY = scale
+                        shadowElevation = (2f + 10f * lift) * this.density
+                    }
+                    .background(PolaroidWhite)
+                    .border(1.dp, pageEdge)
+                    .clickable { onOpen(photo.id) }
+                    .padding(start = 7.dp, end = 7.dp, top = 7.dp, bottom = 22.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = imageWidth, height = imageHeight)
+                        .background(frame),
+                ) {
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap,
+                            contentDescription = photo.caption.ifBlank { "Foto" },
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+            }
+        }
+        if (photos.size > 1) {
+            val current = position.value.roundToInt().coerceIn(0, photos.size - 1) + 1
+            Text(
+                text = "$current / ${photos.size}",
+                color = ink.copy(alpha = 0.6f),
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .zIndex(20_000f),
+            )
+        }
     }
 }
