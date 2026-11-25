@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.breadcrumbz.app.R
+import de.breadcrumbz.app.ui.theme.HandFont
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TimelineItem
 import de.breadcrumbz.app.domain.model.TimelineKind
@@ -116,7 +117,8 @@ private val accent = Color(0xFFB8782F)
 private val teal = Color(0xFF2E6B6B)
 /** Genau das Papier aus dem tbe-Detailfenster. */
 private val notebookPaper = Color(0xFFF6EFE1)
-private val dayMarker = Color(0xFFCDE3DF)
+// zl A: Lesezeichen in Pergament statt Mint – passt zur alten Karte.
+private val dayMarker = Color(0xFFEFE4CF)
 
 private fun dayKey(time: Long): String =
     SimpleDateFormat("yyyy-MM-dd", Locale.GERMANY).format(Date(time))
@@ -207,10 +209,12 @@ private fun DayFrameWithTab(label: String, rect: Rect) {
         Text(
             text = label,
             color = ink,
-            fontSize = 11.sp,
+            fontFamily = HandFont,
+            fontSize = 16.sp,
+            lineHeight = 18.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
-            modifier = Modifier.offset(x = tabTextX, y = 3.dp),
+            modifier = Modifier.offset(x = tabTextX, y = 1.dp),
         )
     }
 }
@@ -483,18 +487,35 @@ fun AdventureTimeline(
         with(density) { 56.dp.toPx() }
     val contentWidth = with(density) { contentWidthPx.toDp() }
 
+    // An-/Abreise-Pins haben keinen eigenen Punkt in der zl. Ihr Abschnitt
+    // wird trotzdem gezeichnet: als Linie vom ersten sichtbaren Punkt nach
+    // links bzw. vom letzten sichtbaren Punkt nach rechts.
+    val hasAnreiseLine = stops.size > 1 && stops.first().isArrivalDeparture
+    val hasAbreiseLine = stops.size > 1 && stops.last().isArrivalDeparture
+    val anreiseEndX = points.firstOrNull()?.let { first ->
+        (first.x - with(density) { 60.dp.toPx() })
+            .coerceAtLeast(with(density) { 4.dp.toPx() })
+    } ?: startPx
+    val abreiseEndX = points.lastOrNull()?.let { last ->
+        minOf(
+            last.x + with(density) { 60.dp.toPx() },
+            contentWidthPx - with(density) { 6.dp.toPx() },
+        )
+    } ?: (contentWidthPx - with(density) { 6.dp.toPx() })
+
     // Die Abschnitte der Karte auf die gezeichnete Zeitleiste abbilden. Ein
     // markierter Endpin hat keinen eigenen Punkt mehr; dann grenzt der nächste
     // sichtbare Punkt den Abschnitt ab.
-    val segmentHits = remember(stops, points, startPx, contentWidthPx) {
+    val segmentHits = remember(stops, points, startPx, contentWidthPx, anreiseEndX, abreiseEndX) {
         fun xFor(stop: Stop): Float? = points.firstOrNull { point ->
             point.item?.stopId == stop.id ||
                 (stop.entryId != null && point.entryId == stop.entryId) ||
                 (point.item?.entryId != null && point.item?.entryId == stop.entryId)
         }?.x
         val xs = stops.map(::xFor)
-        val leftFallback = startPx + with(density) { 28.dp.toPx() }
-        val rightFallback = contentWidthPx - with(density) { 56.dp.toPx() }
+        // Gleiche Enden wie die gezeichnete An-/Abreise-Linie.
+        val leftFallback = anreiseEndX
+        val rightFallback = abreiseEndX
         val minWidth = with(density) { 8.dp.toPx() }
         stops.zipWithNext().mapIndexed { index, (from, to) ->
             val fromX = xs[index] ?: xs.getOrNull(index - 1) ?: leftFallback
@@ -765,10 +786,25 @@ fun AdventureTimeline(
                     }
                     // Identische Werte wie auf der Karte (RouteStyling).
                     val path = Path()
-                    path.moveTo(points.first().x, yAt(0))
+                    if (hasAnreiseLine) {
+                        // Anreise-Abschnitt läuft von links in den ersten Punkt.
+                        path.moveTo(anreiseEndX, yAt(-1))
+                        val middle = (anreiseEndX + points.first().x) / 2
+                        path.quadraticBezierTo(middle, yAt(-1), points.first().x, yAt(0))
+                    } else {
+                        path.moveTo(points.first().x, yAt(0))
+                    }
                     for (index in 1 until points.size) {
                         val middle = (points[index - 1].x + points[index].x) / 2
                         path.quadraticBezierTo(middle, yAt(index - 1), points[index].x, yAt(index))
+                    }
+                    if (hasAbreiseLine) {
+                        // Abreise-Abschnitt läuft vom letzten Punkt nach rechts.
+                        val lastIndex = points.lastIndex
+                        val middle = (points.last().x + abreiseEndX) / 2
+                        path.quadraticBezierTo(
+                            middle, yAt(lastIndex), abreiseEndX, yAt(lastIndex + 1),
+                        )
                     }
                     // Weißer Unterzug, darüber die gestrichelte Spline-Linie –
                     // exakt wie auf der Karte. Die Striche sind etwa einen
@@ -788,6 +824,19 @@ fun AdventureTimeline(
                         path, Color(RouteStyling.LINE_COLOR),
                         style = Stroke(width = RouteStyling.LINE_WIDTH, pathEffect = dash),
                     )
+                    // Kleiner, blasser Endpunkt für den An-/Abreise-Pin.
+                    val endRadius = with(density) { 5.dp.toPx() }
+                    val endStroke = with(density) { 1.5.dp.toPx() }
+                    if (hasAnreiseLine) {
+                        val end = Offset(anreiseEndX, yAt(-1))
+                        drawCircle(Color(0xFF9E3B2E).copy(alpha = 0.6f), endRadius, end)
+                        drawCircle(ink, endRadius, end, style = Stroke(width = endStroke))
+                    }
+                    if (hasAbreiseLine) {
+                        val end = Offset(abreiseEndX, yAt(points.lastIndex + 1))
+                        drawCircle(Color(0xFF9E3B2E).copy(alpha = 0.6f), endRadius, end)
+                        drawCircle(ink, endRadius, end, style = Stroke(width = endStroke))
+                    }
 
                     val centerIndex = points.indexOfFirst { it.key == centerKey }
                     if (centerIndex >= 0) {
@@ -1358,84 +1407,6 @@ fun AdventureTimeline(
                 }
             }
         }
-
-        TimelineScrollbar(scrollState = scrollState)
-    }
-}
-
-/**
- * Schmale, bedienbare Leiste unten: Der Regler zeigt die absolute Position in
- * der gesamten Zeitleiste. Tippen oder Ziehen springt direkt dorthin.
- */
-@Composable
-private fun TimelineScrollbar(
-    scrollState: ScrollState,
-    modifier: Modifier = Modifier,
-) {
-    val density = LocalDensity.current
-    val scrollScope = rememberCoroutineScope()
-    var trackWidthPx by remember { mutableStateOf(0f) }
-    val maxScroll = scrollState.maxValue
-    val thumbFraction = if (maxScroll <= 0) {
-        1f
-    } else {
-        val viewport = scrollState.viewportSize.coerceAtLeast(1)
-        (viewport.toFloat() / (viewport + maxScroll)).coerceIn(0.08f, 1f)
-    }
-
-    fun scrollToScreenX(x: Float, centerThumb: Boolean) {
-        if (trackWidthPx <= 0f || maxScroll <= 0) return
-        val raw = (x / trackWidthPx).coerceIn(0f, 1f)
-        val fraction = if (centerThumb && thumbFraction < 1f) {
-            ((raw - thumbFraction / 2f) / (1f - thumbFraction)).coerceIn(0f, 1f)
-        } else {
-            raw
-        }
-        scrollScope.launch { scrollState.scrollTo((fraction * maxScroll).roundToInt()) }
-    }
-
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(18.dp)
-            .background(paper)
-            .onGloballyPositioned { trackWidthPx = it.size.width.toFloat() }
-            .pointerInput(maxScroll) {
-                detectTapGestures { offset -> scrollToScreenX(offset.x, centerThumb = false) }
-            }
-            .pointerInput(maxScroll) {
-                detectDragGestures(
-                    onDragStart = { scrollToScreenX(it.x, centerThumb = true) },
-                    onDrag = { change, _ ->
-                        change.consume()
-                        scrollToScreenX(change.position.x, centerThumb = true)
-                    },
-                )
-            },
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(4.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(ink.copy(alpha = 0.16f)),
-        )
-        val thumbWidth = (trackWidthPx * thumbFraction).roundToInt()
-            .coerceAtLeast(with(density) { 28.dp.toPx().roundToInt() })
-        Box(
-            modifier = Modifier
-                .padding(horizontal = 2.dp)
-                .offset(
-                    x = with(density) {
-                        ((trackWidthPx - thumbWidth) * scrollFraction(scrollState)).toDp()
-                    },
-                )
-                .width(with(density) { thumbWidth.toDp() })
-                .height(10.dp)
-                .clip(RoundedCornerShape(5.dp))
-                .background(teal),
-        )
     }
 }
 

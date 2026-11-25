@@ -32,7 +32,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -60,10 +59,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -77,7 +80,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
@@ -94,6 +96,10 @@ import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.state.TripMapViewModel
 import de.breadcrumbz.app.ui.map.PlacePinIcon
+import de.breadcrumbz.app.ui.theme.HandFont
+import de.breadcrumbz.app.ui.theme.PaperAlertDialog
+import de.breadcrumbz.app.ui.theme.PolaroidWhite
+import de.breadcrumbz.app.ui.theme.Tape
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -111,9 +117,11 @@ private val ink = Color(0xFF3B2B20)
 private val frame = Color(0xFFDCCDB4)
 private val notebookTab = Color(0xFF2E6B6B)
 private val marginLine = Color(0xFFB8782F)
-// Comic Sans ist nicht auf allen Geräten installiert. Die systemweite
-// Comic/Cursive-Schrift ist die zuverlässige Wahl.
-private val comic = FontFamily.Cursive
+// Handschrift aus der App selbst (Caveat) – sieht auf allen Geräten gleich aus.
+private val comic = HandFont
+// Ledereinband und Lesebändchen des Notizbuchs.
+private val leather = Color(0xFF5A3E2B)
+private val leatherDark = Color(0xFF3E2A1D)
 
 /** TextButton mit Lesbarkeit auf dem festen Papierhintergrund. */
 @Composable
@@ -314,6 +322,7 @@ private fun PhotoPolaroidDetail(
                 textStyle = MaterialTheme.typography.titleMedium.copy(
                     color = ink,
                     fontFamily = comic,
+                    fontSize = 24.sp,
                     textAlign = TextAlign.Center,
                 ),
                 modifier = Modifier
@@ -325,6 +334,7 @@ private fun PhotoPolaroidDetail(
                 text = titleDraft.ifBlank { "Titel" },
                 color = if (titleIsEmpty) ink.copy(alpha = 0.55f) else ink,
                 fontFamily = comic,
+                fontSize = 24.sp,
                 fontStyle = if (titleIsEmpty) FontStyle.Italic else FontStyle.Normal,
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Center,
@@ -469,6 +479,44 @@ fun FullscreenElement(
                             entryOnly -> Modifier
                                 .fillMaxWidth()
                                 .heightIn(max = 620.dp)
+                                // Ledereinband hinter allen Seiten, Lesebändchen
+                                // oben rechts über der Seite.
+                                .drawWithContent {
+                                    drawRoundRect(
+                                        color = leather,
+                                        topLeft = Offset(-12.dp.toPx(), -8.dp.toPx()),
+                                        size = Size(
+                                            size.width + 10.dp.toPx(),
+                                            size.height + 14.dp.toPx(),
+                                        ),
+                                        cornerRadius = CornerRadius(12.dp.toPx()),
+                                    )
+                                    drawRoundRect(
+                                        color = leatherDark,
+                                        topLeft = Offset(-12.dp.toPx(), -8.dp.toPx()),
+                                        size = Size(
+                                            size.width + 10.dp.toPx(),
+                                            size.height + 14.dp.toPx(),
+                                        ),
+                                        cornerRadius = CornerRadius(12.dp.toPx()),
+                                        style = Stroke(width = 2.dp.toPx()),
+                                    )
+                                    drawContent()
+                                    val ribbonWidth = 14.dp.toPx()
+                                    val ribbonLeft = size.width - 20.dp.toPx() -
+                                        44.dp.toPx()
+                                    val ribbonBottom = 64.dp.toPx()
+                                    val notch = 6.dp.toPx()
+                                    val ribbon = Path().apply {
+                                        moveTo(ribbonLeft, -8.dp.toPx())
+                                        lineTo(ribbonLeft + ribbonWidth, -8.dp.toPx())
+                                        lineTo(ribbonLeft + ribbonWidth, ribbonBottom)
+                                        lineTo(ribbonLeft + ribbonWidth / 2f, ribbonBottom - notch)
+                                        lineTo(ribbonLeft, ribbonBottom)
+                                        close()
+                                    }
+                                    drawPath(ribbon, notebookTab)
+                                }
                                 // Rechts und unten bleibt Platz für die Seiten
                                 // dahinter – das Buch läuft nicht an den Rand.
                                 .padding(end = 20.dp, bottom = 14.dp)
@@ -843,7 +891,7 @@ fun FullscreenElement(
                                             }
                                         }
                                         if (confirmDeletePin) {
-                                            AlertDialog(
+                                            PaperAlertDialog(
                                                 onDismissRequest = { confirmDeletePin = false },
                                                 title = { Text("Pin löschen?") },
                                                 text = {
@@ -896,6 +944,8 @@ fun FullscreenElement(
                                     val diaryStyle = MaterialTheme.typography.bodyLarge.copy(
                                         color = ink,
                                         fontFamily = comic,
+                                        fontSize = 21.sp,
+                                        lineHeight = 28.sp,
                                     )
 
                                     fun pickDateTime() {
@@ -961,6 +1011,8 @@ fun FullscreenElement(
                                             singleLine = true,
                                             textStyle = diaryStyle.copy(
                                                 fontWeight = FontWeight.Bold,
+                                                fontSize = 30.sp,
+                                                lineHeight = 34.sp,
                                             ),
                                             modifier = Modifier.fillMaxWidth(),
                                             decorationBox = { innerTextField ->
@@ -971,6 +1023,8 @@ fun FullscreenElement(
                                                         fontStyle = FontStyle.Italic,
                                                         style = diaryStyle.copy(
                                                             fontWeight = FontWeight.Bold,
+                                                            fontSize = 30.sp,
+                                                            lineHeight = 34.sp,
                                                         ),
                                                     )
                                                 }
@@ -1090,27 +1144,50 @@ fun FullscreenElement(
                                                     .horizontalScroll(rememberScrollState()),
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                             ) {
-                                                entryPhotos.forEach { photo ->
+                                                entryPhotos.forEachIndexed { index, photo ->
                                                     val bitmap = photoBitmap(photo.id)
+                                                    // Eingeklebtes Polaroid mit Klebeband.
                                                     Box(
                                                         modifier = Modifier
-                                                            .size(84.dp)
-                                                            .clip(RoundedCornerShape(8.dp))
-                                                            .background(frame)
+                                                            .padding(vertical = 10.dp, horizontal = 2.dp)
+                                                            .graphicsLayer(
+                                                                rotationZ = if (index % 2 == 0) -3f else 3f,
+                                                            )
+                                                            .background(PolaroidWhite)
+                                                            .border(1.dp, pageEdge)
                                                             .clickable {
                                                                 onOpenElement("photo-${photo.id}")
-                                                            },
-                                                        contentAlignment = Alignment.Center,
+                                                            }
+                                                            .padding(
+                                                                start = 5.dp,
+                                                                end = 5.dp,
+                                                                top = 5.dp,
+                                                                bottom = 14.dp,
+                                                            ),
                                                     ) {
-                                                        if (bitmap != null) {
-                                                            Image(
-                                                                bitmap = bitmap,
-                                                                contentDescription =
-                                                                    photo.caption.ifBlank { "Foto" },
-                                                                contentScale = ContentScale.Crop,
-                                                                modifier = Modifier.fillMaxSize(),
-                                                            )
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(80.dp)
+                                                                .background(frame),
+                                                            contentAlignment = Alignment.Center,
+                                                        ) {
+                                                            if (bitmap != null) {
+                                                                Image(
+                                                                    bitmap = bitmap,
+                                                                    contentDescription =
+                                                                        photo.caption.ifBlank { "Foto" },
+                                                                    contentScale = ContentScale.Crop,
+                                                                    modifier = Modifier.fillMaxSize(),
+                                                                )
+                                                            }
                                                         }
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .align(Alignment.TopCenter)
+                                                                .offset(y = (-10).dp)
+                                                                .size(width = 34.dp, height = 12.dp)
+                                                                .background(Tape),
+                                                        )
                                                     }
                                                 }
                                             }
@@ -1146,7 +1223,7 @@ fun FullscreenElement(
                                     }
 
                                     if (placePickerOpen) {
-                                        AlertDialog(
+                                        PaperAlertDialog(
                                             onDismissRequest = { placePickerOpen = false },
                                             title = { Text("Pin auswählen") },
                                             text = {

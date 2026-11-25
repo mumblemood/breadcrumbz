@@ -7,7 +7,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -30,7 +33,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -72,11 +74,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -91,7 +94,6 @@ import de.breadcrumbz.app.domain.model.TimelineItem
 import de.breadcrumbz.app.domain.model.OverlayMode
 import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.TransportMode
-import de.breadcrumbz.app.domain.model.symbol
 import de.breadcrumbz.app.domain.model.TimelineKind
 import de.breadcrumbz.app.domain.util.chronologicalStops
 import de.breadcrumbz.app.domain.util.haversineMeters
@@ -103,6 +105,14 @@ import de.breadcrumbz.app.ui.map.PinInteractionOverlay
 import de.breadcrumbz.app.ui.map.PolaroidOverlay
 import de.breadcrumbz.app.ui.map.RouteEditOverlay
 import de.breadcrumbz.app.ui.map.RouteStyling
+import de.breadcrumbz.app.ui.theme.Ink
+import de.breadcrumbz.app.ui.theme.PaperAlertDialog
+import de.breadcrumbz.app.ui.theme.PaperCard
+import de.breadcrumbz.app.ui.theme.PaperIconButton
+import de.breadcrumbz.app.ui.theme.SealRed
+import de.breadcrumbz.app.ui.theme.SealRedDark
+import de.breadcrumbz.app.ui.theme.Sepia
+import de.breadcrumbz.app.ui.theme.TransportIcon
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -110,6 +120,8 @@ import kotlinx.coroutines.withContext
 import org.osmdroid.events.MapListener
 import org.osmdroid.events.ScrollEvent
 import org.osmdroid.events.ZoomEvent
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
@@ -153,6 +165,22 @@ private fun contrastTiles() = XYTileSource(
         "https://c.tile.openstreetmap.fr/hot/",
     ),
     "© OpenStreetMap-Mitwirkende, HOT",
+)
+
+/**
+ * Färbt die OSM-Kacheln wie eine alte Papierkarte: Sepia-Mischung, Weiß wird
+ * zum Papierton #F4E9D2, Schwarz bleibt Schwarz. Die Kacheln selbst bleiben
+ * unverändert, es ist nur ein Farbfilter beim Zeichnen.
+ */
+private fun paperTileFilter() = ColorMatrixColorFilter(
+    ColorMatrix(
+        floatArrayOf(
+            0.534f, 0.339f, 0.083f, 0f, 0f,
+            0.158f, 0.680f, 0.076f, 0f, 0f,
+            0.128f, 0.250f, 0.445f, 0f, 0f,
+            0f, 0f, 0f, 1f, 0f,
+        ),
+    ),
 )
 
 /** Ein gemeinsames Ziel für beide Richtungen der Karten-/Zeitleisten-Synchronisation. */
@@ -256,30 +284,39 @@ private fun RouteScrollbar(
                 detectTapGestures { offset -> onFraction(fractionAt(offset.x)) }
             },
     ) {
-        Box(
+        // Gestrichelte Spur wie ein Weg auf der Karte.
+        Canvas(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .padding(horizontal = 8.dp)
                 .fillMaxWidth()
-                .height(4.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(Color(0xFF6B4A35).copy(alpha = 0.42f)),
-        )
+                .height(2.dp),
+        ) {
+            drawLine(
+                color = Sepia,
+                start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f),
+                end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f),
+                strokeWidth = size.height,
+                pathEffect = PathEffect.dashPathEffect(
+                    floatArrayOf(8.dp.toPx(), 5.dp.toPx()),
+                ),
+            )
+        }
         val usable = (width - thumbPx - padPx * 2f).coerceAtLeast(1f)
+        // Griff: Papierknopf mit Tintenrand und einem Tintenpunkt.
         Box(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .offset(x = with(density) { (padPx + fraction * usable).toDp() })
                 .size(22.dp)
-                .clip(RoundedCornerShape(11.dp))
-                .background(Color(0xFFFBF4E4))
-                .padding(2.dp),
+                .background(PaperCard, CircleShape)
+                .border(2.dp, Ink, CircleShape),
+            contentAlignment = Alignment.Center,
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(9.dp))
-                    .background(Color(0xFF2A1D15)),
+                    .size(6.dp)
+                    .background(Ink, CircleShape),
             )
         }
     }
@@ -568,8 +605,25 @@ fun TripMapScreen(
 
     fun openNewEntry(stopId: String? = null) {
         scope.launch {
-            val entry = viewModel.createEntry(stopId)
+            // Über „+“ ohne Pin: nur behalten, wenn etwas eingetragen wird.
+            val entry = if (stopId == null) {
+                viewModel.createDraftEntry()
+            } else {
+                viewModel.createEntry(stopId)
+            }
             fullscreenKey = "entry-${entry.id}"
+        }
+    }
+
+    // Ist der neue „+“-Eintrag nicht mehr offen (auch nicht beim Foto-Auswählen
+    // oder Verorten), wird er gelöscht, falls er leer geblieben ist.
+    LaunchedEffect(fullscreenKey, photoTargetEntryId, pendingEntryId) {
+        val draft = viewModel.currentDraftEntryId ?: return@LaunchedEffect
+        if (fullscreenKey != "entry-$draft" &&
+            photoTargetEntryId != draft &&
+            pendingEntryId != draft
+        ) {
+            viewModel.finishDraftEntry()
         }
     }
 
@@ -1045,6 +1099,8 @@ fun TripMapScreen(
                         }
                         Text(
                             text = titleText,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             fontStyle = if (trip?.titleIsAuto == true) {
                                 FontStyle.Italic
                             } else {
@@ -1099,7 +1155,7 @@ fun TripMapScreen(
                                         if (trip?.overlayMode == OverlayMode.POSTER) {
                                             "Karte: Kontrast"
                                         } else {
-                                            "Karte: Standard"
+                                            "Karte: Altes Papier"
                                         },
                                     )
                                 },
@@ -1125,8 +1181,7 @@ fun TripMapScreen(
                                 text = {
                                     val current = trip?.defaultTransportMode ?: TransportMode.CAR
                                     Text(
-                                        "Standardverkehrsmittel: " +
-                                            "${current.symbol()} ${current.label}",
+                                        "Standardverkehrsmittel: ${current.label}",
                                     )
                                 },
                                 onClick = {
@@ -1160,6 +1215,11 @@ fun TripMapScreen(
                         if (appliedOverlayMode != mode) {
                             view.setTileSource(
                                 if (mode == OverlayMode.POSTER) contrastTiles() else standardTiles(),
+                            )
+                            // Standard = alte Papierkarte (Sepia-Filter auf den
+                            // OSM-Kacheln). Kontrast bleibt farbig und gut lesbar.
+                            view.overlayManager.tilesOverlay.setColorFilter(
+                                if (mode == OverlayMode.POSTER) null else paperTileFilter(),
                             )
                             appliedOverlayMode = mode
                         }
@@ -1231,20 +1291,13 @@ fun TripMapScreen(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    IconButton(
+                    PaperIconButton(
                         onClick = { showMyLocation() },
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFFFBF4E4)),
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_location),
-                            contentDescription = "Standort anzeigen",
-                            tint = Color(0xFF3B2B20),
-                        )
-                    }
+                        icon = R.drawable.ic_location,
+                        contentDescription = "Standort anzeigen",
+                    )
                     IconButton(
                         onClick = {
                             // An-/Abreise-Pins und ihre Inhalte bleiben auf der
@@ -1292,13 +1345,16 @@ fun TripMapScreen(
                             }
                         },
                         modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFFFBF4E4)),
+                            .size(44.dp)
+                            .background(PaperCard, CircleShape)
+                            .border(2.dp, Ink, CircleShape),
                     ) {
+                        // Kompassrose statt Vollbild-Symbol.
                         Icon(
-                            painter = painterResource(R.drawable.ic_fullscreen),
+                            painter = painterResource(R.drawable.ic_compass),
                             contentDescription = "Ganze Reise vollständig anzeigen",
-                            tint = Color(0xFF3B2B20),
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(28.dp),
                         )
                     }
                 }
@@ -1334,13 +1390,22 @@ fun TripMapScreen(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(16.dp),
-                    containerColor = Color(0xFF3B2B20),
-                    contentColor = Color(0xFFFBF4E4),
+                    // Rotes Siegel mit dunklerem Prägerand.
+                    shape = CircleShape,
+                    containerColor = SealRed,
+                    contentColor = PaperCard,
                 ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_add),
-                        contentDescription = "Neuer Eintrag",
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .border(3.dp, SealRedDark, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_add),
+                            contentDescription = "Neuer Eintrag",
+                        )
+                    }
                 }
             }
 
@@ -1445,7 +1510,7 @@ fun TripMapScreen(
 
     // Standardverkehrsmittel: genau ein Menüeintrag öffnet dieses Pop-up.
     if (defaultModePickerOpen) {
-        AlertDialog(
+        PaperAlertDialog(
             onDismissRequest = { defaultModePickerOpen = false },
             title = { Text("Standardverkehrsmittel") },
             text = {
@@ -1455,7 +1520,9 @@ fun TripMapScreen(
                             viewModel.setDefaultTransportMode(mode)
                             defaultModePickerOpen = false
                         }) {
-                            Text("${mode.symbol()}   ${mode.label}")
+                            TransportIcon(mode)
+                            Spacer(Modifier.width(12.dp))
+                            Text(mode.label)
                         }
                     }
                 }
@@ -1520,7 +1587,7 @@ fun TripMapScreen(
                     }
                 }
             }
-            AlertDialog(
+            PaperAlertDialog(
                 onDismissRequest = { segmentDialog = null },
                 title = { Text(segmentTitle(segment)) },
                 text = {
@@ -1541,7 +1608,7 @@ fun TripMapScreen(
                                 },
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(effectiveMode.symbol(), fontSize = 19.sp)
+                            TransportIcon(effectiveMode, size = 24.dp)
                         }
                         endpointRows.forEach { (isAnreise, endpointId, label) ->
                             val checked = stops.firstOrNull { it.id == endpointId }
@@ -1564,7 +1631,7 @@ fun TripMapScreen(
         is SegmentDialog.Modes -> {
             val segment = routeSegments.firstOrNull { it.key == dialog.segment.key }
                 ?: dialog.segment
-            AlertDialog(
+            PaperAlertDialog(
                 onDismissRequest = {
                     segmentDialog = SegmentDialog.Detail(segment)
                 },
@@ -1582,7 +1649,9 @@ fun TripMapScreen(
                                 }
                                 segmentDialog = SegmentDialog.Detail(segment)
                             }) {
-                                Text("${mode.symbol()}   ${mode.label}")
+                                TransportIcon(mode)
+                                Spacer(Modifier.width(12.dp))
+                                Text(mode.label)
                             }
                         }
                         TextButton(onClick = {
@@ -1607,7 +1676,7 @@ fun TripMapScreen(
     }
 
     if (coverPickerOpen) {
-        AlertDialog(
+        PaperAlertDialog(
             onDismissRequest = { coverPickerOpen = false },
             title = { Text("Titelbild wählen") },
             text = {
@@ -1676,7 +1745,7 @@ fun TripMapScreen(
     }
 
     waypointToDelete?.let { id ->
-        AlertDialog(
+        PaperAlertDialog(
             onDismissRequest = { waypointToDelete = null },
             title = { Text("Routenpunkt") },
             text = { Text("Diesen selbst gesetzten Punkt von der Linie entfernen?") },
@@ -1693,7 +1762,7 @@ fun TripMapScreen(
     }
 
     photoToDelete?.let { id ->
-        AlertDialog(
+        PaperAlertDialog(
             onDismissRequest = { photoToDelete = null },
             title = { Text("Foto löschen?") },
             text = {

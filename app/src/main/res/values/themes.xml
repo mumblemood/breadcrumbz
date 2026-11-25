@@ -2,8 +2,9 @@
 <resources>
 
     <style name="Theme.Breadcrumbz" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">@color/petrol_dark</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">@color/paper</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowBackground">@color/paper</item>
     </style>
 
 </resources>

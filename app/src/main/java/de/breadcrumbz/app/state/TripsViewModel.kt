@@ -9,6 +9,8 @@ import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.Trip
 import de.breadcrumbz.app.domain.repository.BreadcrumbzRepository
+import de.breadcrumbz.app.domain.util.chronologicalStops
+import de.breadcrumbz.app.domain.util.haversineMeters
 import de.breadcrumbz.app.domain.util.tripTimeRange
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -26,6 +28,10 @@ data class TripOverview(
     /** Erster bekannter Ortsname der Reise. */
     val place: String?,
     val coverPhoto: Photo?,
+    /** Pins der Reise in Reihenfolge (ohne An-/Abreise) – für die Kartenskizze. */
+    val routePoints: List<Pair<Double, Double>> = emptyList(),
+    /** Gleiche Luftlinien-Summe wie auf dem Kartenbildschirm. */
+    val distanceKm: Double = 0.0,
 )
 
 class TripsViewModel(
@@ -52,6 +58,14 @@ class TripsViewModel(
 
             // An-/Abreise-Pins und ihre Inhalte zählen nicht zur Gesamtreise.
             val range = tripTimeRange(tripStops, tripEntries, tripPhotos)
+            val ordered = chronologicalStops(tripStops, tripEntries, tripPhotos)
+                .filterNot { it.isArrivalDeparture }
+            val meters = (1 until ordered.size).sumOf { index ->
+                haversineMeters(
+                    ordered[index - 1].latitude, ordered[index - 1].longitude,
+                    ordered[index].latitude, ordered[index].longitude,
+                )
+            }
 
             TripOverview(
                 trip = trip,
@@ -62,6 +76,8 @@ class TripsViewModel(
                     !it.isArrivalDeparture && it.title.isNotBlank()
                 }?.title,
                 coverPhoto = tripPhotos.firstOrNull { it.id == trip.coverPhotoId },
+                routePoints = ordered.map { it.latitude to it.longitude },
+                distanceKm = meters / 1_000.0,
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
