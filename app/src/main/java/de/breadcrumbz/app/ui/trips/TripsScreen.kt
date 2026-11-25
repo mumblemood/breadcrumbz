@@ -3,7 +3,6 @@ package de.breadcrumbz.app.ui.trips
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.CircleShape
@@ -379,5 +378,3 @@ fun TripsScreen(
         )
     }
 }
-
-@OptIn(ExperimentalFoundationApi::class)
