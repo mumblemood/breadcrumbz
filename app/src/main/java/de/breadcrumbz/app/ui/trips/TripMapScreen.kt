@@ -467,7 +467,7 @@ fun TripMapScreen(
             }.mapNotNull { it.capturedAt ?: it.createdAt }
             return photoTimes.minOrNull() ?: stop.visitedAt ?: stop.createdAt
         }
-        stops.sortedWith(compareBy<Long> { timeOf(it) }.thenBy { it.sortIndex })
+        stops.sortedWith(compareBy<Stop> { timeOf(it) }.thenBy { it.sortIndex })
     }
 
     // Nur neu bauen, wenn sich Pins oder Verkehrsmittel ändern – nicht bei

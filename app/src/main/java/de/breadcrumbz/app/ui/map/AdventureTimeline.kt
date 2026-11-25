@@ -957,10 +957,10 @@ fun AdventureTimeline(
                                                             var startRootX = photoRootX
                                                             var edgeJob: kotlinx.coroutines.Job? = null
                                                             fun targetEntry(x: Float): String? =
-                                                                entryFrames.firstOrNull { (id, rect) ->
-                                                                    id != entryId &&
-                                                                        x >= rect.left - 16f &&
-                                                                        x <= rect.right + 16f
+                                                                entryFrames.entries.firstOrNull { entry ->
+                                                                    entry.key != entryId &&
+                                                                        x >= entry.value.left - 16f &&
+                                                                        x <= entry.value.right + 16f
                                                                 }?.key
 
                                                             detectDragGesturesAfterLongPress(

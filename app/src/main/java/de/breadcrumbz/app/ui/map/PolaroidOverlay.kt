@@ -228,14 +228,16 @@ class PolaroidOverlay(
 
             val hitPad = 24f * zoomFactor
             hitAreas.add(
-                RectF(
-                    pinX - cardWidth / 2f - hitPad,
-                    pinY - hitPad,
-                    pinX + cardWidth / 2f + hitPad,
-                    pinY + top + cardHeight + hitPad,
+                Triple(
+                    RectF(
+                        pinX - cardWidth / 2f - hitPad,
+                        pinY - hitPad,
+                        pinX + cardWidth / 2f + hitPad,
+                        pinY + top + cardHeight + hitPad,
+                    ),
+                    group.ids,
+                    group.representative.id,
                 ),
-                group.ids,
-                group.representative.id,
             )
         }
     }
