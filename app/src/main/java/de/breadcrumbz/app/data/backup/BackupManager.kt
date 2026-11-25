@@ -187,6 +187,9 @@ class BackupManager(
         fun added(kind: String) { count[kind] = (count[kind] ?: 0) + 1 }
         fun skipped(kind: String) { kept[kind] = (kept[kind] ?: 0) + 1 }
 
+        // Alte Backups haben das Verkehrsmittel noch am Pin. Diese Werte werden
+        // beim Import auf den Abschnitt davor umgeschrieben, damit nichts verloren geht.
+        val legacyModes = mutableMapOf<String, String>()
         database.withTransaction {
             root.optJSONArray("trips").forEachRow { obj ->
                 val row = obj.toTrip()
@@ -198,9 +201,6 @@ class BackupManager(
                     else -> skipped("trips")
                 }
             }
-            // Alte Backups haben das Verkehrsmittel noch am Pin. Diese Werte werden
-            // beim Import auf den Abschnitt davor umgeschrieben, damit nichts verloren geht.
-            val legacyModes = mutableMapOf<String, String>()
             root.optJSONArray("stops").forEachRow { obj ->
                 if (obj.has("transportMode") && !obj.isNull("transportMode")) {
                     obj.optString("id").takeIf { it.isNotBlank() }?.let { id ->
@@ -252,28 +252,30 @@ class BackupManager(
                     else -> skipped("segmentModes")
                 }
             }
-            val newModes = root.optJSONArray("segmentModes")
-            if ((newModes?.length() ?: 0) == 0 && legacyModes.isNotEmpty()) {
-                val allStops = stopDao.observeAll().first()
-                val now = System.currentTimeMillis()
-                legacyModes.forEach { (toId, mode) ->
-                    val to = allStops.firstOrNull { it.id == toId } ?: return@forEach
-                    val from = allStops.filter {
-                        it.tripId == to.tripId && it.sortIndex < to.sortIndex
-                    }.maxByOrNull { it.sortIndex } ?: return@forEach
-                    val inserted = segmentModeDao.insertIfMissing(
-                        RouteSegmentModeEntity(
-                            id = segmentKey(from.id, to.id),
-                            tripId = to.tripId,
-                            fromStopId = from.id,
-                            toStopId = to.id,
-                            mode = mode,
-                            createdAt = now,
-                            updatedAt = now,
-                        ),
-                    )
-                    if (inserted != -1L) added("segmentModes")
-                }
+        }
+
+        // Erst nach dem Commit: dann sieht die Abfrage auch die eben importierten Pins.
+        val newModes = root.optJSONArray("segmentModes")
+        if ((newModes?.length() ?: 0) == 0 && legacyModes.isNotEmpty()) {
+            val allStops = stopDao.observeAll().first()
+            val now = System.currentTimeMillis()
+            legacyModes.forEach { (toId, mode) ->
+                val to = allStops.firstOrNull { it.id == toId } ?: return@forEach
+                val from = allStops.filter {
+                    it.tripId == to.tripId && it.sortIndex < to.sortIndex
+                }.maxByOrNull { it.sortIndex } ?: return@forEach
+                val inserted = segmentModeDao.insertIfMissing(
+                    RouteSegmentModeEntity(
+                        id = segmentKey(from.id, to.id),
+                        tripId = to.tripId,
+                        fromStopId = from.id,
+                        toStopId = to.id,
+                        mode = mode,
+                        createdAt = now,
+                        updatedAt = now,
+                    ),
+                )
+                if (inserted != -1L) added("segmentModes")
             }
         }
 
