@@ -43,7 +43,7 @@ class AppContainer(context: Context) {
         mapBase.mkdirs()
         tileCache.mkdirs()
         Configuration.getInstance().apply {
-            userAgentValue = "Breadcrumbz/0.18.0 (+https://github.com/mumblemood/breadcrumbz)"
+            userAgentValue = "Breadcrumbz/${BuildConfig.VERSION_NAME} (+https://github.com/mumblemood/breadcrumbz)"
             osmdroidBasePath = mapBase
             osmdroidTileCache = tileCache
         }
@@ -101,7 +101,7 @@ class AppContainer(context: Context) {
         waypointDao = waypointDao,
         segmentModeDao = segmentModeDao,
         photoStore = photoStore,
-        appVersion = "0.18.0",
+        appVersion = BuildConfig.VERSION_NAME,
     )
 
     /** Rein lokale Einstellungen, u. a. der Schalter für Online-Routing. */

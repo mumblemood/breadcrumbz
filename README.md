@@ -90,7 +90,7 @@ Das geplante Karten- und Overlay-Design ist in `docs/map-design.md` beschrieben.
 Der Build läuft in GitHub Actions. Nach einem Push auf `main` entsteht automatisch
 eine Testversion unter **Releases → neueste Testversion**. Der Dateiname wird aus
 der `versionName` in `app/build.gradle.kts` gebildet, zum Beispiel
-`Breadcrumbz_v0.18.apk`.
+`Breadcrumbz_v0.19.apk`. Jeder neue Build zählt die Version um eins hoch (0.19, 0.20, …).
 
 Nach dem Download liegt die APK zusätzlich im Ordner **mumblemood** im internen
 Speicher. Dort kannst du sie direkt antippen und installieren. Dafür muss einmalig

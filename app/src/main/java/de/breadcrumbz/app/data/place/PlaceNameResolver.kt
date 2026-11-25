@@ -1,5 +1,6 @@
 package de.breadcrumbz.app.data.place
 
+import de.breadcrumbz.app.BuildConfig
 import de.breadcrumbz.app.data.db.PlaceNameDao
 import de.breadcrumbz.app.data.model.PlaceNameEntity
 import kotlinx.coroutines.Dispatchers
@@ -34,7 +35,7 @@ class PlaceNameResolver(private val dao: PlaceNameDao) {
             connection.requestMethod = "GET"
             connection.setRequestProperty(
                 "User-Agent",
-                "Breadcrumbz/0.5.0 (+https://github.com/mumblemood/breadcrumbz)",
+                "Breadcrumbz/${BuildConfig.VERSION_NAME} (+https://github.com/mumblemood/breadcrumbz)",
             )
             connection.connectTimeout = 8_000
             connection.readTimeout = 8_000

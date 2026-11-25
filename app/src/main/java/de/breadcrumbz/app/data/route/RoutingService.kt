@@ -1,5 +1,6 @@
 package de.breadcrumbz.app.data.route
 
+import de.breadcrumbz.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -41,7 +42,7 @@ class RoutingService {
             connection.readTimeout = 8_000
             connection.requestMethod = "GET"
             connection.setRequestProperty(
-                "User-Agent", "Breadcrumbz/0.18.0 (+https://github.com/mumblemood/breadcrumbz)",
+                "User-Agent", "Breadcrumbz/${BuildConfig.VERSION_NAME} (+https://github.com/mumblemood/breadcrumbz)",
             )
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             connection.disconnect()
