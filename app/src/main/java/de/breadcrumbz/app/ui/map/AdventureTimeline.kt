@@ -573,16 +573,22 @@ fun AdventureTimeline(
                     Text(
                         text = dayLabels[key].orEmpty(),
                         color = teal,
-                        fontSize = 10.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.offset(
                             x = with(density) { (rect.left + 18f).toDp() },
-                            y = with(density) { (rect.top + 6f).toDp() },
+                            y = with(density) { (rect.top + 4f).toDp() },
                         ),
                     )
-                    // Datum um 90° gegen den Uhrzeigersinn am linken Rand.
-                    // Der Abstand zum Rahmen verhindert, dass die Schrift am
-                    // Rand klebt; von rechts lesbar und gut erkennbar.
+                    // Das Datum sitzt in der Mitte zwischen Tagesrahmen und
+                    // erstem Eintragsrahmen. So sind beide Abstände gleich und
+                    // der Eintrag rückt deutlich näher heran.
+                    val firstEntryLeft = points.filter {
+                        it.kind == 2 && it.dayKey == key
+                    }.mapNotNull { point ->
+                        point.item?.entryId?.let { id -> entryFrames[id]?.left }
+                    }.minOrNull() ?: (rect.left + with(density) { 60.dp.toPx() })
+                    val dateX = (rect.left + firstEntryLeft) / 2f
                     if (dayPoint?.detail?.isNotBlank() == true) {
                         Text(
                             text = dayPoint.detail,
@@ -590,7 +596,7 @@ fun AdventureTimeline(
                             fontSize = 10.sp,
                             modifier = Modifier
                                 .offset(
-                                    x = with(density) { (rect.left + 22f).toDp() },
+                                    x = with(density) { dateX.toDp() },
                                     y = with(density) {
                                         (rect.top + rect.height / 2f + 30f).toDp()
                                     },

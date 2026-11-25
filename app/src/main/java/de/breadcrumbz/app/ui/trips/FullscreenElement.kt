@@ -75,6 +75,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -128,14 +129,16 @@ private fun InkTextButton(
 /** Kleines Polaroid mit überlappendem Plus – Taste für neue Fotos im Eintrag. */
 @Composable
 private fun AddPhotoIcon() {
+    // Etwas größer als das Polaroid: das Plus bleibt vollständig sichtbar.
     Box(
-        modifier = Modifier.size(32.dp),
+        modifier = Modifier.size(38.dp),
         contentAlignment = Alignment.Center,
     ) {
         // Weißer Papierrand, leicht gedreht, mit Bildausschnitt und schmalem Streifen.
         Box(
             modifier = Modifier
                 .size(width = 23.dp, height = 27.dp)
+                .offset(x = (-3).dp, y = 2.dp)
                 .graphicsLayer(rotationZ = -9f)
                 .background(paper, RoundedCornerShape(2.dp))
                 .border(1.dp, pageEdge, RoundedCornerShape(2.dp))
@@ -156,12 +159,11 @@ private fun AddPhotoIcon() {
                     .background(pageEdge),
             )
         }
-        // Das Plus liegt oben rechts ein Stück über dem Polaroid.
+        // Das Plus liegt oben rechts über dem Polaroid, aber innerhalb der Taste.
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .offset(x = 3.dp, y = (-3).dp)
-                .size(16.dp)
+                .size(18.dp)
                 .clip(CircleShape)
                 .background(frame)
                 .border(1.dp, ink, CircleShape),
@@ -209,6 +211,7 @@ private fun SmallMeta(text: String, withPin: Boolean = false) {
 private fun PhotoPolaroidDetail(
     photo: Photo,
     bitmap: ImageBitmap?,
+    placeText: String,
     viewModel: TripMapViewModel,
     scale: Float,
     pan: Offset,
@@ -296,7 +299,46 @@ private fun PhotoPolaroidDetail(
                 modifier = Modifier.clickable { editingTitle = true },
             )
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
+        // Ort und Zeitpunkt ganz unten, in einer Zeile und bewusst blasser
+        // als der Titel – sie sollen nicht vom Foto ablenken.
+        val metaInk = ink.copy(alpha = 0.55f)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_clock),
+                contentDescription = "Zeitpunkt",
+                tint = metaInk,
+                modifier = Modifier.size(13.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = dateText(photo.capturedAt ?: photo.createdAt),
+                color = metaInk,
+                style = MaterialTheme.typography.labelSmall,
+                fontStyle = if (photo.capturedAt == null) {
+                    FontStyle.Italic
+                } else {
+                    FontStyle.Normal
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.width(12.dp))
+            PlacePinIcon(tint = metaInk, size = 13.dp)
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = placeText,
+                color = metaInk,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.height(4.dp))
     }
 }
 
@@ -399,13 +441,15 @@ fun FullscreenElement(
                                 // dahinter – das Buch läuft nicht an den Rand.
                                 .padding(end = 20.dp, bottom = 14.dp)
                                 .drawBehind {
-                                    val strip = 26.dp.toPx()
+                                    // Klassisch & ruhig: warmer Papierstapel, ein
+                                    // schmaler Falz und ein sehr weicher Schatten.
+                                    val strip = 30.dp.toPx()
                                     val fold = 3.dp.toPx()
-                                    val step = 6.dp.toPx()
-                                    // Zwei weitere Seiten liegen leicht versetzt hinten.
+                                    val step = 5.dp.toPx()
+                                    // Zwei weitere Seiten liegen dezent versetzt hinten.
                                     for (layer in 2 downTo 1) {
                                         val dx = layer * step
-                                        val dy = layer * step * 0.7f
+                                        val dy = layer * step * 0.6f
                                         drawRect(
                                             color = pageEdge,
                                             topLeft = Offset(dx, dy),
@@ -417,24 +461,28 @@ fun FullscreenElement(
                                             size = Size(size.width - dx, size.height - dy),
                                         )
                                     }
-                                    // Schmaler Rest der linken Seite mit Buchfalz.
+                                    // Linke Seite: sanft vom Papierton zum Falz hin abgedunkelt.
                                     drawRect(
-                                        color = leftPage,
+                                        brush = Brush.horizontalGradient(
+                                            colors = listOf(leftPage, leftPage, paper),
+                                            startX = 0f,
+                                            endX = strip,
+                                        ),
                                         topLeft = Offset.Zero,
                                         size = Size(strip, size.height),
                                     )
-                                    // Weicher Schatten am Falz.
+                                    // Sehr weicher Schatten rechts am Falz.
                                     drawRect(
                                         brush = Brush.horizontalGradient(
                                             colors = listOf(
-                                                ink.copy(alpha = 0.16f),
+                                                ink.copy(alpha = 0.10f),
                                                 Color.Transparent,
                                             ),
-                                            startX = strip - 8.dp.toPx(),
-                                            endX = strip + 10.dp.toPx(),
+                                            startX = 0f,
+                                            endX = 22.dp.toPx(),
                                         ),
-                                        topLeft = Offset(strip - 8.dp.toPx(), 0f),
-                                        size = Size(18.dp.toPx(), size.height),
+                                        topLeft = Offset(strip - 10.dp.toPx(), 0f),
+                                        size = Size(22.dp.toPx(), size.height),
                                     )
                                     drawLine(
                                         color = frame,
@@ -443,9 +491,16 @@ fun FullscreenElement(
                                         strokeWidth = fold,
                                     )
                                     drawLine(
-                                        color = ink.copy(alpha = 0.22f),
+                                        color = ink.copy(alpha = 0.16f),
                                         start = Offset(strip + fold, 0f),
                                         end = Offset(strip + fold, size.height),
+                                        strokeWidth = 1.dp.toPx(),
+                                    )
+                                    // Feine Unterkante der rechten Seite.
+                                    drawLine(
+                                        color = pageEdge,
+                                        start = Offset(strip, size.height - 1.dp.toPx()),
+                                        end = Offset(size.width, size.height - 1.dp.toPx()),
                                         strokeWidth = 1.dp.toPx(),
                                     )
                                 }
@@ -468,7 +523,7 @@ fun FullscreenElement(
                                 when {
                                     photoOnly -> Modifier
                                     entryOnly -> Modifier.padding(
-                                        start = 34.dp, end = 16.dp,
+                                        start = 44.dp, end = 16.dp,
                                         top = 10.dp, bottom = 10.dp,
                                     )
                                     else -> Modifier.padding(
@@ -496,9 +551,30 @@ fun FullscreenElement(
                                     MissingElement(onClose)
                                 } else {
                                     val bitmap = rememberBigImage(viewModel, currentPhoto.fileName)
+                                    val photoStopTitle = currentPhoto.stopId?.let { stopId ->
+                                        stops.firstOrNull { it.id == stopId }?.title
+                                    }
+                                    val photoPlaceText = when {
+                                        !photoStopTitle.isNullOrBlank() -> photoStopTitle
+                                        currentPhoto.latitude != null &&
+                                            currentPhoto.longitude != null -> {
+                                            val lat = currentPhoto.latitude!!
+                                            val lon = currentPhoto.longitude!!
+                                            String.format(
+                                                Locale.GERMANY,
+                                                "%.3f° %s, %.3f° %s",
+                                                Math.abs(lat),
+                                                if (lat >= 0) "N" else "S",
+                                                Math.abs(lon),
+                                                if (lon >= 0) "O" else "W",
+                                            )
+                                        }
+                                        else -> "Ohne Ort"
+                                    }
                                     PhotoPolaroidDetail(
                                         photo = currentPhoto,
                                         bitmap = bitmap,
+                                        placeText = photoPlaceText,
                                         viewModel = viewModel,
                                         scale = photoScale,
                                         pan = photoPan,
