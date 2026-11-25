@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.LruCache
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.util.haversineMeters
 import org.osmdroid.util.GeoPoint
@@ -44,6 +45,8 @@ class PolaroidOverlay(
     private var longPress: Runnable? = null
     private var downX = 0f
     private var downY = 0f
+    /** Beim Karten-Verschieben darf ein Loslassen über einem Bild nichts öffnen. */
+    private var tapMoved = false
 
     private data class Group(
         val ids: List<String>,
@@ -254,18 +257,27 @@ class PolaroidOverlay(
                 if (event.pointerCount == 1) {
                     downX = event.x
                     downY = event.y
+                    tapMoved = false
                     val hit = hitAreas.firstOrNull { it.first.contains(event.x, event.y) }
                     if (hit != null) {
                         val photoId = hit.third
                         longPress = Runnable {
                             longPress = null
                             onPhotoLongClick(photoId)
-                        }.also { handler.postDelayed(it, 2_000L) }
+                        }.also {
+                            // Übliches Android-Haltechangesignal, nicht zwei Sekunden.
+                            handler.postDelayed(
+                                it,
+                                ViewConfiguration.get(mapView.context)
+                                    .longPressTimeout.toLong(),
+                            )
+                        }
                     }
                 }
             }
             MotionEvent.ACTION_MOVE -> {
                 if (abs(event.x - downX) > 12f || abs(event.y - downY) > 12f) {
+                    tapMoved = true
                     cancelLongPress()
                 }
             }
@@ -275,8 +287,10 @@ class PolaroidOverlay(
             }
             MotionEvent.ACTION_UP -> {
                 cancelLongPress()
-                val blocked = ignoreTapsUntilRelease
+                val blocked = ignoreTapsUntilRelease || tapMoved ||
+                    abs(event.x - downX) > 12f || abs(event.y - downY) > 12f
                 ignoreTapsUntilRelease = false
+                tapMoved = false
                 if (blocked) return false
                 val hit = hitAreas.firstOrNull { it.first.contains(event.x, event.y) }
                 if (hit != null) {
@@ -286,6 +300,7 @@ class PolaroidOverlay(
             }
             MotionEvent.ACTION_CANCEL -> {
                 ignoreTapsUntilRelease = false
+                tapMoved = false
                 cancelLongPress()
             }
         }

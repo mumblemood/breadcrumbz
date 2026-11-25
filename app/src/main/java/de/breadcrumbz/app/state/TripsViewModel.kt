@@ -9,6 +9,7 @@ import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.Trip
 import de.breadcrumbz.app.domain.repository.BreadcrumbzRepository
+import de.breadcrumbz.app.domain.util.tripTimeRange
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -49,16 +50,13 @@ class TripsViewModel(
             val tripEntries = entries.filter { it.tripId == trip.id }
             val tripPhotos = photos.filter { it.tripId == trip.id }
 
-            val times = buildList {
-                addAll(tripPhotos.mapNotNull { it.capturedAt })
-                addAll(tripStops.mapNotNull { it.visitedAt })
-                addAll(tripEntries.mapNotNull { it.entryAt })
-            }.sorted()
+            // An-/Abreise-Pins und ihre Inhalte zählen nicht zur Gesamtreise.
+            val range = tripTimeRange(tripStops, tripEntries, tripPhotos)
 
             TripOverview(
                 trip = trip,
-                startDate = trip.startDate ?: times.firstOrNull(),
-                endDate = trip.endDate ?: times.lastOrNull(),
+                startDate = trip.startDate ?: range.first,
+                endDate = trip.endDate ?: range.second,
                 place = tripStops.firstOrNull { it.title.isNotBlank() }?.title,
                 coverPhoto = tripPhotos.firstOrNull { it.id == trip.coverPhotoId },
             )

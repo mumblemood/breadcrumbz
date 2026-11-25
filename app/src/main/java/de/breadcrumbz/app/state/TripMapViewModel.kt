@@ -155,12 +155,17 @@ class TripMapViewModel(
     /** Live-Luftlinie in km. Straßen-km über OSRM kommen in einem späteren Schritt. */
     val distanceKm = stops.map { list ->
         val meters = (1 until list.size).sumOf { index ->
-            haversineMeters(
-                list[index - 1].latitude,
-                list[index - 1].longitude,
-                list[index].latitude,
-                list[index].longitude,
-            )
+            val previous = list[index - 1]
+            val current = list[index]
+            // An-/Abreise zählt nicht mit in die Gesamtstrecke.
+            if (previous.isArrivalDeparture || current.isArrivalDeparture) {
+                0.0
+            } else {
+                haversineMeters(
+                    previous.latitude, previous.longitude,
+                    current.latitude, current.longitude,
+                )
+            }
         }
         meters / 1_000.0
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0.0)
@@ -567,6 +572,15 @@ class TripMapViewModel(
             val stop = repository.observeStops(tripId).first().firstOrNull { it.id == stopId }
                 ?: return@launch
             repository.updateStop(stop.copy(transportMode = mode))
+        }
+    }
+
+    /** An-/Abreise eines Pins markieren: zählt nicht bei Datum und Kilometern. */
+    fun setStopArrivalDeparture(stopId: String, value: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val stop = repository.observeStops(tripId).first().firstOrNull { it.id == stopId }
+                ?: return@launch
+            repository.updateStop(stop.copy(isArrivalDeparture = value))
         }
     }
 

@@ -31,6 +31,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -82,8 +83,10 @@ import de.breadcrumbz.app.domain.model.TimelineItem
 import de.breadcrumbz.app.domain.model.OverlayMode
 import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.TransportMode
+import de.breadcrumbz.app.domain.model.symbol
 import de.breadcrumbz.app.domain.model.TimelineKind
 import de.breadcrumbz.app.domain.util.haversineMeters
+import de.breadcrumbz.app.domain.util.tripTimeRange
 import de.breadcrumbz.app.state.TripMapViewModel
 import de.breadcrumbz.app.ui.map.AdventureTimeline
 import de.breadcrumbz.app.ui.map.ClusterElement
@@ -194,6 +197,7 @@ fun TripMapScreen(
     var stackPhotoIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var coverPickerOpen by remember { mutableStateOf(false) }
     var segmentModeStopId by remember { mutableStateOf<String?>(null) }
+    var defaultModePickerOpen by remember { mutableStateOf(false) }
     var photoTargetEntryId by remember { mutableStateOf<String?>(null) }
     var zoomOutToCurrent by remember { mutableStateOf(false) }
     var didRequestEmptyLocation by remember { mutableStateOf(false) }
@@ -247,6 +251,7 @@ fun TripMapScreen(
             fullscreenKey != null -> fullscreenKey = null
             photoTargetEntryId != null -> photoTargetEntryId = null
             coverPickerOpen -> coverPickerOpen = false
+            defaultModePickerOpen -> defaultModePickerOpen = false
             segmentModeStopId != null -> segmentModeStopId = null
             stackPhotoIds.isNotEmpty() -> stackPhotoIds = emptyList()
             pendingPhotoId != null || pendingEntryId != null -> viewModel.cancelPlacement()
@@ -512,7 +517,7 @@ fun TripMapScreen(
     // jeder Kartenbewegung. So bleiben die Striche der Reiselinie stabil.
     val routeLines = remember(
         orderedRouteStops, trip?.defaultTransportMode, trip?.routeMode,
-        onlinePoints, waypointPointsByStop,
+        onlinePoints, waypointPointsByStop, routeEditSegments,
     ) {
         RouteStyling.build(
             mapView = mapView,
@@ -524,13 +529,18 @@ fun TripMapScreen(
             // Tippen auf die Linie öffnet die Verkehrsmittelwahl,
             // keine Sprechblase (InfoWindow ist in RouteStyling null).
             onLineClick = { clicked ->
-                val nearest = orderedRouteStops.minByOrNull { stop ->
-                    haversineMeters(
-                        stop.latitude, stop.longitude,
-                        clicked.latitude, clicked.longitude,
-                    )
+                // Die Berührung gehört zum nächsten gezeichneten Abschnitt –
+                // nicht einfach zum nächsten Pin. Der erste Pin hat selbst
+                // keinen Abschnitt und darf hier nicht ausgewählt werden.
+                val nearestSegment = routeEditSegments.minByOrNull { (_, points) ->
+                    points.minOf { point ->
+                        haversineMeters(
+                            point.latitude, point.longitude,
+                            clicked.latitude, clicked.longitude,
+                        )
+                    }
                 }
-                segmentModeStopId = nearest?.id
+                segmentModeStopId = nearestSegment?.first
             },
         )
     }
@@ -670,9 +680,13 @@ fun TripMapScreen(
         }
     }
 
+    // An-/Abreise bleiben im Reisedatum außen vor, sind aber weiter sichtbar.
+    val effectiveRange = remember(stops, allEntries, photos) {
+        tripTimeRange(stops, allEntries, photos)
+    }
     val dateRange = listOfNotNull(
-        trip?.startDate?.let { formatDate(it) },
-        trip?.endDate?.let { formatDate(it) },
+        trip?.startDate?.let { formatDate(it) } ?: effectiveRange.first?.let { formatDate(it) },
+        trip?.endDate?.let { formatDate(it) } ?: effectiveRange.second?.let { formatDate(it) },
     ).joinToString(" - ")
 
     fun commitTitle() {
@@ -742,7 +756,7 @@ fun TripMapScreen(
                                         if (trip?.routeMode == RouteMode.DIRECT) {
                                             "Linie: direkt"
                                         } else {
-                                            "Linie: Auto"
+                                            "Linie: automatisch"
                                         },
                                     )
                                 },
@@ -787,18 +801,15 @@ fun TripMapScreen(
                             )
                             DropdownMenuItem(
                                 text = {
+                                    val current = trip?.defaultTransportMode ?: TransportMode.CAR
                                     Text(
-                                        "Verkehrsmittel: " +
-                                            (trip?.defaultTransportMode ?: TransportMode.CAR).label,
+                                        "Standardverkehrsmittel: " +
+                                            "${current.symbol()} ${current.label}",
                                     )
                                 },
                                 onClick = {
                                     tripMenuExpanded = false
-                                    val modes = TransportMode.entries
-                                    val current = trip?.defaultTransportMode ?: TransportMode.CAR
-                                    viewModel.setDefaultTransportMode(
-                                        modes[(modes.indexOf(current) + 1) % modes.size],
-                                    )
+                                    defaultModePickerOpen = true
                                 },
                             )
                         }
@@ -841,6 +852,13 @@ fun TripMapScreen(
                         view.overlays.clear()
                         view.overlays.add(locationOverlay)
 
+                        // Dieselben Polyline-Objekte bleiben erhalten – beim
+                        // Verschieben der Karte werden die Striche nicht neu
+                        // aufgebaut und springen dadurch nicht.
+                        // Die Route liegt unter den Bildern: Fotos sind immer
+                        // sichtbar und bekommen den Tap zuerst.
+                        routeLines.forEach { view.overlays.add(it) }
+
                         val clusterElements = buildList {
                             stops.forEach { stop ->
                                 add(ClusterElement(stop.latitude, stop.longitude, "stop-${stop.id}"))
@@ -869,11 +887,6 @@ fun TripMapScreen(
                         } else {
                             view.overlays.add(polaroidOverlay)
                         }
-
-                        // Dieselben Polyline-Objekte bleiben erhalten – beim
-                        // Verschieben der Karte werden die Striche nicht neu
-                        // aufgebaut und springen dadurch nicht.
-                        routeLines.forEach { view.overlays.add(it) }
 
                         markers.clear()
                         stops.forEach { stop ->
@@ -1096,17 +1109,53 @@ fun TripMapScreen(
         }
     }
 
-    // Verkehrsmittel für einen Abschnitt – direkt nach einem Tap auf die Linie.
+    // Standardverkehrsmittel: genau ein Menüeintrag öffnet dieses Pop-up.
+    if (defaultModePickerOpen) {
+        AlertDialog(
+            onDismissRequest = { defaultModePickerOpen = false },
+            title = { Text("Standardverkehrsmittel") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    TransportMode.entries.forEach { mode ->
+                        TextButton(onClick = {
+                            viewModel.setDefaultTransportMode(mode)
+                            defaultModePickerOpen = false
+                        }) {
+                            Text("${mode.symbol()}   ${mode.label}")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { defaultModePickerOpen = false }) { Text("Abbrechen") }
+            },
+        )
+    }
+
+    // Verkehrsmittel und An-/Abreise für einen Abschnitt – nach Tap auf die Linie.
     segmentModeStopId?.let { stopId ->
         val stop = stops.firstOrNull { it.id == stopId }
+        val target = stop?.title?.takeIf { it.isNotBlank() } ?: "diesem Pin"
+        val firstStop = orderedRouteStops.firstOrNull()
+        val lastStop = orderedRouteStops.lastOrNull()
+        val firstSegmentStopId = orderedRouteStops.getOrNull(1)?.id
+        // Bei genau zwei Pins sind erster und letzter Abschnitt derselbe;
+        // dann braucht es zwei Häkchen in einem Pop-up.
+        val lastSegmentStopId =
+            if (orderedRouteStops.size >= 2) orderedRouteStops.lastOrNull()?.id else null
+        // Die Auswahl gehört zum Ankunftspin, das Häkchen meint aber den
+        // ersten bzw. letzten Pin der Gesamtstrecke.
+        val endpointRows = buildList<Pair<String, String>> {
+            if (firstStop != null && stopId == firstSegmentStopId) {
+                add(firstStop.id to "Anreise: erster Pin zählt nicht mit")
+            }
+            if (lastStop != null && stopId == lastSegmentStopId && lastStop.id != firstStop?.id) {
+                add(lastStop.id to "Abreise: letzter Pin zählt nicht mit")
+            }
+        }
         AlertDialog(
             onDismissRequest = { segmentModeStopId = null },
-            title = {
-                Text(
-                    "Verkehrsmittel bis " +
-                        (stop?.title?.ifBlank { " diesem Pin" } ?: " diesem Pin"),
-                )
-            },
+            title = { Text("Abschnitt bis $target") },
             text = {
                 Column {
                     TransportMode.entries.forEach { mode ->
@@ -1118,13 +1167,26 @@ fun TripMapScreen(
                             }
                             segmentModeStopId = null
                         }) {
-                            Text(mode.label)
+                            Text("${mode.symbol()}   ${mode.label}")
+                        }
+                    }
+                    endpointRows.forEach { (endpointId, label) ->
+                        val checked = stops.firstOrNull { it.id == endpointId }
+                            ?.isArrivalDeparture == true
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = checked,
+                                onCheckedChange = {
+                                    viewModel.setStopArrivalDeparture(endpointId, it)
+                                },
+                            )
+                            Text(label, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { segmentModeStopId = null }) { Text("Abbrechen") }
+                TextButton(onClick = { segmentModeStopId = null }) { Text("Fertig") }
             },
         )
     }

@@ -248,6 +248,7 @@ class BackupManager(
         put("tripId", tripId)
         put("entryId", entryId ?: JSONObject.NULL)
         put("transportMode", transportMode ?: JSONObject.NULL)
+        put("isArrivalDeparture", isArrivalDeparture)
         put("title", title)
         put("latitude", latitude)
         put("longitude", longitude)
@@ -266,6 +267,8 @@ class BackupManager(
         tripId = optString("tripId"),
         entryId = if (isNull("entryId")) null else optString("entryId"),
         transportMode = if (isNull("transportMode")) null else optString("transportMode"),
+        // Alte Backups ohne Feld behalten ihre bisherige Gesamtansicht.
+        isArrivalDeparture = optBoolean("isArrivalDeparture", false),
         title = optString("title", "Wegpunkt"),
         latitude = doubleOrNull("latitude") ?: 0.0,
         longitude = doubleOrNull("longitude") ?: 0.0,

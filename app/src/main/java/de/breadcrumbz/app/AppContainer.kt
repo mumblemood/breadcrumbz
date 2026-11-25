@@ -15,6 +15,7 @@ import de.breadcrumbz.app.data.db.MIGRATION_7_8
 import de.breadcrumbz.app.data.db.MIGRATION_8_9
 import de.breadcrumbz.app.data.db.MIGRATION_9_10
 import de.breadcrumbz.app.data.db.MIGRATION_10_11
+import de.breadcrumbz.app.data.db.MIGRATION_11_12
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
 import de.breadcrumbz.app.data.route.RoutingService
 import de.breadcrumbz.app.data.settings.SettingsStore
@@ -62,6 +63,7 @@ class AppContainer(context: Context) {
         MIGRATION_8_9,
         MIGRATION_9_10,
         MIGRATION_10_11,
+        MIGRATION_11_12,
     ).build()
 
     private val tripDao = database.tripDao()

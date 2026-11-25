@@ -34,6 +34,8 @@ data class Stop(
     val entryId: String?,
     /** Verkehrsmittel für den Abschnitt vom vorherigen Pin hierher. null = Reise-Standard. */
     val transportMode: TransportMode? = null,
+    /** Anreise oder Abreise: zählt nicht bei Datum und Kilometern der Gesamtreise. */
+    val isArrivalDeparture: Boolean = false,
     val title: String,
     val latitude: Double,
     val longitude: Double,

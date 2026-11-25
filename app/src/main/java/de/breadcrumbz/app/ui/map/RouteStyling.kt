@@ -1,6 +1,5 @@
 package de.breadcrumbz.app.ui.map
 
-import android.graphics.DashPathEffect
 import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TransportMode
@@ -15,7 +14,7 @@ import kotlin.math.sin
 
 /**
  * Die Linie auf der Karte sieht genauso aus wie in der Zeitleiste:
- * weißer Untergrund, schwarze gestrichelte Linie darüber. Das Verkehrsmittel
+ * weißer Untergrund, schwarze durchgezogene Linie darüber. Das Verkehrsmittel
  * bestimmt nur, wie die Punkte geführt werden – nicht die Farbe.
  *
  * Ein Tippen auf die Linie öffnet die Verkehrsmittel-Auswahl des Abschnitts.
@@ -23,14 +22,11 @@ import kotlin.math.sin
 object RouteStyling {
 
     // Dieselben Werte benutzt auch die Zeitleiste – Karte und Timeline sehen
-    // dadurch identisch aus: weißer Unterzug, schwarze gestrichelte Linie.
+    // dadurch identisch aus: weißer Unterzug, schwarze durchgezogene Linie.
     val LINE_COLOR = 0xFF3B2B20.toInt()
     val UNDER_COLOR = 0xFFFFFFFF.toInt()
     const val LINE_WIDTH = 14f
     const val UNDER_WIDTH = 26f
-    // Längere Pause zwischen den Strichen, damit die Lücken deutlich sichtbar sind.
-    const val DASH = 26f
-    const val GAP = 22f
 
     fun build(
         mapView: MapView,
@@ -57,7 +53,7 @@ object RouteStyling {
             val points = smooth(via)
             return listOf(
                 underLine(mapView, points),
-                dashedLine(mapView, points) { _, _, point ->
+                topLine(mapView, points) { _, _, point ->
                     onLineClick(point ?: points.last())
                     true
                 },
@@ -86,7 +82,7 @@ object RouteStyling {
                     raw
                 }
                 add(underLine(mapView, points))
-                add(dashedLine(mapView, points) { _, _, point ->
+                add(topLine(mapView, points) { _, _, point ->
                     onLineClick(point ?: GeoPoint(to.latitude, to.longitude))
                     true
                 })
@@ -95,18 +91,15 @@ object RouteStyling {
     }
 
     private fun underLine(mapView: MapView, points: List<GeoPoint>): Polyline =
-        line(mapView, points, UNDER_COLOR, UNDER_WIDTH, null).apply {
+        line(mapView, points, UNDER_COLOR, UNDER_WIDTH).apply {
             infoWindow = null
         }
 
-    private fun dashedLine(
+    private fun topLine(
         mapView: MapView,
         points: List<GeoPoint>,
         onClick: Polyline.OnClickListener,
-    ): Polyline = line(
-        mapView, points, LINE_COLOR, LINE_WIDTH,
-        DashPathEffect(floatArrayOf(DASH, GAP), 0f),
-    ).apply {
+    ): Polyline = line(mapView, points, LINE_COLOR, LINE_WIDTH).apply {
         // Keine Sprechblase: ein Tippen öffnet die Verkehrsmittel-Auswahl.
         infoWindow = null
         setOnClickListener(onClick)
@@ -117,12 +110,11 @@ object RouteStyling {
         points: List<GeoPoint>,
         color: Int,
         width: Float,
-        dash: DashPathEffect?,
     ): Polyline = Polyline(mapView).apply {
         setPoints(points)
         this.color = color
         this.width = width
-        paint.pathEffect = dash
+        paint.pathEffect = null
     }
 
     /** Führt die Linie über alle gesetzten Zwischenpunkte des Abschnitts. */
@@ -168,7 +160,10 @@ object RouteStyling {
                 point.latitude, point.longitude,
             )
             val turn = turnDegrees(source[index - 1], point, source[index + 1])
-            if (distance >= 120.0 || turn >= 22.0) kept.add(point)
+            // Grobe Punkte: ein Zwischenpunkt etwa alle 300 m, scharfe
+            // Abbiegungen zusätzlich. So bleibt die Linie nur ungefähr
+            // an der Straße, statt ihr Punkt für Punkt zu folgen.
+            if (distance >= 300.0 || turn >= 30.0) kept.add(point)
         }
         kept.add(source.last())
         if (kept.size < 3) return smooth(kept)
@@ -180,7 +175,8 @@ object RouteStyling {
             } else {
                 val t = index.toDouble() / kept.lastIndex
                 val envelope = Math.sin(t * Math.PI)
-                val lateral = Math.sin(index * 1.7 + seed) * 26.0 * envelope
+                // Sichtbarer, aber ruhiger Stift-Schwung nach beiden Seiten.
+                val lateral = Math.sin(index * 1.7 + seed) * 120.0 * envelope
                 val before = kept[index - 1]
                 val after = kept[index + 1]
                 val cosLat = Math.cos(Math.toRadians(point.latitude)).coerceAtLeast(0.01)

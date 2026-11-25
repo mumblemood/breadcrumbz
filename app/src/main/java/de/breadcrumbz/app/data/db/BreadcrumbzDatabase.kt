@@ -21,7 +21,7 @@ import java.util.UUID
         PlaceNameEntity::class,
         RouteWaypointEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class BreadcrumbzDatabase : RoomDatabase() {
@@ -238,6 +238,19 @@ val MIGRATION_10_11 = object : Migration(10, 11) {
         db.execSQL(
             "CREATE INDEX IF NOT EXISTS `index_route_waypoints_tripId_sortIndex` " +
                 "ON `route_waypoints` (`tripId`, `sortIndex`)",
+        )
+    }
+}
+
+/**
+ * Version 12: Kennzeichnet An- und Abreise. Alle vorhandenen Pins bleiben
+ * ganz normal in Datum und Kilometern; nur neue Häkchen nehmen sie heraus.
+ */
+val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE `stops` ADD COLUMN `isArrivalDeparture` " +
+                "INTEGER NOT NULL DEFAULT 0",
         )
     }
 }

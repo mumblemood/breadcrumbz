@@ -88,6 +88,7 @@ import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TransportMode
+import de.breadcrumbz.app.domain.model.symbol
 import de.breadcrumbz.app.state.TripMapViewModel
 import de.breadcrumbz.app.ui.map.PlacePinIcon
 import java.io.File
@@ -103,15 +104,6 @@ private val leftPage = Color(0xFFEFE4CF)
 private val pageBack = Color(0xFFE8D9BF)
 private val pageEdge = Color(0xFFCDBB9C)
 
-private fun TransportMode.symbol(): String = when (this) {
-    TransportMode.WALK -> "🚶"
-    TransportMode.BIKE -> "🚲"
-    TransportMode.KAYAK -> "🛶"
-    TransportMode.CAR -> "🚗"
-    TransportMode.TRAIN -> "🚆"
-    TransportMode.PLANE -> "✈️"
-    TransportMode.CAMPER -> "🚐"
-}
 private val ink = Color(0xFF3B2B20)
 private val frame = Color(0xFFDCCDB4)
 // Comic Sans ist nicht auf allen Geräten installiert. Die systemweite

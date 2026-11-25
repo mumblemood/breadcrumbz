@@ -43,6 +43,8 @@ data class StopEntity(
     val tripId: String,
     val entryId: String?,
     val transportMode: String?,
+    @ColumnInfo(defaultValue = "0")
+    val isArrivalDeparture: Boolean = false,
     val title: String,
     val latitude: Double,
     val longitude: Double,

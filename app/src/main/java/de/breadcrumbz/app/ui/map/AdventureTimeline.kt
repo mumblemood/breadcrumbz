@@ -49,7 +49,6 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -219,12 +218,18 @@ fun AdventureTimeline(
     val stopKm = remember(orderedStops) {
         val result = mutableMapOf<String, Double>()
         var total = 0.0
-        orderedStops.forEachIndexed { index, stop ->
-            if (index > 0) {
-                val previous = orderedStops[index - 1]
-                total += haversineMeters(
-                    previous.latitude, previous.longitude, stop.latitude, stop.longitude,
-                ) / 1_000.0
+        // An-/Abreise-Pins liegen außerhalb der Gesamtstrecke: weder die
+        // Anfahrt zu ihnen noch die Abfahrt von ihnen wird gezählt.
+        var previousKept: Stop? = null
+        orderedStops.forEach { stop ->
+            if (!stop.isArrivalDeparture) {
+                previousKept?.let { previous ->
+                    total += haversineMeters(
+                        previous.latitude, previous.longitude,
+                        stop.latitude, stop.longitude,
+                    ) / 1_000.0
+                }
+                previousKept = stop
             }
             result[stop.id] = total
         }
@@ -440,7 +445,9 @@ fun AdventureTimeline(
             val dayGap = with(density) { 14.dp.toPx() }
             // Kleiner als der Abstand zwischen zwei Punkten (8 dp), sonst
             // berühren sich die Rahmen benachbarter Einträge.
-            val entryPad = with(density) { 6.dp.toPx() }
+            // Größer als die Innen-Padding der Karten (8 dp), damit kein Text
+            // über den Rahmen ragt. Die Trennung der Rahmen erfolgt weiter unten.
+            val entryPad = with(density) { 12.dp.toPx() }
             val dayTopPx = with(density) { 46.dp.toPx() }
             val dayBottomPx = with(density) { (maxHeight - 8.dp).toPx() }
             val entryBottomPx = with(density) { (maxHeight - 14.dp).toPx() }
@@ -454,29 +461,23 @@ fun AdventureTimeline(
                 dayKeys.mapIndexed { index, key ->
                     val children = points.filter { it.dayKey == key }
                     if (children.isEmpty()) return@mapIndexed key to Rect.Zero
-                    val firstX = children.minOf { it.x }
-                    val lastX = children.maxOf { it.x }
-                    val firstPoint = children.first { it.x == firstX }
-                    val lastPoint = children.first { it.x == lastX }
+                    // Alle Karten zählen: eine breite Karte in der Mitte darf
+                    // nicht über den Tagesrahmen hinausragen.
+                    val firstEdge = children.minOf { it.x - it.slot / 2f } - dayPad
+                    val lastEdge = children.maxOf { it.x + it.slot / 2f } + dayPad
                     val left = if (index == 0) {
-                        firstX - firstPoint.slot / 2f - dayPad
+                        firstEdge
                     } else {
                         val prevChildren = points.filter { it.dayKey == dayKeys[index - 1] }
-                        val prevLastX = prevChildren.maxOf { it.x }
-                        val prevLast = prevChildren.first { it.x == prevLastX }
-                        val prevEdge = prevLastX + prevLast.slot / 2f + dayPad
-                        val nextEdge = firstX - firstPoint.slot / 2f - dayPad
-                        (prevEdge + nextEdge) / 2f + dayGap / 2f
+                        val prevEdge = prevChildren.maxOf { it.x + it.slot / 2f } + dayPad
+                        (prevEdge + firstEdge) / 2f + dayGap / 2f
                     }
                     val right = if (index == dayKeys.lastIndex) {
-                        lastX + lastPoint.slot / 2f + dayPad
+                        lastEdge
                     } else {
                         val nextChildren = points.filter { it.dayKey == dayKeys[index + 1] }
-                        val nextFirstX = nextChildren.minOf { it.x }
-                        val nextFirst = nextChildren.first { it.x == nextFirstX }
-                        val thisEdge = lastX + lastPoint.slot / 2f + dayPad
-                        val nextEdge = nextFirstX - nextFirst.slot / 2f - dayPad
-                        (thisEdge + nextEdge) / 2f - dayGap / 2f
+                        val nextEdge = nextChildren.minOf { it.x - it.slot / 2f } - dayPad
+                        (lastEdge + nextEdge) / 2f - dayGap / 2f
                     }
                     val safeLeft = minOf(left, right - 8f)
                     val safeRight = maxOf(right, safeLeft + 8f)
@@ -494,19 +495,17 @@ fun AdventureTimeline(
                         val id = entry.item?.entryId ?: return@mapNotNull null
                         val children = points.filter { it.entryId == id }
                         if (children.isEmpty()) return@mapNotNull null
-                        val minX = children.minOf { it.x }
-                        val maxX = children.maxOf { it.x }
-                        val minPoint = children.first { it.x == minX }
-                        val maxPoint = children.first { it.x == maxX }
                         val dayRect = entry.dayKey?.let { dayFrames[it] }
-                        val rawLeft = minX - minPoint.slot / 2f - entryPad
-                        val rawRight = maxX + maxPoint.slot / 2f + entryPad
+                        // Die breiteste Karte liegt nicht zwangsläufig am Rand:
+                        // deshalb alle Karten des Eintrags berücksichtigen.
+                        val rawLeft = children.minOf { it.x - it.slot / 2f } - entryPad
+                        val rawRight = children.maxOf { it.x + it.slot / 2f } + entryPad
                         val left = if (dayRect != null) maxOf(rawLeft, dayRect.left) else rawLeft
                         val right = if (dayRect != null) minOf(rawRight, dayRect.right) else rawRight
                         if (right <= left + 4f) return@mapNotNull null
                         Triple(entry.dayKey, id, Rect(left, entryTopPx, right, entryBottomPx))
                     }
-                val minGap = with(density) { 4.dp.toPx() }
+                val minGap = with(density) { 6.dp.toPx() }
                 val separated = linkedMapOf<String, Rect>()
                 raw.groupBy({ it.first }, { it.second to it.third })
                     .forEach { (dayKey, items) ->
@@ -597,24 +596,20 @@ fun AdventureTimeline(
                         baseY + (sin(index * 0.85f) * with(density) { 6.dp.toPx() }).toFloat()
                     }
                     // Identische Werte wie auf der Karte (RouteStyling).
-                    val dash = PathEffect.dashPathEffect(
-                        floatArrayOf(RouteStyling.DASH, RouteStyling.GAP), 0f,
-                    )
-
                     val path = Path()
                     path.moveTo(points.first().x, yAt(0))
                     for (index in 1 until points.size) {
                         val middle = (points[index - 1].x + points[index].x) / 2
                         path.quadraticBezierTo(middle, yAt(index - 1), points[index].x, yAt(index))
                     }
-                    // Weißer Unterzug, darüber schwarze Striche – wie auf der Karte.
+                    // Weißer Unterzug, darüber die durchgezogene Linie – wie auf der Karte.
                     drawPath(
                         path, Color(RouteStyling.UNDER_COLOR),
                         style = Stroke(width = RouteStyling.UNDER_WIDTH),
                     )
                     drawPath(
                         path, Color(RouteStyling.LINE_COLOR),
-                        style = Stroke(width = RouteStyling.LINE_WIDTH, pathEffect = dash),
+                        style = Stroke(width = RouteStyling.LINE_WIDTH),
                     )
 
                     val centerIndex = points.indexOfFirst { it.key == centerKey }
