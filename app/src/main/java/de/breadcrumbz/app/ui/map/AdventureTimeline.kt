@@ -66,6 +66,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 import kotlin.math.sin
 
 private data class TimelinePoint(
@@ -620,7 +621,9 @@ fun AdventureTimeline(
                                     if (edgeDelta != 0f) {
                                         edgeJob?.cancel()
                                         edgeJob = scrollScope.launch {
-                                            scrollState.scrollBy(edgeDelta)
+                                            scrollState.scrollTo(
+                                                scrollState.value + edgeDelta.roundToInt(),
+                                            )
                                         }
                                     }
                                     // Nur gültige Ziele leuchten auf.
