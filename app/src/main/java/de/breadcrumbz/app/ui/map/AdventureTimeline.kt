@@ -198,9 +198,14 @@ fun AdventureTimeline(
     externalSeq: Long = 0L,
     /** "timeline" bedeutet: Ziel kam aus dem Wischen – nicht zurückscrollen. */
     externalOrigin: String? = null,
+    /** Fortlaufende Position für Karte und Schieberegler (0..1). */
+    externalFraction: Float? = null,
+    externalFractionSeq: Long = 0L,
+    /** "timeline" bedeutet: Die Zeitleiste führt gerade selbst. */
+    externalFractionOrigin: String? = null,
     /** Foto, das von Karte oder Zeitleiste markiert wurde (sanftes Leuchten). */
     highlightPhotoId: String? = null,
-    onScrollFraction: (Float) -> Unit = {},
+    onScrollFraction: (Float, Boolean) -> Unit = { _, _ -> },
     onDropElement: (String, String?) -> Unit = { _, _ -> },
     onDropEntry: (String, Float, Float) -> Unit = { _, _, _ -> },
     onCenterKeyChange: (String?) -> Unit = {},
@@ -447,7 +452,28 @@ fun AdventureTimeline(
     } else {
         0f
     }
-    LaunchedEffect(scrollFraction) { onScrollFraction(scrollFraction) }
+    // Jede Scrollbewegung wird fortlaufend gemeldet. Nur echte Fingerwische
+    // (nicht das Nachscrollen durch die Karte) dürfen die Karte mitziehen.
+    LaunchedEffect(scrollFraction) {
+        val fromUser = scrollState.isScrollInProgress &&
+            System.currentTimeMillis() >= programmaticScrollUntil
+        onScrollFraction(scrollFraction, fromUser)
+    }
+    LaunchedEffect(
+        externalFraction, externalFractionSeq, externalFractionOrigin,
+        contentWidthPx, viewportPx,
+    ) {
+        val fraction = externalFraction ?: return@LaunchedEffect
+        if (externalFractionOrigin == "timeline" || externalFractionOrigin == "focus") {
+            return@LaunchedEffect
+        }
+        val maxScroll = (contentWidthPx - viewportPx).coerceAtLeast(0f)
+        val target = (fraction * maxScroll).roundToInt()
+        if (abs(scrollState.value - target) > 4) {
+            programmaticScrollUntil = System.currentTimeMillis() + 320L
+            scrollState.animateScrollTo(target)
+        }
+    }
     LaunchedEffect(externalKey, externalSeq, externalOrigin, viewportPx) {
         if (externalKey == null || externalOrigin == "timeline") return@LaunchedEffect
         // Ein Foto im Eintrag hat keinen eigenen Punkt: wir scrollen zu seinem

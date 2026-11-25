@@ -5,6 +5,7 @@ import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.RouteWaypoint
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.RouteMode
+import de.breadcrumbz.app.domain.model.SegmentMode
 import de.breadcrumbz.app.domain.model.StopSource
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.Trip
@@ -58,6 +59,11 @@ interface BreadcrumbzRepository {
 
     suspend fun updateWaypoint(waypoint: RouteWaypoint)
     suspend fun deleteWaypoint(id: String)
+
+    /** Verkehrsmittel gehören ausschließlich zu Abschnitten, nie zu Pins. */
+    fun observeSegmentModes(tripId: String): Flow<List<SegmentMode>>
+    suspend fun upsertSegmentMode(mode: SegmentMode)
+    suspend fun deleteSegmentMode(id: String)
 
     fun observeEntries(stopId: String): Flow<List<Entry>>
     fun observeEntriesForTrip(tripId: String): Flow<List<Entry>>

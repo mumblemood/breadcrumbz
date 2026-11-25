@@ -42,7 +42,6 @@ data class StopEntity(
     @PrimaryKey val id: String,
     val tripId: String,
     val entryId: String?,
-    val transportMode: String?,
     @ColumnInfo(defaultValue = "0")
     val isArrivalDeparture: Boolean = false,
     val title: String,
@@ -54,6 +53,32 @@ data class StopEntity(
     val distanceFromPreviousMeters: Double?,
     val distanceSource: String?,
     val distanceUpdatedAt: Long?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+/**
+ * Verkehrsmittel pro Reiseabschnitt. Der Schlüssel besteht aus beiden Pins,
+ * damit eine neue Reihenfolge automatisch einen neuen Abschnitt ergibt.
+ */
+@Entity(
+    tableName = "route_segment_modes",
+    foreignKeys = [
+        ForeignKey(
+            entity = TripEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["tripId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("tripId")],
+)
+data class RouteSegmentModeEntity(
+    @PrimaryKey val id: String,
+    val tripId: String,
+    val fromStopId: String,
+    val toStopId: String,
+    val mode: String,
     val createdAt: Long,
     val updatedAt: Long,
 )

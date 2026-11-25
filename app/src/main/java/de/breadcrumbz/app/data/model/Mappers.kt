@@ -8,6 +8,7 @@ import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.StopSource
 import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.RouteWaypoint
+import de.breadcrumbz.app.domain.model.SegmentMode
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.Trip
 
@@ -48,7 +49,6 @@ fun StopEntity.toDomain() = Stop(
     id = id,
     tripId = tripId,
     entryId = entryId,
-    transportMode = transportMode?.let { enumValue<TransportMode>(it, TransportMode.CAR) },
     isArrivalDeparture = isArrivalDeparture,
     title = title,
     latitude = latitude,
@@ -67,7 +67,6 @@ fun Stop.toEntity() = StopEntity(
     id = id,
     tripId = tripId,
     entryId = entryId,
-    transportMode = transportMode?.name,
     isArrivalDeparture = isArrivalDeparture,
     title = title,
     latitude = latitude,
@@ -158,4 +157,24 @@ fun Photo.toEntity() = PhotoEntity(
     caption = caption,
     sortIndex = sortIndex,
     createdAt = createdAt,
+)
+
+fun RouteSegmentModeEntity.toDomain() = SegmentMode(
+    id = id,
+    tripId = tripId,
+    fromStopId = fromStopId,
+    toStopId = toStopId,
+    mode = enumValue(mode, TransportMode.CAR),
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+)
+
+fun SegmentMode.toEntity() = RouteSegmentModeEntity(
+    id = id,
+    tripId = tripId,
+    fromStopId = fromStopId,
+    toStopId = toStopId,
+    mode = mode.name,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
 )

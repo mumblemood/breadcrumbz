@@ -2,6 +2,7 @@ package de.breadcrumbz.app.data.repository
 
 import de.breadcrumbz.app.data.db.EntryDao
 import de.breadcrumbz.app.data.db.PhotoDao
+import de.breadcrumbz.app.data.db.SegmentModeDao
 import de.breadcrumbz.app.data.db.WaypointDao
 import de.breadcrumbz.app.data.db.StopDao
 import de.breadcrumbz.app.data.db.TripDao
@@ -13,6 +14,7 @@ import de.breadcrumbz.app.domain.model.OverlayMode
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.RouteWaypoint
+import de.breadcrumbz.app.domain.model.SegmentMode
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.StopSource
@@ -29,6 +31,7 @@ class RoomBreadcrumbzRepository(
     private val entryDao: EntryDao,
     private val photoDao: PhotoDao,
     private val waypointDao: WaypointDao,
+    private val segmentModeDao: SegmentModeDao,
     private val photoStore: InternalPhotoStore,
 ) : BreadcrumbzRepository {
 
@@ -87,14 +90,10 @@ class RoomBreadcrumbzRepository(
         source: StopSource,
     ): Stop {
         val now = System.currentTimeMillis()
-        val defaultMode = observeTrips().firstOrNull()
-            ?.firstOrNull { it.id == tripId }
-            ?.defaultTransportMode ?: TransportMode.CAR
         val stop = Stop(
             id = UUID.randomUUID().toString(),
             tripId = tripId,
             entryId = null,
-            transportMode = defaultMode,
             title = title.trim(),
             latitude = latitude,
             longitude = longitude,
@@ -143,6 +142,15 @@ class RoomBreadcrumbzRepository(
         waypointDao.upsert(waypoint.toEntity())
 
     override suspend fun deleteWaypoint(id: String) = waypointDao.deleteById(id)
+
+    override fun observeSegmentModes(tripId: String): Flow<List<SegmentMode>> =
+        segmentModeDao.observeForTrip(tripId).map { rows -> rows.map { it.toDomain() } }
+
+    override suspend fun upsertSegmentMode(mode: SegmentMode) {
+        segmentModeDao.upsert(mode.copy(updatedAt = System.currentTimeMillis()).toEntity())
+    }
+
+    override suspend fun deleteSegmentMode(id: String) = segmentModeDao.deleteById(id)
 
     override fun observeEntries(stopId: String): Flow<List<Entry>> =
         entryDao.observeForStop(stopId).map { rows -> rows.map { it.toDomain() } }

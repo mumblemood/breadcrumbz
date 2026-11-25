@@ -34,10 +34,16 @@ jobs:
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "APK heißt jetzt $NAME"
 
-      - name: Alten APK-Namen entfernen
+      - name: Alte APK-Dateien entfernen
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release delete-asset latest app-debug.apk --yes || true
+        run: |
+          gh release view latest --json assets --jq '.assets[].name' 2>/dev/null \
+            | grep '\.apk$' \
+            | while IFS= read -r asset; do
+                gh release delete-asset latest "$asset" --yes || true
+              done
+          true
 
       - name: APK als Download bereitstellen
         uses: softprops/action-gh-release@v2

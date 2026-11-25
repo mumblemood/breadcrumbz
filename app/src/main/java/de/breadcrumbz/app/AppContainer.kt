@@ -16,6 +16,7 @@ import de.breadcrumbz.app.data.db.MIGRATION_8_9
 import de.breadcrumbz.app.data.db.MIGRATION_9_10
 import de.breadcrumbz.app.data.db.MIGRATION_10_11
 import de.breadcrumbz.app.data.db.MIGRATION_11_12
+import de.breadcrumbz.app.data.db.MIGRATION_12_13
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
 import de.breadcrumbz.app.data.route.RoutingService
 import de.breadcrumbz.app.data.settings.SettingsStore
@@ -64,6 +65,7 @@ class AppContainer(context: Context) {
         MIGRATION_9_10,
         MIGRATION_10_11,
         MIGRATION_11_12,
+        MIGRATION_12_13,
     ).build()
 
     private val tripDao = database.tripDao()
@@ -72,6 +74,7 @@ class AppContainer(context: Context) {
     private val photoDao = database.photoDao()
     private val placeNameDao = database.placeNameDao()
     private val waypointDao = database.waypointDao()
+    private val segmentModeDao = database.segmentModeDao()
 
     val photoStore = InternalPhotoStore(appContext)
 
@@ -83,6 +86,7 @@ class AppContainer(context: Context) {
         entryDao = entryDao,
         photoDao = photoDao,
         waypointDao = waypointDao,
+        segmentModeDao = segmentModeDao,
         photoStore = photoStore,
     )
 
@@ -94,6 +98,7 @@ class AppContainer(context: Context) {
         photoDao = photoDao,
         placeNameDao = placeNameDao,
         waypointDao = waypointDao,
+        segmentModeDao = segmentModeDao,
         photoStore = photoStore,
         appVersion = "0.18.0",
     )

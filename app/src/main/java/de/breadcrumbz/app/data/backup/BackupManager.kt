@@ -5,16 +5,19 @@ import android.net.Uri
 import de.breadcrumbz.app.data.db.EntryDao
 import de.breadcrumbz.app.data.db.PhotoDao
 import de.breadcrumbz.app.data.db.PlaceNameDao
+import de.breadcrumbz.app.data.db.SegmentModeDao
 import de.breadcrumbz.app.data.db.StopDao
 import de.breadcrumbz.app.data.db.TripDao
 import de.breadcrumbz.app.data.db.WaypointDao
 import de.breadcrumbz.app.data.model.EntryEntity
 import de.breadcrumbz.app.data.model.PhotoEntity
 import de.breadcrumbz.app.data.model.PlaceNameEntity
+import de.breadcrumbz.app.data.model.RouteSegmentModeEntity
 import de.breadcrumbz.app.data.model.RouteWaypointEntity
 import de.breadcrumbz.app.data.model.StopEntity
 import de.breadcrumbz.app.data.model.TripEntity
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
+import de.breadcrumbz.app.domain.util.segmentKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -39,6 +42,7 @@ class BackupManager(
     private val photoDao: PhotoDao,
     private val placeNameDao: PlaceNameDao,
     private val waypointDao: WaypointDao,
+    private val segmentModeDao: SegmentModeDao,
     private val photoStore: InternalPhotoStore,
     private val appVersion: String,
 ) {
@@ -49,6 +53,7 @@ class BackupManager(
         val photos = photoDao.observeAll().first()
         val places = placeNameDao.observeAll().first()
         val waypoints = waypointDao.observeAll().first()
+        val segmentModes = segmentModeDao.observeAll().first()
 
         val data = JSONObject().apply {
             put("format", "breadcrumbz-backup")
@@ -59,6 +64,7 @@ class BackupManager(
             put("photos", JSONArray(photos.map { it.toJson() }))
             put("placeNames", JSONArray(places.map { it.toJson() }))
             put("waypoints", JSONArray(waypoints.map { it.toJson() }))
+            put("segmentModes", JSONArray(segmentModes.map { it.toJson() }))
         }
         val manifest = JSONObject().apply {
             put("format", "breadcrumbz-backup")
@@ -70,6 +76,7 @@ class BackupManager(
             put("entries", entries.size)
             put("photos", photos.size)
             put("waypoints", waypoints.size)
+            put("segmentModes", segmentModes.size)
         }
 
         var writtenImages = 0
@@ -96,7 +103,7 @@ class BackupManager(
         }
         "Backup gespeichert: ${trips.size} Reisen, ${stops.size} Pins, " +
             "${entries.size} Einträge, $writtenImages Bilder, " +
-            "${waypoints.size} Routenpunkte."
+            "${waypoints.size} Routenpunkte, ${segmentModes.size} Abschnittsmodi."
     }
 
     suspend fun importFrom(uri: Uri): String = withContext(Dispatchers.IO) {
@@ -141,10 +148,19 @@ class BackupManager(
         var photos = 0
         var places = 0
         var waypoints = 0
+        var segmentModes = 0
         root.optJSONArray("trips").forEachRow { obj ->
             tripDao.upsert(obj.toTrip()); trips++
         }
+        // Alte Backups haben das Verkehrsmittel noch am Pin. Diese Werte werden
+        // beim Import auf den Abschnitt davor umgeschrieben, damit nichts verloren geht.
+        val legacyModes = mutableMapOf<String, String>()
         root.optJSONArray("stops").forEachRow { obj ->
+            if (obj.has("transportMode") && !obj.isNull("transportMode")) {
+                obj.optString("id").takeIf { it.isNotBlank() }?.let { id ->
+                    legacyModes[id] = obj.optString("transportMode")
+                }
+            }
             stopDao.insert(obj.toStop()); stops++
         }
         root.optJSONArray("entries").forEachRow { obj ->
@@ -162,8 +178,35 @@ class BackupManager(
         root.optJSONArray("waypoints").forEachRow { obj ->
             waypointDao.upsert(obj.toWaypoint()); waypoints++
         }
+        root.optJSONArray("segmentModes").forEachRow { obj ->
+            segmentModeDao.upsert(obj.toSegmentMode()); segmentModes++
+        }
+        val newModes = root.optJSONArray("segmentModes")
+        if ((newModes?.length() ?: 0) == 0 && legacyModes.isNotEmpty()) {
+            val allStops = stopDao.observeAll().first()
+            val now = System.currentTimeMillis()
+            legacyModes.forEach { (toId, mode) ->
+                val to = allStops.firstOrNull { it.id == toId } ?: return@forEach
+                val from = allStops.filter {
+                    it.tripId == to.tripId && it.sortIndex < to.sortIndex
+                }.maxByOrNull { it.sortIndex } ?: return@forEach
+                segmentModeDao.upsert(
+                    RouteSegmentModeEntity(
+                        id = segmentKey(from.id, to.id),
+                        tripId = to.tripId,
+                        fromStopId = from.id,
+                        toStopId = to.id,
+                        mode = mode,
+                        createdAt = now,
+                        updatedAt = now,
+                    ),
+                )
+                segmentModes++
+            }
+        }
         "Import fertig: $trips Reisen, $stops Pins, $entries Einträge, " +
-            "$photos Fotos, $waypoints Routenpunkte, $places Ortsnamen. " +
+            "$photos Fotos, $waypoints Routenpunkte, $segmentModes Abschnittsmodi, " +
+            "$places Ortsnamen. " +
             "Alter Stand liegt im Snapshot."
     }
 
@@ -247,7 +290,6 @@ class BackupManager(
         put("id", id)
         put("tripId", tripId)
         put("entryId", entryId ?: JSONObject.NULL)
-        put("transportMode", transportMode ?: JSONObject.NULL)
         put("isArrivalDeparture", isArrivalDeparture)
         put("title", title)
         put("latitude", latitude)
@@ -266,7 +308,6 @@ class BackupManager(
         id = optString("id").ifBlank { UUID.randomUUID().toString() },
         tripId = optString("tripId"),
         entryId = if (isNull("entryId")) null else optString("entryId"),
-        transportMode = if (isNull("transportMode")) null else optString("transportMode"),
         // Alte Backups ohne Feld behalten ihre bisherige Gesamtansicht.
         isArrivalDeparture = optBoolean("isArrivalDeparture", false),
         title = optString("title", "Wegpunkt"),
@@ -370,5 +411,25 @@ class BackupManager(
         longitude = doubleOrNull("longitude") ?: 0.0,
         sortIndex = optInt("sortIndex", 0),
         createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
+    )
+
+    private fun RouteSegmentModeEntity.toJson() = JSONObject().apply {
+        put("id", id)
+        put("tripId", tripId)
+        put("fromStopId", fromStopId)
+        put("toStopId", toStopId)
+        put("mode", mode)
+        put("createdAt", createdAt)
+        put("updatedAt", updatedAt)
+    }
+
+    private fun JSONObject.toSegmentMode() = RouteSegmentModeEntity(
+        id = optString("id").ifBlank { UUID.randomUUID().toString() },
+        tripId = optString("tripId"),
+        fromStopId = optString("fromStopId"),
+        toStopId = optString("toStopId"),
+        mode = optString("mode", "CAR"),
+        createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
+        updatedAt = longOrNull("updatedAt") ?: System.currentTimeMillis(),
     )
 }

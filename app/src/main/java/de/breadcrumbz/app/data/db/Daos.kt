@@ -8,6 +8,7 @@ import androidx.room.Update
 import de.breadcrumbz.app.data.model.EntryEntity
 import de.breadcrumbz.app.data.model.PhotoEntity
 import de.breadcrumbz.app.data.model.PlaceNameEntity
+import de.breadcrumbz.app.data.model.RouteSegmentModeEntity
 import de.breadcrumbz.app.data.model.RouteWaypointEntity
 import de.breadcrumbz.app.data.model.StopEntity
 import de.breadcrumbz.app.data.model.TripEntity
@@ -71,6 +72,21 @@ interface WaypointDao {
 
     @Query("SELECT COALESCE(MAX(sortIndex), -1) + 1 FROM route_waypoints WHERE tripId = :tripId")
     suspend fun nextSortIndex(tripId: String): Int
+}
+
+@Dao
+interface SegmentModeDao {
+    @Query("SELECT * FROM route_segment_modes WHERE tripId = :tripId")
+    fun observeForTrip(tripId: String): Flow<List<RouteSegmentModeEntity>>
+
+    @Query("SELECT * FROM route_segment_modes ORDER BY tripId, id")
+    fun observeAll(): Flow<List<RouteSegmentModeEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(mode: RouteSegmentModeEntity)
+
+    @Query("DELETE FROM route_segment_modes WHERE id = :id")
+    suspend fun deleteById(id: String)
 }
 
 @Dao

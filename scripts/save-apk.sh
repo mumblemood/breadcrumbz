@@ -1,14 +1,20 @@
 #!/usr/bin/env sh
 # Legt eine gebaute APK unter „Interner Speicher/mumblemood“ ab.
-# Der Name kommt automatisch aus der versionName in app/build.gradle.kts:
-# 0.8.0 -> Breadcrumbz_v0.8.apk, 0.9.0 -> Breadcrumbz_v0.9.apk.
+# Der Dateiname enthält jetzt immer die Versions-ID (versionCode), damit auch
+# technische Änderungen sichtbar hochgezählt werden:
+# 0.18.0 / code 30 -> Breadcrumbz_v0.18_b30.apk
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' "$ROOT/app/build.gradle.kts" | head -n 1)
+CODE=$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' "$ROOT/app/build.gradle.kts" | head -n 1)
 MAJOR=$(printf '%s' "$VERSION" | cut -d. -f1)
 MINOR=$(printf '%s' "$VERSION" | cut -d. -f2)
-NAME="Breadcrumbz_v${MAJOR}.${MINOR}.apk"
+if [ -z "$CODE" ]; then
+    echo "versionCode nicht gefunden: $ROOT/app/build.gradle.kts" >&2
+    exit 1
+fi
+NAME="Breadcrumbz_v${MAJOR}.${MINOR}_b${CODE}.apk"
 
 SOURCE=${1:-"$ROOT/app/build/outputs/apk/debug/app-debug.apk"}
 DEST_DIR=${2:-/sdcard/mumblemood}

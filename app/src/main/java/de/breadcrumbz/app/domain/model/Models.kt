@@ -32,8 +32,6 @@ data class Stop(
     val tripId: String,
     /** Pins können zu einem Tagebucheintrag gehören; alleinstehende haben null. */
     val entryId: String?,
-    /** Verkehrsmittel für den Abschnitt vom vorherigen Pin hierher. null = Reise-Standard. */
-    val transportMode: TransportMode? = null,
     /** Anreise oder Abreise: zählt nicht bei Datum und Kilometern der Gesamtreise. */
     val isArrivalDeparture: Boolean = false,
     val title: String,
@@ -45,6 +43,21 @@ data class Stop(
     val distanceFromPreviousMeters: Double?,
     val distanceSource: DistanceSource?,
     val distanceUpdatedAt: Long?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+/**
+ * Ein Reiseabschnitt geht von einem Pin zum nächsten. Nur Abschnitte haben ein
+ * Verkehrsmittel – niemals einzelne Pins.
+ */
+data class SegmentMode(
+    /** Eindeutiger Schlüssel aus Start- und Ziel-Pin. */
+    val id: String,
+    val tripId: String,
+    val fromStopId: String,
+    val toStopId: String,
+    val mode: TransportMode,
     val createdAt: Long,
     val updatedAt: Long,
 )

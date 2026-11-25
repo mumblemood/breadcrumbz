@@ -39,6 +39,8 @@ object RouteStyling {
         stops: List<Stop>,
         defaultMode: TransportMode,
         routeMode: RouteMode,
+        /** Verkehrsmittel pro Abschnitt (Start>Ziel als Schlüssel). */
+        segmentModes: Map<String, TransportMode> = emptyMap(),
         /** Fertige Straßenpunkte pro Abschnitt (Start>Ziel als Schlüssel). */
         overridePoints: Map<String, List<GeoPoint>> = emptyMap(),
         /** Selbst gesetzte Punkte pro Abschnitt – auch offline sichtbar. */
@@ -70,11 +72,11 @@ object RouteStyling {
             for (index in 1 until ordered.size) {
                 val from = ordered[index - 1]
                 val to = ordered[index]
-                val mode = to.transportMode ?: defaultMode
                 // Der Schlüssel enthält beide Endpunkte. Zieht sich ein Pin
                 // durch eine Zeitänderung nach vorn, darf die alte Straßenroute
                 // nicht am neuen Abschnitt hängen bleiben.
                 val key = segmentKey(from.id, to.id)
+                val mode = segmentModes[key] ?: defaultMode
                 // Veraltete Straßendaten dürfen niemals in einen anderen Modus
                 // hineinwirken – sonst bleibt CAR sichtbar, obwohl WALK gewählt ist.
                 val online = overridePoints[key]?.takeIf {

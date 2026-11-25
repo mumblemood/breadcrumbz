@@ -57,7 +57,10 @@ class TripsViewModel(
                 trip = trip,
                 startDate = trip.startDate ?: range.first,
                 endDate = trip.endDate ?: range.second,
-                place = tripStops.firstOrNull { it.title.isNotBlank() }?.title,
+                // An-/Abreise gehören nicht zur Gesamtansicht der Reise.
+                place = tripStops.firstOrNull {
+                    !it.isArrivalDeparture && it.title.isNotBlank()
+                }?.title,
                 coverPhoto = tripPhotos.firstOrNull { it.id == trip.coverPhotoId },
             )
         }

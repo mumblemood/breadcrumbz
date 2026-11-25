@@ -12,6 +12,7 @@ import de.breadcrumbz.app.domain.model.OverlayMode
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.RouteWaypoint
+import de.breadcrumbz.app.domain.model.SegmentMode
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.StopSource
 import de.breadcrumbz.app.domain.model.TransportMode
@@ -22,6 +23,7 @@ import de.breadcrumbz.app.domain.util.chronologicalStops
 import de.breadcrumbz.app.domain.util.clusterPhotos
 import de.breadcrumbz.app.domain.util.haversineMeters
 import de.breadcrumbz.app.domain.util.photoMatchesStop
+import de.breadcrumbz.app.domain.util.segmentKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -64,6 +66,10 @@ class TripMapViewModel(
     val waypoints = repository.observeWaypoints(tripId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Verkehrsmittel pro Abschnitt – getrennt von den Pins gespeichert. */
+    val segmentModes: StateFlow<List<SegmentMode>> = repository.observeSegmentModes(tripId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** Online-Routing ist Standard, lässt sich aber in den Einstellungen ausstellen. */
     val onlineRouting: StateFlow<Boolean> = settingsStore.onlineRouting
 
@@ -99,8 +105,10 @@ class TripMapViewModel(
             }
         }
         buildList {
+            // An-/Abreise-Pins bleiben auf der Karte sichtbar, gehören aber
+            // nicht zur Zeitleiste der eigentlichen Reise.
             // Pins in Einträgen erscheinen nur im Eintrag, nicht noch einmal allein.
-            allStops.filter { it.entryId == null }.forEach { stop ->
+            allStops.filter { it.entryId == null && !it.isArrivalDeparture }.forEach { stop ->
                 add(
                     TimelineItem(
                         id = "stop-${stop.id}",
@@ -596,12 +604,21 @@ class TripMapViewModel(
         }
     }
 
-    /** Verkehrsmittel für einen Abschnitt ändern (Pin = Ankunft an diesem Abschnitt). */
-    fun setStopTransportMode(stopId: String, mode: TransportMode) {
+    /** Verkehrsmittel nur für den Abschnitt zwischen zwei Pins ändern. */
+    fun setSegmentMode(fromStopId: String, toStopId: String, mode: TransportMode) {
         viewModelScope.launch(Dispatchers.IO) {
-            val stop = repository.observeStops(tripId).first().firstOrNull { it.id == stopId }
-                ?: return@launch
-            repository.updateStop(stop.copy(transportMode = mode))
+            val now = System.currentTimeMillis()
+            repository.upsertSegmentMode(
+                SegmentMode(
+                    id = segmentKey(fromStopId, toStopId),
+                    tripId = tripId,
+                    fromStopId = fromStopId,
+                    toStopId = toStopId,
+                    mode = mode,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
         }
     }
 
@@ -615,11 +632,9 @@ class TripMapViewModel(
     }
 
     /** Wieder den Standard der Reise für diesen Abschnitt benutzen. */
-    fun clearStopTransportMode(stopId: String) {
+    fun clearSegmentMode(fromStopId: String, toStopId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val stop = repository.observeStops(tripId).first().firstOrNull { it.id == stopId }
-                ?: return@launch
-            repository.updateStop(stop.copy(transportMode = null))
+            repository.deleteSegmentMode(segmentKey(fromStopId, toStopId))
         }
     }
 

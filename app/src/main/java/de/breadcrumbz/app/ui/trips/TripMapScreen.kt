@@ -10,6 +10,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -55,14 +58,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
@@ -114,6 +120,7 @@ import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.log2
 import kotlin.math.roundToInt
 
@@ -152,6 +159,13 @@ private data class SyncTarget(
     val seq: Long,
 )
 
+/** Fortlaufende Reiseposition für Karte, Zeitleiste und Schieberegler. */
+private data class ScrollSync(
+    val fraction: Float,
+    val origin: String,
+    val seq: Long,
+)
+
 /** Ein Abschnitt gehört immer zu genau einem Start-Ziel-Paar. */
 private data class RouteSegment(
     val key: String,
@@ -161,8 +175,58 @@ private data class RouteSegment(
 
 /** Zwei exklusive Stufen: Abschnittsdetails und die Verkehrsmittel-Auswahl. */
 private sealed interface SegmentDialog {
-    data class Detail(val stopId: String) : SegmentDialog
-    data class Modes(val stopId: String) : SegmentDialog
+    data class Detail(val segment: RouteSegment) : SegmentDialog
+    data class Modes(val segment: RouteSegment) : SegmentDialog
+}
+
+/** Schieberegler zwischen Karte und Zeitleiste: zeigt die Reiseposition. */
+@Composable
+private fun RouteScrollbar(
+    fraction: Float,
+    onFraction: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val density = LocalDensity.current
+    var width by remember { mutableStateOf(0f) }
+    val thumbPx = with(density) { 18.dp.toPx() }
+    val padPx = with(density) { 8.dp.toPx() }
+    fun fractionAt(x: Float): Float {
+        val usable = width - thumbPx - padPx * 2f
+        return if (usable > 0f) ((x - padPx) / usable).coerceIn(0f, 1f) else 0f
+    }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(20.dp)
+            .onGloballyPositioned { width = it.size.width.toFloat() }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures { change, _ ->
+                    onFraction(fractionAt(change.position.x))
+                }
+            }
+            .pointerInput(Unit) {
+                detectTapGestures { offset -> onFraction(fractionAt(offset.x)) }
+            },
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(horizontal = 8.dp)
+                .fillMaxWidth()
+                .height(3.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(Color(0xFF3B2B20).copy(alpha = 0.18f)),
+        )
+        val usable = (width - thumbPx - padPx * 2f).coerceAtLeast(1f)
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = with(density) { (padPx + fraction * usable).toDp() })
+                .size(18.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(Color(0xFF3B2B20)),
+        )
+    }
 }
 
 @Composable
@@ -199,6 +263,7 @@ fun TripMapScreen(
     val allEntries by viewModel.allEntries.collectAsStateWithLifecycle()
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
     val waypoints by viewModel.waypoints.collectAsStateWithLifecycle()
+    val storedSegmentModes by viewModel.segmentModes.collectAsStateWithLifecycle()
     val onlineRouting by viewModel.onlineRouting.collectAsStateWithLifecycle()
     val activeStopId by viewModel.selectedStopId.collectAsStateWithLifecycle()
     val pendingPhotoId by viewModel.pendingPhotoId.collectAsStateWithLifecycle()
@@ -216,6 +281,8 @@ fun TripMapScreen(
     var syncLockUntil by remember { mutableStateOf(0L) }
     var syncSeq by remember { mutableStateOf(0L) }
     var syncTarget by remember { mutableStateOf<SyncTarget?>(null) }
+    var scrollSync by remember { mutableStateOf(ScrollSync(0f, "start", 0L)) }
+    var lastTimelineMoveAt by remember { mutableStateOf(0L) }
     var fullscreenKey by remember { mutableStateOf<String?>(null) }
     var centerKey by remember { mutableStateOf<String?>(null) }
     val markers = remember { mutableMapOf<String, Marker>() }
@@ -253,6 +320,70 @@ fun TripMapScreen(
     val photoTimes = remember(photos) {
         photos.associate { it.id to (it.capturedAt ?: it.createdAt) }
     }
+
+    /** Kanonische Position eines Timeline-Eintrags – auch ohne eigenen Pin. */
+    fun geoFor(item: TimelineItem): GeoPoint? {
+        val stop = item.stopId?.let { id -> stops.firstOrNull { it.id == id } }
+        if (stop != null) return GeoPoint(stop.latitude, stop.longitude)
+        val entryPhotoIds = item.entryId?.let { photosByEntry[it] }.orEmpty()
+        val photoId = item.photoId ?: entryPhotoIds.firstOrNull()
+        val photo = photoId?.let { id -> photos.firstOrNull { it.id == id } }
+        if (photo?.latitude != null && photo.longitude != null) {
+            return GeoPoint(photo.latitude, photo.longitude)
+        }
+        return null
+    }
+
+    // Alle Orte der Zeitleiste in Reihenfolge. Daraus lässt sich jede Position
+    // zwischen zwei Einträgen berechnen – die Synchronisation läuft fließend.
+    val geoPath = remember(timeline, stops, photosByEntry, photos) {
+        timeline.mapNotNull { geoFor(it) }
+    }
+
+    fun pointAtFraction(fraction: Float): GeoPoint? {
+        if (geoPath.isEmpty()) return null
+        if (geoPath.size == 1) return geoPath.first()
+        val scaled = fraction.coerceIn(0f, 1f) * (geoPath.size - 1).toFloat()
+        val index = scaled.toInt().coerceAtMost(geoPath.size - 2)
+        val part = scaled - index
+        val from = geoPath[index]
+        val to = geoPath[index + 1]
+        return GeoPoint(
+            from.latitude + (to.latitude - from.latitude) * part,
+            from.longitude + (to.longitude - from.longitude) * part,
+        )
+    }
+
+    fun fractionForGeo(point: GeoPoint): Float? {
+        if (geoPath.isEmpty()) return null
+        if (geoPath.size == 1) return 0f
+        var bestDistance = Double.MAX_VALUE
+        var bestFraction = 0.0
+        for (index in 0 until geoPath.size - 1) {
+            val from = geoPath[index]
+            val to = geoPath[index + 1]
+            val dx = to.longitude - from.longitude
+            val dy = to.latitude - from.latitude
+            val lengthSquared = dx * dx + dy * dy
+            val part = if (lengthSquared > 0.0) {
+                (((point.longitude - from.longitude) * dx +
+                    (point.latitude - from.latitude) * dy) / lengthSquared)
+                    .coerceIn(0.0, 1.0)
+            } else {
+                0.0
+            }
+            val px = from.longitude + dx * part
+            val py = from.latitude + dy * part
+            val distance = (point.longitude - px) * (point.longitude - px) +
+                (point.latitude - py) * (point.latitude - py)
+            if (distance < bestDistance) {
+                bestDistance = distance
+                bestFraction = (index + part) / (geoPath.size - 1).toDouble()
+            }
+        }
+        return bestFraction.toFloat().coerceIn(0f, 1f)
+    }
+
     fun photoKey(id: String): String =
         if (photos.firstOrNull { it.id == id }?.entryId != null) {
             "entryphoto-$id"
@@ -281,7 +412,7 @@ fun TripMapScreen(
             coverPickerOpen -> coverPickerOpen = false
             defaultModePickerOpen -> defaultModePickerOpen = false
             dialog is SegmentDialog.Modes ->
-                segmentDialog = SegmentDialog.Detail(dialog.stopId)
+                segmentDialog = SegmentDialog.Detail(dialog.segment)
             dialog is SegmentDialog.Detail -> segmentDialog = null
             stackPhotoIds.isNotEmpty() -> stackPhotoIds = emptyList()
             pendingPhotoId != null || pendingEntryId != null -> viewModel.cancelPlacement()
@@ -450,6 +581,9 @@ fun TripMapScreen(
                 // Programmbewegung darf nicht als Nutzer-Wisch zurückkommen.
                 rawMapCenter = null
                 mapCenter = point
+                fractionForGeo(point)?.let { fraction ->
+                    scrollSync = ScrollSync(fraction, "focus", syncSeq)
+                }
                 mapView.controller.animateTo(
                     point,
                     mapView.zoomLevelDouble,
@@ -556,12 +690,13 @@ fun TripMapScreen(
         }
     }
 
-    // Modus pro Abschnitt als eigener Key: GeoPoint-Listen vergleichen sich
-    // nach Koordinaten, ein reiner Moduswechsel wäre sonst unsichtbar.
-    val segmentModes = remember(orderedRouteStops, trip?.defaultTransportMode) {
-        orderedRouteStops.associate { stop ->
-            stop.id to (
-                stop.transportMode
+    // Modus pro Abschnitt – gespeichert unter Start>Ziel und nicht am Pin.
+    // Der Key ist eine Zeichenkette, damit ein Moduswechsel sofort sichtbar wird.
+    val segmentModes = remember(routeSegments, storedSegmentModes, trip?.defaultTransportMode) {
+        val stored = storedSegmentModes.associate { it.id to it.mode }
+        routeSegments.associate { segment ->
+            segment.key to (
+                stored[segment.key]
                     ?: trip?.defaultTransportMode
                     ?: TransportMode.CAR
                 )
@@ -590,7 +725,7 @@ fun TripMapScreen(
         onlinePoints = emptyMap()
         val fresh = mutableMapOf<String, List<GeoPoint>>()
         routeSegments.forEach { segment ->
-            val mode = segmentModes[segment.arrivalStopId] ?: return@forEach
+            val mode = segmentModes[segment.key] ?: return@forEach
             if (mode == TransportMode.CAR || mode == TransportMode.CAMPER) {
                 routingService.route(segment.points)?.let { fresh[segment.key] = it }
             }
@@ -601,9 +736,9 @@ fun TripMapScreen(
     // Nur Straßenpunkte für Abschnitte verwenden, die auch gerade ein Auto
     // oder Wohnmobil nutzen – doppelter Schutz gegen veraltete Antworten.
     val effectiveOnlinePoints = remember(onlinePoints, segmentModes, routeSegments) {
-        val allowed = routeSegments.associate { it.key to it.arrivalStopId }
+        val allowed = routeSegments.map { it.key }.toSet()
         onlinePoints.filterKeys { key ->
-            val mode = allowed[key]?.let { segmentModes[it] }
+            val mode = if (key in allowed) segmentModes[key] else null
             mode == TransportMode.CAR || mode == TransportMode.CAMPER
         }
     }
@@ -626,6 +761,7 @@ fun TripMapScreen(
             stops = orderedRouteStops,
             defaultMode = trip?.defaultTransportMode ?: TransportMode.CAR,
             routeMode = trip?.routeMode ?: RouteMode.AUTO,
+            segmentModes = segmentModes,
             overridePoints = effectiveOnlinePoints,
             waypoints = waypointPointsByStop,
             // Tippen auf die Linie öffnet die Verkehrsmittelwahl,
@@ -642,10 +778,8 @@ fun TripMapScreen(
                         )
                     }
                 }?.first
-                val arrivalId = routeSegments
-                    .firstOrNull { it.key == nearestKey }
-                    ?.arrivalStopId
-                segmentDialog = arrivalId?.let { SegmentDialog.Detail(it) }
+                val nearest = routeSegments.firstOrNull { it.key == nearestKey }
+                segmentDialog = nearest?.let { SegmentDialog.Detail(it) }
             },
         )
     }
@@ -736,19 +870,6 @@ fun TripMapScreen(
         }
     }
 
-    /** Kanonische Position eines Timeline-Eintrags – auch ohne eigenen Pin. */
-    fun geoFor(item: TimelineItem): GeoPoint? {
-        val stop = item.stopId?.let { id -> stops.firstOrNull { it.id == id } }
-        if (stop != null) return GeoPoint(stop.latitude, stop.longitude)
-        val entryPhotoIds = item.entryId?.let { photosByEntry[it] }.orEmpty()
-        val photoId = item.photoId ?: entryPhotoIds.firstOrNull()
-        val photo = photoId?.let { id -> photos.firstOrNull { it.id == id } }
-        if (photo?.latitude != null && photo.longitude != null) {
-            return GeoPoint(photo.latitude, photo.longitude)
-        }
-        return null
-    }
-
     fun handleTimelineClick(item: TimelineItem) {
         when (item.kind) {
             TimelineKind.PHOTO -> {
@@ -760,8 +881,12 @@ fun TripMapScreen(
                     syncSeq += 1
                     syncTarget = SyncTarget(item.id, "focus", syncSeq)
                     syncLockUntil = System.currentTimeMillis() + 700L
+                    val point = GeoPoint(stop.latitude, stop.longitude)
                     rawMapCenter = null
-                    mapCenter = GeoPoint(stop.latitude, stop.longitude)
+                    mapCenter = point
+                    fractionForGeo(point)?.let { fraction ->
+                        scrollSync = ScrollSync(fraction, "focus", syncSeq)
+                    }
                     focusStop(mapView, stop.latitude, stop.longitude)
                     fullscreenKey = "stop-${stop.id}"
                     viewModel.selectStop(stop.id)
@@ -776,6 +901,9 @@ fun TripMapScreen(
                         syncLockUntil = System.currentTimeMillis() + 700L
                         rawMapCenter = null
                         mapCenter = point
+                        fractionForGeo(point)?.let { fraction ->
+                            scrollSync = ScrollSync(fraction, "focus", syncSeq)
+                        }
                         mapView.controller.animateTo(
                             point,
                             mapView.zoomLevelDouble,
@@ -792,43 +920,27 @@ fun TripMapScreen(
         }
     }
 
-    val nearestIndex = remember(mapCenter, timeline, stops, photosByEntry, photos) {
-        val center = mapCenter
-        if (center == null || timeline.isEmpty()) {
-            null
-        } else {
-            timeline.indices.minByOrNull { index ->
-                val point = geoFor(timeline[index])
-                if (point != null) {
-                    haversineMeters(
-                        center.latitude, center.longitude, point.latitude, point.longitude,
-                    )
-                } else {
-                    Double.MAX_VALUE
-                }
-            }
-        }
+    /** Die Karte folgt einer Position, ohne das Echo als Nutzerwisch zu melden. */
+    fun moveMapTo(point: GeoPoint, duration: Long = 140L) {
+        syncLockUntil = System.currentTimeMillis() + duration + 200L
+        rawMapCenter = null
+        mapCenter = point
+        mapView.controller.animateTo(point, mapView.zoomLevelDouble, duration)
     }
 
-    // Die Karte meldet sehr viele Scroll-Ereignisse. Erst nach kurzer Ruhe
-    // wird daraus ein Ziel mit neuer Sequenz – das verhindert Echo-Schleifen.
+    // Die Karte meldet viele Scroll-Ereignisse. Die Position wird kurz
+    // geglättet und fortlaufend an Zeitleiste und Schieberegler gegeben.
     LaunchedEffect(rawMapCenter) {
         val center = rawMapCenter ?: return@LaunchedEffect
-        delay(220L)
+        delay(90L)
         if (System.currentTimeMillis() < syncLockUntil) return@LaunchedEffect
         mapCenter = center
-        val index = timeline.indices.minByOrNull { i ->
-            val point = geoFor(timeline[i])
-            if (point != null) {
-                haversineMeters(center.latitude, center.longitude, point.latitude, point.longitude)
-            } else {
-                Double.MAX_VALUE
-            }
-        } ?: return@LaunchedEffect
-        val key = timeline[index].id
-        if (syncTarget?.key != key || syncTarget?.origin != "map") {
+        val fraction = fractionForGeo(center) ?: return@LaunchedEffect
+        syncTarget = null
+        focusKey = null
+        if (scrollSync.origin != "map" || abs(fraction - scrollSync.fraction) > 0.004f) {
             syncSeq += 1
-            syncTarget = SyncTarget(key, "map", syncSeq)
+            scrollSync = ScrollSync(fraction, "map", syncSeq)
         }
     }
 
@@ -1077,9 +1189,21 @@ fun TripMapScreen(
                     }
                     IconButton(
                         onClick = {
+                            // An-/Abreise-Pins und ihre Inhalte bleiben auf der
+                            // Karte sichtbar, bestimmen aber nicht den Ausschnitt
+                            // der Gesamtansicht.
+                            val outerStopIds = stops.filter { it.isArrivalDeparture }
+                                .map { it.id }.toSet()
+                            val outerEntryIds = allEntries.filter {
+                                it.stopId in outerStopIds
+                            }.map { it.id }.toSet()
                             val points = buildList {
-                                stops.forEach { add(GeoPoint(it.latitude, it.longitude)) }
-                                photos.forEach { photo ->
+                                stops.filterNot { it.isArrivalDeparture }.forEach { stop ->
+                                    add(GeoPoint(stop.latitude, stop.longitude))
+                                }
+                                photos.filter {
+                                    it.stopId !in outerStopIds && it.entryId !in outerEntryIds
+                                }.forEach { photo ->
                                     val latitude = photo.latitude
                                     val longitude = photo.longitude
                                     if (latitude != null && longitude != null) {
@@ -1159,6 +1283,24 @@ fun TripMapScreen(
                 }
             }
 
+            // Sichtbarer Schieberegler genau zwischen Karte und Zeitleiste.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface),
+            ) {
+                RouteScrollbar(
+                    fraction = scrollSync.fraction,
+                    onFraction = { fraction ->
+                        syncSeq += 1
+                        scrollSync = ScrollSync(fraction, "bar", syncSeq)
+                        syncTarget = null
+                        focusKey = null
+                        pointAtFraction(fraction)?.let { moveMapTo(it) }
+                    },
+                )
+            }
+
             // Zeitleiste: untere zwei Fünftel, von links nach rechts.
             Box(
                 modifier = Modifier
@@ -1176,39 +1318,32 @@ fun TripMapScreen(
                     photoBitmap = bitmapForPhoto,
                     photoTimes = photoTimes,
                     mapZoom = mapZoom,
-                    externalKey = syncTarget?.key
-                        ?: focusKey
-                        ?: timeline.getOrNull(nearestIndex ?: -1)?.id,
+                    externalKey = syncTarget?.key ?: focusKey,
                     externalSeq = syncTarget?.seq ?: 0L,
                     externalOrigin = syncTarget?.origin,
+                    externalFraction = scrollSync.fraction,
+                    externalFractionSeq = scrollSync.seq,
+                    externalFractionOrigin = scrollSync.origin,
                     onPinClick = { stopId ->
                         viewModel.selectStop(stopId)
                         fullscreenKey = "stop-$stopId"
                     },
                     highlightPhotoId = highlightedPhotoId,
-                    // Wischen in der Zeitleiste holt das Element auf die Karte.
-                    // Die Umkehrung (Karte -> Zeitleiste) läuft über externalKey.
-                    onUserCenterKey = { key ->
-                        centerKey = key
+                    // Fortlaufende Scrollposition: Karte und Regler folgen dem
+                    // Finger während des Wischens, nicht erst beim Loslassen.
+                    onScrollFraction = { fraction, fromUser ->
+                        if (!fromUser) return@AdventureTimeline
+                        val now = System.currentTimeMillis()
+                        if (now - lastTimelineMoveAt < 70L) return@AdventureTimeline
+                        lastTimelineMoveAt = now
                         syncSeq += 1
-                        syncTarget = SyncTarget(key, "timeline", syncSeq)
-                        if (key != null) {
-                            val item = timeline.firstOrNull { it.id == key }
-                            val point = item?.let { geoFor(it) }
-                            if (point != null) {
-                                // Kurz sperren, aber weich weiterfolgen.
-                                syncLockUntil = System.currentTimeMillis() + 320L
-                                // Programmbewegung kein Echo: Rohwert und Ziel klar trennen.
-                                rawMapCenter = null
-                                mapCenter = point
-                                mapView.controller.animateTo(
-                                    point,
-                                    mapView.zoomLevelDouble,
-                                    220L,
-                                )
-                            }
-                        }
+                        scrollSync = ScrollSync(fraction, "timeline", syncSeq)
+                        syncTarget = null
+                        focusKey = null
+                        pointAtFraction(fraction)?.let { moveMapTo(it) }
                     },
+                    // Das mittlere Element dient nur noch der Markierung.
+                    onUserCenterKey = { key -> centerKey = key },
                     onDropElement = { source, entryId ->
                         viewModel.assignElementToEntry(source, entryId)
                     },
@@ -1267,18 +1402,17 @@ fun TripMapScreen(
     }
 
     // Verkehrsmittel und An-/Abreise für einen Abschnitt – nach Tap auf die Linie.
-    fun segmentTitle(stopId: String): String {
-        val index = orderedRouteStops.indexOfFirst { it.id == stopId }
-        val from = orderedRouteStops.getOrNull(index - 1)
-        val to = orderedRouteStops.getOrNull(index)
+    fun segmentTitle(segment: RouteSegment): String {
+        val from = stops.firstOrNull { it.id == segment.fromStopId }
+        val to = stops.firstOrNull { it.id == segment.arrivalStopId }
         fun label(stop: Stop?) = stop?.title?.takeIf { it.isNotBlank() } ?: "Pin"
         return "Abschnitt: ${label(from)} → ${label(to)}"
     }
 
     when (val dialog = segmentDialog) {
         is SegmentDialog.Detail -> {
-            val stopId = dialog.stopId
-            val effectiveMode = segmentModes[stopId]
+            val segment = dialog.segment
+            val effectiveMode = segmentModes[segment.key]
                 ?: trip?.defaultTransportMode
                 ?: TransportMode.CAR
             val firstStop = orderedRouteStops.firstOrNull()
@@ -1286,14 +1420,11 @@ fun TripMapScreen(
             val firstSegmentStopId = orderedRouteStops.getOrNull(1)?.id
             // Bei genau zwei Pins sind erster und letzter Abschnitt derselbe;
             // dann braucht es zwei Häkchen in einem Pop-up.
-            val lastSegmentStopId = orderedRouteStops.lastOrNull()?.id
-            // Die Auswahl gehört zum Ankunftspin, das Häkchen meint aber den
-            // ersten bzw. letzten Pin der Gesamtstrecke.
             val endpointRows = buildList<Pair<String, String>> {
-                if (firstStop != null && stopId == firstSegmentStopId) {
+                if (firstStop != null && segment.arrivalStopId == firstSegmentStopId) {
                     add(firstStop.id to "Anreise: erster Pin zählt nicht mit")
                 }
-                if (lastStop != null && stopId == lastSegmentStopId &&
+                if (lastStop != null && segment.arrivalStopId == lastStop.id &&
                     lastStop.id != firstStop?.id
                 ) {
                     add(lastStop.id to "Abreise: letzter Pin zählt nicht mit")
@@ -1301,11 +1432,11 @@ fun TripMapScreen(
             }
             AlertDialog(
                 onDismissRequest = { segmentDialog = null },
-                title = { Text(segmentTitle(stopId)) },
+                title = { Text(segmentTitle(segment)) },
                 text = {
                     Column {
                         Text(
-                            "Verkehrsmittel bis hierhin",
+                            "Verkehrsmittel in diesem Abschnitt",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         // Genau ein Symbol; ein Tippen öffnet die Auswahl.
@@ -1316,7 +1447,7 @@ fun TripMapScreen(
                                 .clip(RoundedCornerShape(17.dp))
                                 .background(Color(0xFFE7DAC2))
                                 .clickable {
-                                    segmentDialog = SegmentDialog.Modes(stopId)
+                                    segmentDialog = SegmentDialog.Modes(segment)
                                 },
                             contentAlignment = Alignment.Center,
                         ) {
@@ -1343,32 +1474,34 @@ fun TripMapScreen(
             )
         }
         is SegmentDialog.Modes -> {
-            val stopId = dialog.stopId
+            val segment = dialog.segment
             AlertDialog(
                 onDismissRequest = {
-                    segmentDialog = SegmentDialog.Detail(stopId)
+                    segmentDialog = SegmentDialog.Detail(segment)
                 },
-                title = { Text(segmentTitle(stopId)) },
+                title = { Text(segmentTitle(segment)) },
                 text = {
                     Column(Modifier.verticalScroll(rememberScrollState())) {
                         TransportMode.entries.forEach { mode ->
                             TextButton(onClick = {
-                                viewModel.setStopTransportMode(stopId, mode)
+                                viewModel.setSegmentMode(
+                                    segment.fromStopId, segment.arrivalStopId, mode,
+                                )
                                 // Direktmodus ignoriert Verkehrsmittel – einmal umstellen.
                                 if (trip?.routeMode == RouteMode.DIRECT) {
                                     viewModel.setRouteMode(RouteMode.AUTO)
                                 }
-                                segmentDialog = SegmentDialog.Detail(stopId)
+                                segmentDialog = SegmentDialog.Detail(segment)
                             }) {
                                 Text("${mode.symbol()}   ${mode.label}")
                             }
                         }
                         TextButton(onClick = {
-                            viewModel.clearStopTransportMode(stopId)
+                            viewModel.clearSegmentMode(segment.fromStopId, segment.arrivalStopId)
                             if (trip?.routeMode == RouteMode.DIRECT) {
                                 viewModel.setRouteMode(RouteMode.AUTO)
                             }
-                            segmentDialog = SegmentDialog.Detail(stopId)
+                            segmentDialog = SegmentDialog.Detail(segment)
                         }) {
                             Text("Standard der Reise")
                         }
@@ -1376,7 +1509,7 @@ fun TripMapScreen(
                 },
                 confirmButton = {
                     TextButton(onClick = {
-                        segmentDialog = SegmentDialog.Detail(stopId)
+                        segmentDialog = SegmentDialog.Detail(segment)
                     }) { Text("Zurück") }
                 },
             )

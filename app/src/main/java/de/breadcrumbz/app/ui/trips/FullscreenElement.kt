@@ -88,8 +88,6 @@ import de.breadcrumbz.app.R
 import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.Stop
-import de.breadcrumbz.app.domain.model.TransportMode
-import de.breadcrumbz.app.domain.model.symbol
 import de.breadcrumbz.app.state.TripMapViewModel
 import de.breadcrumbz.app.ui.map.PlacePinIcon
 import java.io.File
@@ -615,9 +613,6 @@ fun FullscreenElement(
                                     var confirmDeletePin by remember(stop.id) {
                                         mutableStateOf(false)
                                     }
-                                    var modePickerOpen by remember(stop.id) {
-                                        mutableStateOf(false)
-                                    }
                                     fun pickStopDateTime() {
                                         val start = Calendar.getInstance().apply {
                                             timeInMillis = stop.visitedAt
@@ -709,60 +704,9 @@ fun FullscreenElement(
                                         } else if (stop.visitedAt != null) {
                                             SmallMeta(dateText(stop.visitedAt))
                                         }
-                                        // Nur ein kleines Symbol; ein Tippen darauf
-                                        // öffnet die Auswahl.
-                                        Box(
-                                            modifier = Modifier
-                                                .padding(top = 4.dp)
-                                                .size(34.dp)
-                                                .clip(RoundedCornerShape(17.dp))
-                                                .background(frame)
-                                                .clickable { modePickerOpen = true },
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Text(
-                                                (stop.transportMode
-                                                    ?: TransportMode.CAR).symbol(),
-                                                fontSize = 19.sp,
-                                            )
-                                        }
-                                        if (modePickerOpen) {
-                                            AlertDialog(
-                                                onDismissRequest = { modePickerOpen = false },
-                                                title = { Text("Verkehrsmittel bis hierhin") },
-                                                text = {
-                                                    Column(
-                                                        Modifier.verticalScroll(
-                                                            rememberScrollState(),
-                                                        ),
-                                                    ) {
-                                                        TransportMode.entries.forEach { mode ->
-                                                            TextButton(onClick = {
-                                                                viewModel.setStopTransportMode(
-                                                                    stop.id, mode,
-                                                                )
-                                                                modePickerOpen = false
-                                                            }) {
-                                                                Text(
-                                                                    "${mode.symbol()}   ${mode.label}",
-                                                                )
-                                                            }
-                                                        }
-                                                        TextButton(onClick = {
-                                                            viewModel.clearStopTransportMode(stop.id)
-                                                            modePickerOpen = false
-                                                        }) {
-                                                            Text("Standard der Reise")
-                                                        }
-                                                    }
-                                                },
-                                                confirmButton = {
-                                                    TextButton(onClick = {
-                                                        modePickerOpen = false
-                                                    }) { Text("Abbrechen") }
-                                                },
-                                            )
-                                        }
+                                        // Pins haben kein Verkehrsmittel. Das
+                                        // wird ausschließlich am Reiseabschnitt
+                                        // eingestellt (Tippen auf die Linie).
                                         linkedEntries.forEach { entry ->
                                             Spacer(Modifier.height(12.dp))
                                             InkTextButton(onClick = {

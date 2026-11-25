@@ -7,7 +7,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import de.breadcrumbz.app.data.model.EntryEntity
 import de.breadcrumbz.app.data.model.PhotoEntity
 import de.breadcrumbz.app.data.model.PlaceNameEntity
+import de.breadcrumbz.app.data.model.RouteSegmentModeEntity
 import de.breadcrumbz.app.data.model.RouteWaypointEntity
+import de.breadcrumbz.app.domain.util.segmentKey
 import de.breadcrumbz.app.data.model.StopEntity
 import de.breadcrumbz.app.data.model.TripEntity
 import java.util.UUID
@@ -20,8 +22,9 @@ import java.util.UUID
         PhotoEntity::class,
         PlaceNameEntity::class,
         RouteWaypointEntity::class,
+        RouteSegmentModeEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class BreadcrumbzDatabase : RoomDatabase() {
@@ -31,6 +34,7 @@ abstract class BreadcrumbzDatabase : RoomDatabase() {
     abstract fun photoDao(): PhotoDao
     abstract fun placeNameDao(): PlaceNameDao
     abstract fun waypointDao(): WaypointDao
+    abstract fun segmentModeDao(): SegmentModeDao
 }
 
 /**
@@ -252,5 +256,124 @@ val MIGRATION_11_12 = object : Migration(11, 12) {
             "ALTER TABLE `stops` ADD COLUMN `isArrivalDeparture` " +
                 "INTEGER NOT NULL DEFAULT 0",
         )
+    }
+}
+
+/**
+ * Version 13: Das Verkehrsmittel gehört nicht mehr zum Pin, sondern zum
+ * Abschnitt davor. Vorhandene Wahlwerte werden in die neue Tabelle kopiert;
+ * alle Pins, Einträge, Fotos und Zeiten bleiben unverändert erhalten.
+ */
+val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Room führt Migrationen in einer Transaktion aus; dort lässt sich
+        // foreign_keys nicht mehr abschalten. defer_foreign_keys genügt:
+        // nach dem Umbenennen zeigen alle Kindtabellen wieder auf `stops`.
+        db.execSQL("PRAGMA defer_foreign_keys=ON")
+        try {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `route_segment_modes` (
+                    `id` TEXT NOT NULL,
+                    `tripId` TEXT NOT NULL,
+                    `fromStopId` TEXT NOT NULL,
+                    `toStopId` TEXT NOT NULL,
+                    `mode` TEXT NOT NULL,
+                    `createdAt` INTEGER NOT NULL,
+                    `updatedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`id`),
+                    FOREIGN KEY(`tripId`) REFERENCES `trips`(`id`)
+                        ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+                """.trimIndent(),
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_route_segment_modes_tripId` " +
+                    "ON `route_segment_modes` (`tripId`)",
+            )
+
+            // Die alten Werte saßen am Ankunftspin. Reihenfolge und Pin-Paare
+            // bleiben beim Umzug exakt erhalten.
+            val cursor = db.query(
+                "SELECT `id`, `tripId`, `transportMode` FROM `stops` " +
+                    "ORDER BY `tripId`, `sortIndex` ASC",
+            )
+            val now = System.currentTimeMillis()
+            cursor.use { rows ->
+                var currentTrip: String? = null
+                var previousStop: String? = null
+                while (rows.moveToNext()) {
+                    val id = rows.getString(0)
+                    val tripId = rows.getString(1)
+                    val mode = if (rows.isNull(2)) null else rows.getString(2)
+                    if (tripId != currentTrip) {
+                        currentTrip = tripId
+                        previousStop = null
+                    }
+                    val from = previousStop
+                    if (from != null && !mode.isNullOrBlank()) {
+                        db.execSQL(
+                            "INSERT OR REPLACE INTO `route_segment_modes` " +
+                                "(`id`, `tripId`, `fromStopId`, `toStopId`, `mode`, " +
+                                "`createdAt`, `updatedAt`) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            arrayOf(segmentKey(from, id), tripId, from, id, mode, now, now),
+                        )
+                    }
+                    previousStop = id
+                }
+            }
+
+            // Die Spalte verschwindet aus dem Pin. Alle anderen Felder werden
+            // eins zu eins in die neue Tabelle übernommen.
+            db.execSQL(
+                """
+                CREATE TABLE `stops_new` (
+                    `id` TEXT NOT NULL,
+                    `tripId` TEXT NOT NULL,
+                    `entryId` TEXT,
+                    `isArrivalDeparture` INTEGER NOT NULL DEFAULT 0,
+                    `title` TEXT NOT NULL,
+                    `latitude` REAL NOT NULL,
+                    `longitude` REAL NOT NULL,
+                    `sortIndex` INTEGER NOT NULL,
+                    `visitedAt` INTEGER,
+                    `source` TEXT NOT NULL,
+                    `distanceFromPreviousMeters` REAL,
+                    `distanceSource` TEXT,
+                    `distanceUpdatedAt` INTEGER,
+                    `createdAt` INTEGER NOT NULL,
+                    `updatedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`id`),
+                    FOREIGN KEY(`tripId`) REFERENCES `trips`(`id`)
+                        ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+                """.trimIndent(),
+            )
+            db.execSQL(
+                """
+                INSERT INTO `stops_new` (
+                    `id`, `tripId`, `entryId`, `isArrivalDeparture`, `title`,
+                    `latitude`, `longitude`, `sortIndex`, `visitedAt`, `source`,
+                    `distanceFromPreviousMeters`, `distanceSource`,
+                    `distanceUpdatedAt`, `createdAt`, `updatedAt`
+                )
+                SELECT `id`, `tripId`, `entryId`, `isArrivalDeparture`, `title`,
+                    `latitude`, `longitude`, `sortIndex`, `visitedAt`, `source`,
+                    `distanceFromPreviousMeters`, `distanceSource`,
+                    `distanceUpdatedAt`, `createdAt`, `updatedAt`
+                FROM `stops`
+                """.trimIndent(),
+            )
+            db.execSQL("DROP TABLE `stops`")
+            db.execSQL("ALTER TABLE `stops_new` RENAME TO `stops`")
+            db.execSQL("CREATE INDEX `index_stops_tripId` ON `stops` (`tripId`)")
+            db.execSQL(
+                "CREATE INDEX `index_stops_tripId_sortIndex` " +
+                    "ON `stops` (`tripId`, `sortIndex`)",
+            )
+        } finally {
+            // defer_foreign_keys gilt nur für diese Transaktion und wird beim
+            // Commit automatisch zurückgesetzt.
+        }
     }
 }
