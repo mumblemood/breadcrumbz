@@ -221,6 +221,7 @@ private fun distanceToPolylineMeters(point: GeoPoint, points: List<GeoPoint>): D
 
 /** Zwei exklusive Stufen: Abschnittsdetails und die Verkehrsmittel-Auswahl. */
 private sealed interface SegmentDialog {
+    val segment: RouteSegment
     data class Detail(val segment: RouteSegment) : SegmentDialog
     data class Modes(val segment: RouteSegment) : SegmentDialog
 }
