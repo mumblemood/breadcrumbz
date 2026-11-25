@@ -10,6 +10,8 @@ import de.breadcrumbz.app.domain.model.RouteMode
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.ui.map.RouteStyling
+import de.breadcrumbz.app.ui.map.TrackOverlay
+import de.breadcrumbz.app.ui.map.TrackPath
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -56,6 +58,7 @@ fun TripMiniMap(
             if (view.tag == key) return@AndroidView
             view.tag = key
             view.overlays.clear()
+            val tracks = mutableListOf<TrackPath>()
             view.overlays.addAll(
                 RouteStyling.build(
                     mapView = view,
@@ -63,8 +66,10 @@ fun TripMiniMap(
                     defaultMode = defaultMode,
                     routeMode = routeMode,
                     segmentModes = segmentModes,
+                    trackPaths = tracks,
                 ),
             )
+            view.overlays.add(TrackOverlay(tracks))
             view.overlays.add(StopDots(stops))
             fit(view, stops, leaveRoomLeft)
             view.invalidate()
@@ -72,8 +77,11 @@ fun TripMiniMap(
     )
 }
 
-private fun fit(view: MapView, stops: List<Stop>, leaveRoomLeft: Boolean) {
-    if (stops.isEmpty()) return
+private fun fit(view: MapView, allStops: List<Stop>, leaveRoomLeft: Boolean) {
+    if (allStops.isEmpty()) return
+    // An- und Abreise zählen nicht zum Ausschnitt; ihre Linien laufen
+    // einfach aus dem Bild heraus.
+    val stops = allStops.filterNot { it.isArrivalDeparture }.ifEmpty { allStops }
     val apply = {
         val points = stops.map { GeoPoint(it.latitude, it.longitude) }
         if (points.size == 1 || points.all { it.distanceToAsDouble(points.first()) < 200.0 }) {

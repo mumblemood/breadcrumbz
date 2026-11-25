@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -129,6 +130,18 @@ private data class TimelineSegmentHit(
 
 private val ink = Color(0xFF3B2B20)
 private val paper = Color(0xFFFBF4E4)
+private val signWood = Color(0xFFD9B57E)
+private val signPost = Color(0xFF8A6440)
+/** Wegweiser-Brett: rechts spitz wie ein Pfeil. */
+private val SignShape = GenericShape { size, _ ->
+    val tip = size.height * 0.45f
+    moveTo(0f, 0f)
+    lineTo(size.width - tip, 0f)
+    lineTo(size.width, size.height / 2f)
+    lineTo(size.width - tip, size.height)
+    lineTo(0f, size.height)
+    close()
+}
 private val accent = Color(0xFFB8782F)
 private val teal = Color(0xFF2E6B6B)
 /** Genau das Papier aus dem tbe-Detailfenster. */
@@ -272,6 +285,10 @@ fun AdventureTimeline(
     onCenterKeyChange: (String?) -> Unit = {},
     /** Nur vom Nutzer gestartetes Wischen soll die Karte mitziehen. */
     onUserCenterKey: (String?) -> Unit = {},
+    /** Beim Wischen: zwischen welchen beiden Elementen liegt die Mitte, und wie weit (0..1)? */
+    onCenterBetween: (String, String, Float) -> Unit = { _, _, _ -> },
+    /** Die zl ist auf einem Element eingerastet. */
+    onSettleKey: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -504,8 +521,9 @@ fun AdventureTimeline(
         result
     }
 
+    // Rechts bleibt Platz für das Schild mit der Gesamtstrecke.
     val contentWidthPx = (points.lastOrNull()?.let { it.x + it.slot / 2f } ?: startPx) +
-        with(density) { 56.dp.toPx() }
+        with(density) { (if (points.isNotEmpty()) 130.dp else 56.dp).toPx() }
     val contentWidth = with(density) { contentWidthPx.toDp() }
 
     // An-/Abreise-Pins haben keinen eigenen Punkt in der zl. Ihr Abschnitt
@@ -513,16 +531,9 @@ fun AdventureTimeline(
     // links bzw. vom letzten sichtbaren Punkt nach rechts.
     val hasAnreiseLine = stops.size > 1 && stops.first().isArrivalDeparture
     val hasAbreiseLine = stops.size > 1 && stops.last().isArrivalDeparture
-    val anreiseEndX = points.firstOrNull()?.let { first ->
-        (first.x - with(density) { 60.dp.toPx() })
-            .coerceAtLeast(with(density) { 4.dp.toPx() })
-    } ?: startPx
-    val abreiseEndX = points.lastOrNull()?.let { last ->
-        minOf(
-            last.x + with(density) { 60.dp.toPx() },
-            contentWidthPx - with(density) { 6.dp.toPx() },
-        )
-    } ?: (contentWidthPx - with(density) { 6.dp.toPx() })
+    // Beide laufen bis an den Rand – als käme man von weit her bzw. führe weiter.
+    val anreiseEndX = 0f
+    val abreiseEndX = contentWidthPx
 
     // Die Abschnitte der Karte auf die gezeichnete Zeitleiste abbilden. Ein
     // markierter Endpin hat keinen eigenen Punkt mehr; dann grenzt der nächste
@@ -567,6 +578,23 @@ fun AdventureTimeline(
         val fromUser = scrollState.isScrollInProgress &&
             System.currentTimeMillis() >= programmaticScrollUntil
         onScrollFraction(scrollFraction, fromUser)
+        if (!fromUser) return@LaunchedEffect
+        // Genaue Lage der Mitte zwischen zwei Elementen – damit die Karte
+        // der Route folgt statt von Punkt zu Punkt zu springen.
+        val items = points.filter { it.kind != 0 }
+        if (items.isEmpty()) return@LaunchedEffect
+        val center = scrollState.value + viewportPx / 2f
+        val nextIndex = items.indexOfFirst { it.x >= center }
+        when (nextIndex) {
+            -1 -> onCenterBetween(items.last().key, items.last().key, 0f)
+            0 -> onCenterBetween(items.first().key, items.first().key, 0f)
+            else -> {
+                val previous = items[nextIndex - 1]
+                val next = items[nextIndex]
+                val span = (next.x - previous.x).coerceAtLeast(1f)
+                onCenterBetween(previous.key, next.key, ((center - previous.x) / span).coerceIn(0f, 1f))
+            }
+        }
     }
     LaunchedEffect(
         externalFraction, externalFractionSeq, externalFractionOrigin,
@@ -578,7 +606,11 @@ fun AdventureTimeline(
         }
         val maxScroll = (contentWidthPx - viewportPx).coerceAtLeast(0f)
         val target = (fraction * maxScroll).roundToInt()
-        if (abs(scrollState.value - target) > 4) {
+        if (externalFractionOrigin == "bar") {
+            // Schieberegler: die zl hängt direkt am Finger, ohne Verzögerung.
+            programmaticScrollUntil = System.currentTimeMillis() + 120L
+            scrollState.scrollTo(target)
+        } else if (abs(scrollState.value - target) > 4) {
             programmaticScrollUntil = System.currentTimeMillis() + 320L
             scrollState.animateScrollTo(target)
         }
@@ -653,8 +685,9 @@ fun AdventureTimeline(
                 add(value)
                 value += 100.0
             }
-            if (totalKm > 0.0) add(totalKm)
-        }.distinct()
+            // Die letzte Hunderter-Marke nicht direkt neben das Ziel-Schild legen.
+            if (isNotEmpty() && totalKm - last() < 30.0) removeAt(lastIndex)
+        }
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
@@ -698,15 +731,17 @@ fun AdventureTimeline(
                     ?: return@LaunchedEffect
                 val maxScroll = scrollState.maxValue
                 val target = (nearest.x - viewportPx / 2f).roundToInt().coerceIn(0, maxScroll)
-                if (abs(scrollState.value - target) < 3) return@LaunchedEffect
-                programmaticScrollUntil = System.currentTimeMillis() + 520L
-                scrollState.animateScrollTo(
-                    target,
-                    spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-                )
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                if (abs(scrollState.value - target) >= 3) {
+                    programmaticScrollUntil = System.currentTimeMillis() + 520L
+                    scrollState.animateScrollTo(
+                        target,
+                        spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                    )
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
                 // Karte bekommt den eingerasteten Punkt als Nutzerauswahl.
                 onUserCenterKey(nearest.key)
+                onSettleKey(nearest.key)
             }
             // Während des Wischens folgt die Karte fortlaufend dem mittleren
             // Element – nicht erst beim Loslassen oder bei einer Auswahl.
@@ -937,19 +972,6 @@ fun AdventureTimeline(
                         path, Color(RouteStyling.LINE_COLOR),
                         style = Stroke(width = RouteStyling.LINE_WIDTH, pathEffect = dash),
                     )
-                    // Kleiner, blasser Endpunkt für den An-/Abreise-Pin.
-                    val endRadius = with(density) { 4.dp.toPx() }
-                    val endStroke = with(density) { 1.dp.toPx() }
-                    if (hasAnreiseLine) {
-                        val end = Offset(anreiseEndX, yAt(-1))
-                        drawCircle(Color(0xFF9E3B2E).copy(alpha = 0.35f), endRadius, end)
-                        drawCircle(ink.copy(alpha = 0.5f), endRadius, end, style = Stroke(width = endStroke))
-                    }
-                    if (hasAbreiseLine) {
-                        val end = Offset(abreiseEndX, yAt(points.lastIndex + 1))
-                        drawCircle(Color(0xFF9E3B2E).copy(alpha = 0.35f), endRadius, end)
-                        drawCircle(ink.copy(alpha = 0.5f), endRadius, end, style = Stroke(width = endStroke))
-                    }
 
                     val centerIndex = points.indexOfFirst { it.key == centerKey }
                     if (centerIndex >= 0) {
@@ -968,11 +990,7 @@ fun AdventureTimeline(
                         (baseY + sin(position * WAVE_FREQUENCY) * WAVE_DP.dp.toPx()).toDp()
                     }
                     val x = with(density) { milestoneX(target).toDp() }
-                    val label = if (target == totalKm) {
-                        "${String.format(Locale.GERMANY, "%.0f", totalKm)} km"
-                    } else {
-                        "${target.toInt()} km"
-                    }
+                    val label = "${target.toInt()} km"
                     Box(
                         modifier = Modifier
                             .offset(x = x - 40.dp, y = lineY - 10.dp)
@@ -991,6 +1009,49 @@ fun AdventureTimeline(
                                 .background(paper, RoundedCornerShape(50))
                                 .border(1.5.dp, ink, RoundedCornerShape(50))
                                 .padding(horizontal = 7.dp, vertical = 1.dp),
+                        )
+                    }
+                }
+
+                // Holzschild mit der Gesamtstrecke, rechts neben dem letzten Eintrag.
+                val lastContentIndex = points.indexOfLast { it.kind != 0 }
+                if (lastContentIndex >= 0 && totalKm > 0.0) {
+                    val last = points[lastContentIndex]
+                    val signX = with(density) { (last.x + last.slot / 2f).toDp() } + 18.dp
+                    val lineY = with(density) {
+                        (baseY + sin(lastContentIndex * WAVE_FREQUENCY) * WAVE_DP.dp.toPx()).toDp()
+                    }
+                    val boardTop = cardTopDp + 6.dp
+                    // Pfosten: von der Linie bis unter das Schild.
+                    Box(
+                        modifier = Modifier
+                            .offset(x = signX + 14.dp, y = lineY)
+                            .width(5.dp)
+                            .height(boardTop - lineY + 64.dp)
+                            .background(signPost, RoundedCornerShape(2.dp))
+                            .border(1.dp, ink, RoundedCornerShape(2.dp)),
+                    )
+                    Column(
+                        modifier = Modifier
+                            .offset(x = signX, y = boardTop)
+                            .graphicsLayer { rotationZ = -4f }
+                            .width(100.dp)
+                            .background(signWood, SignShape)
+                            .border(1.5.dp, ink, SignShape)
+                            .padding(start = 8.dp, end = 18.dp, top = 3.dp, bottom = 4.dp),
+                    ) {
+                        Text(
+                            text = "Gesamt",
+                            color = ink.copy(alpha = 0.75f),
+                            fontSize = 10.sp,
+                            lineHeight = 11.sp,
+                            maxLines = 1,
+                        )
+                        Text(
+                            text = "${String.format(Locale.GERMANY, "%,.0f", totalKm)} km",
+                            style = TimelineTitleSmall,
+                            color = ink,
+                            maxLines = 1,
                         )
                     }
                 }

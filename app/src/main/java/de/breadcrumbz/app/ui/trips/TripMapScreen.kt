@@ -108,6 +108,8 @@ import de.breadcrumbz.app.ui.map.PlaneOverlay
 import de.breadcrumbz.app.ui.map.PolaroidOverlay
 import de.breadcrumbz.app.ui.map.RouteEditOverlay
 import de.breadcrumbz.app.ui.map.RouteStyling
+import de.breadcrumbz.app.ui.map.TrackOverlay
+import de.breadcrumbz.app.ui.map.TrackPath
 import de.breadcrumbz.app.ui.theme.Ink
 import androidx.compose.ui.draw.shadow
 import de.breadcrumbz.app.ui.theme.Parchment
@@ -143,6 +145,7 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.log2
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 internal fun standardTiles() = XYTileSource(
     "OSM-Standard",
@@ -387,6 +390,9 @@ private fun formatDate(time: Long?, withYear: Boolean = false): String {
     val pattern = if (withYear) "dd.MM.yyyy HH:mm" else "dd.MM.yyyy"
     return SimpleDateFormat(pattern, Locale.GERMANY).format(Date(time))
 }
+
+/** Mitte und Zoomstufe, mit der ein zl-Element „gut sichtbar“ ist. */
+private data class ItemView(val center: GeoPoint, val zoom: Double)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -929,13 +935,16 @@ fun TripMapScreen(
     // Nur neu bauen, wenn sich Pins oder Verkehrsmittel ändern – nicht bei
     // jeder Kartenbewegung. So bleiben die Striche der Reiselinie stabil.
     val planePaths = remember { mutableListOf<List<GeoPoint>>() }
+    val trackPaths = remember { mutableListOf<TrackPath>() }
     val routeLines = remember(
         orderedRouteStops, segmentModes, trip?.defaultTransportMode, trip?.routeMode,
         effectiveOnlinePoints, waypointPointsByStop, routeEditSegments,
     ) {
         planePaths.clear()
+        trackPaths.clear()
         RouteStyling.build(
             planePaths = planePaths,
+            trackPaths = trackPaths,
             mapView = mapView,
             stops = orderedRouteStops,
             defaultMode = trip?.defaultTransportMode ?: TransportMode.CAR,
@@ -958,6 +967,7 @@ fun TripMapScreen(
         )
     }
 
+    val trackOverlay = remember(routeLines) { TrackOverlay(trackPaths.toList()) }
     val planeOverlay = remember(routeLines) {
         PlaneOverlay(
             paths = planePaths.toList(),
@@ -1102,53 +1112,165 @@ fun TripMapScreen(
         }
     }
 
-    // Beim Wischen durch die zl zoomt die Karte auf den Bereich des Tages,
-    // sobald ein neuer Tag in die Mitte kommt.
-    var lastZoomDay by remember { mutableStateOf<String?>(null) }
-    var dayZoomUntil by remember { mutableStateOf(0L) }
-    val dayFormat = remember { SimpleDateFormat("yyyyMMdd", Locale.GERMANY) }
-    fun zoomToDayOf(key: String?) {
-        val item = timeline.firstOrNull { it.id == key } ?: return
-        val day = dayFormat.format(Date(item.time))
-        if (day == lastZoomDay) return
-        lastZoomDay = day
-        val dayItems = timeline.filter { dayFormat.format(Date(it.time)) == day }
-        val dayPoints = dayItems.mapNotNull { geoFor(it) }
-        if (dayPoints.isEmpty()) return
-        // Stapel mit Fotos dieses Tages fächern sich auf.
-        val dayPhotoIds = dayItems.flatMap { item ->
-            when (item.kind) {
-                TimelineKind.PHOTO -> listOfNotNull(item.photoId)
-                TimelineKind.ENTRY -> item.entryId?.let { photosByEntry[it] }.orEmpty()
-                else -> emptyList()
-            }
-        }.distinct()
-        stackPhotoIds = dayPhotoIds
-        val now = System.currentTimeMillis()
-        dayZoomUntil = now + 900L
-        syncLockUntil = now + 1_100L
-        rawMapCenter = null
-        if (dayPoints.size == 1 ||
-            dayPoints.all { it.distanceToAsDouble(dayPoints.first()) < 150.0 }
-        ) {
-            mapView.controller.animateTo(
-                dayPoints.first(),
-                maxOf(mapView.zoomLevelDouble, 13.0),
-                700L,
-            )
-        } else {
-            val box = BoundingBox.fromGeoPoints(dayPoints)
-            val padded = box.increaseByScale(1.35f)
-            mapView.zoomToBoundingBox(padded, true, 90, 16.0, 700L)
-        }
+    // ---- Kontrollierter Fluss durch die Reise ----
+    // Rastet die zl auf einem Element ein, zoomt die Karte sanft auf alles,
+    // was zu diesem Element gehört (Pin + Fotos), und Stapel fächern sich auf.
+    // Beim Weiterwischen folgt die Karte der gezeichneten Route und gleitet
+    // in der Zoomstufe vom einen Element zum nächsten.
+
+    /** Fotos, die zu einem zl-Element gehören. */
+    fun photoIdsFor(item: TimelineItem): List<String> = when (item.kind) {
+        TimelineKind.PHOTO -> listOfNotNull(item.photoId)
+        TimelineKind.ENTRY -> item.entryId?.let { photosByEntry[it] }.orEmpty()
+        TimelineKind.STOP -> photos.filter { it.stopId != null && it.stopId == item.stopId }.map { it.id } +
+            allEntries.filter { it.stopId == item.stopId }.flatMap { photosByEntry[it.id].orEmpty() }
+    }.distinct()
+
+    /** Alle Orte, die für ein Element gut sichtbar sein sollen. */
+    fun focusPointsFor(item: TimelineItem): List<GeoPoint> {
+        val ids = photoIdsFor(item).toSet()
+        val photoPoints = photos.filter { it.id in ids && it.latitude != null && it.longitude != null }
+            .map { GeoPoint(it.latitude!!, it.longitude!!) }
+        return (listOfNotNull(geoFor(item)) + photoPoints)
     }
 
-    /** Die Karte folgt einer Position, ohne das Echo als Nutzerwisch zu melden. */
-    fun moveMapTo(point: GeoPoint, duration: Long = 140L) {
-        syncLockUntil = System.currentTimeMillis() + duration + 200L
+    fun boxZoom(box: BoundingBox): Double {
+        val border = (90 * context.resources.displayMetrics.density / 2.6f).toInt()
+        val width = (mapView.width - 2 * border).coerceAtLeast(80)
+        val height = (mapView.height - 2 * border).coerceAtLeast(80)
+        return MapView.getTileSystem().getBoundingBoxZoom(box, width, height)
+    }
+
+    val itemViews = remember(timeline, photos, allEntries, mapBounds) { mutableMapOf<String, ItemView?>() }
+    fun itemView(key: String): ItemView? = itemViews.getOrPut(key) {
+        val item = timeline.firstOrNull { it.id == key } ?: return@getOrPut null
+        val points = focusPointsFor(item)
+        if (points.isEmpty()) return@getOrPut null
+        if (points.size == 1 || points.all { it.distanceToAsDouble(points.first()) < 120.0 }) {
+            return@getOrPut ItemView(points.first(), 15.5)
+        }
+        val box = BoundingBox.fromGeoPoints(points).increaseByScale(1.3f)
+        if (mapView.width <= 0) return@getOrPut ItemView(box.centerWithDateLine, 14.0)
+        ItemView(box.centerWithDateLine, boxZoom(box).coerceIn(3.0, 17.0))
+    }
+
+    // Die gezeichnete Route als eine durchgehende Punktfolge mit Längen.
+    val routeFollow = remember(routeLines) {
+        val path = routeLines.filterIndexed { index, _ -> index % 2 == 1 }
+            .flatMap { it.actualPoints }
+        val lengths = DoubleArray(path.size)
+        for (index in 1 until path.size) {
+            lengths[index] = lengths[index - 1] + path[index - 1].distanceToAsDouble(path[index])
+        }
+        path to lengths
+    }
+    val routeIndexCache = remember(routeFollow) { mutableMapOf<String, Int>() }
+
+    fun nearestRouteIndex(point: GeoPoint, from: Int): Int {
+        val path = routeFollow.first
+        var best = from
+        var bestDistance = Double.MAX_VALUE
+        for (index in from until path.size) {
+            val distance = path[index].distanceToAsDouble(point)
+            if (distance < bestDistance) {
+                bestDistance = distance
+                best = index
+            }
+        }
+        // Liegt der Punkt weit weg von der Linie, folgen wir ihr dort nicht.
+        return if (bestDistance < 3_000.0) best else -1
+    }
+
+    fun routePointBetween(a: GeoPoint, b: GeoPoint, keyA: String, keyB: String, part: Float): GeoPoint {
+        val straight = GeoPoint(
+            a.latitude + (b.latitude - a.latitude) * part,
+            a.longitude + (b.longitude - a.longitude) * part,
+        )
+        val (path, lengths) = routeFollow
+        if (path.size < 2 || keyA == keyB) return straight
+        val ia = routeIndexCache.getOrPut(keyA) { nearestRouteIndex(a, 0) }
+        if (ia < 0) return straight
+        val ib = routeIndexCache.getOrPut("$keyA>$keyB") { nearestRouteIndex(b, ia) }
+        if (ib <= ia) return straight
+        val target = lengths[ia] + (lengths[ib] - lengths[ia]) * part
+        var index = ia
+        while (index < ib && lengths[index + 1] < target) index++
+        if (index >= ib) return path[ib]
+        val span = (lengths[index + 1] - lengths[index]).coerceAtLeast(0.001)
+        val t = ((target - lengths[index]) / span).coerceIn(0.0, 1.0)
+        val p = path[index]
+        val q = path[index + 1]
+        return GeoPoint(
+            p.latitude + (q.latitude - p.latitude) * t,
+            p.longitude + (q.longitude - p.longitude) * t,
+        )
+    }
+
+    var itemZoomUntil by remember { mutableStateOf(0L) }
+    var lastFollowAt by remember { mutableStateOf(0L) }
+    /** Element, für das Stapel gerade automatisch aufgefächert sind. */
+    var autoStackKey by remember { mutableStateOf<String?>(null) }
+
+    fun followRoute(previousKey: String, nextKey: String, part: Float) {
+        val now = System.currentTimeMillis()
+        // Verlässt man den Bereich des eingerasteten Elements, schließen sich die Stapel.
+        val stay = (previousKey == autoStackKey && part < 0.3f) ||
+            (nextKey == autoStackKey && part > 0.7f)
+        if (autoStackKey != null && !stay) {
+            autoStackKey = null
+            stackPhotoIds = emptyList()
+        }
+        if (now < itemZoomUntil) return
+        if (now - lastFollowAt < 16L) return
+        lastFollowAt = now
+        val itemA = timeline.firstOrNull { it.id == previousKey } ?: return
+        val itemB = timeline.firstOrNull { it.id == nextKey } ?: return
+        val geoA = geoFor(itemA) ?: geoFor(itemB) ?: return
+        val geoB = geoFor(itemB) ?: geoA
+        val viewA = itemView(previousKey) ?: ItemView(geoA, mapView.zoomLevelDouble)
+        val viewB = itemView(nextKey) ?: ItemView(geoB, viewA.zoom)
+        val onRoute = routePointBetween(geoA, geoB, previousKey, nextKey, part)
+        // Versatz zur Bildmitte gleitet mit, damit nichts springt.
+        val center = GeoPoint(
+            onRoute.latitude + (viewA.center.latitude - geoA.latitude) * (1 - part) +
+                (viewB.center.latitude - geoB.latitude) * part,
+            onRoute.longitude + (viewA.center.longitude - geoA.longitude) * (1 - part) +
+                (viewB.center.longitude - geoB.longitude) * part,
+        )
+        // Zoom: von Element zu Element gleiten; auf langen Wegen dazwischen
+        // weich herauszoomen, sodass der Abschnitt sichtbar wird.
+        val base = viewA.zoom + (viewB.zoom - viewA.zoom) * part
+        var zoom = base
+        if (previousKey != nextKey && mapView.width > 0 && geoA.distanceToAsDouble(geoB) > 50.0) {
+            val legZoom = boxZoom(BoundingBox.fromGeoPoints(listOf(geoA, geoB)).increaseByScale(1.25f))
+            val dip = (base - legZoom).coerceAtLeast(0.0)
+            zoom = base - dip * sin(Math.PI * part)
+        }
+        syncLockUntil = now + 250L
         rawMapCenter = null
-        mapCenter = point
-        mapView.controller.animateTo(point, mapView.zoomLevelDouble, duration)
+        mapCenter = center
+        mapView.controller.setZoom(zoom.coerceIn(mapView.minZoomLevel, 17.0))
+        mapView.controller.setCenter(center)
+    }
+
+    /** Die zl ist eingerastet: sanft auf alles zoomen, was dazugehört. */
+    fun settleOn(key: String) {
+        val item = timeline.firstOrNull { it.id == key } ?: return
+        val view = itemView(key) ?: return
+        val ids = photoIdsFor(item)
+        if (ids.size > 1 || item.kind == TimelineKind.PHOTO) {
+            stackPhotoIds = ids
+            autoStackKey = key
+        } else if (autoStackKey != null) {
+            stackPhotoIds = emptyList()
+            autoStackKey = null
+        }
+        val now = System.currentTimeMillis()
+        itemZoomUntil = now + 700L
+        syncLockUntil = now + 900L
+        rawMapCenter = null
+        mapCenter = view.center
+        mapView.controller.animateTo(view.center, view.zoom, 650L)
     }
 
     // Die Karte meldet viele Scroll-Ereignisse. Die Position wird kurz
@@ -1358,6 +1480,8 @@ fun TripMapScreen(
                         // Die Route liegt unter den Bildern: Fotos sind immer
                         // sichtbar und bekommen den Tap zuerst.
                         routeLines.forEach { view.overlays.add(it) }
+                        // Fußspuren und Reifenspuren statt gestrichelter Linie.
+                        view.overlays.add(trackOverlay)
                         // Kleines Flugzeug fliegt auf Flug-Abschnitten mit.
                         view.overlays.add(planeOverlay)
 
@@ -1544,7 +1668,14 @@ fun TripMapScreen(
                         scrollSync = ScrollSync(fraction, "bar", syncSeq)
                         syncTarget = null
                         focusKey = null
-                        pointAtFraction(fraction)?.let { moveMapTo(it) }
+                        // Direkt mitnehmen, ohne Animation: die zl folgt
+                        // ebenfalls sofort und meldet die Route-Position.
+                        pointAtFraction(fraction)?.let { point ->
+                            syncLockUntil = System.currentTimeMillis() + 250L
+                            rawMapCenter = null
+                            mapCenter = point
+                            mapView.controller.setCenter(point)
+                        }
                     },
                 )
             }
@@ -1587,20 +1718,19 @@ fun TripMapScreen(
                         if (!fromUser) return@AdventureTimeline
                         val now = System.currentTimeMillis()
                         if (now - lastTimelineMoveAt < 70L) return@AdventureTimeline
-                        // Während des Tages-Zooms nicht dazwischenfunken.
-                        if (now < dayZoomUntil) return@AdventureTimeline
                         lastTimelineMoveAt = now
                         syncSeq += 1
                         scrollSync = ScrollSync(fraction, "timeline", syncSeq)
                         syncTarget = null
                         focusKey = null
-                        pointAtFraction(fraction)?.let { moveMapTo(it) }
                     },
+                    // Die Karte folgt der gezeichneten Route zwischen zwei Elementen.
+                    onCenterBetween = { previousKey, nextKey, part ->
+                        followRoute(previousKey, nextKey, part)
+                    },
+                    onSettleKey = { key -> settleOn(key) },
                     // Das mittlere Element dient nur noch der Markierung.
-                    onUserCenterKey = { key ->
-                        centerKey = key
-                        zoomToDayOf(key)
-                    },
+                    onUserCenterKey = { key -> centerKey = key },
                     onDropElement = { source, entryId ->
                         viewModel.assignElementToEntry(source, entryId)
                     },
