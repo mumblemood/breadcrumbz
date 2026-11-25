@@ -268,8 +268,7 @@ class PolaroidOverlay(
                             // Übliches Android-Haltechangesignal, nicht zwei Sekunden.
                             handler.postDelayed(
                                 it,
-                                ViewConfiguration.get(mapView.context)
-                                    .longPressTimeout.toLong(),
+                                ViewConfiguration.getLongPressTimeout().toLong(),
                             )
                         }
                     }
