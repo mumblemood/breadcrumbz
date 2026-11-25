@@ -110,7 +110,8 @@ class TripMapViewModel(
                         id = "entry-${entry.id}",
                         time = entrySortTime(entry),
                         kind = TimelineKind.ENTRY,
-                        title = entry.title.ifBlank { "Tagebucheintrag" },
+                        // Ein leerer Titel bleibt leer – er ist ein optionales Feld.
+                        title = entry.title,
                         subtitle = if (entry.stopId == null) "Ohne Ort" else entry.body,
                         stopId = entry.stopId,
                         entryId = entry.id,
@@ -128,7 +129,8 @@ class TripMapViewModel(
                         id = "photo-${photo.id}",
                         time = photo.capturedAt ?: photo.createdAt,
                         kind = TimelineKind.PHOTO,
-                        title = photo.caption.ifBlank { "Foto" },
+                        // Ein leerer Foto-Titel wird nirgends als "Foto" ersetzt.
+                        title = photo.caption,
                         subtitle = "Foto",
                         stopId = photo.stopId,
                         entryId = null,
@@ -449,12 +451,12 @@ class TripMapViewModel(
         }
     }
 
-    /** Foto-Titel mit maximal zwölf Zeichen. */
+    /** Foto-Titel, leer bedeutet „optionales Feld noch nicht ausgefüllt“. */
     fun updatePhotoCaption(photoId: String, caption: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val photo = repository.observePhotos(tripId).first().firstOrNull { it.id == photoId }
                 ?: return@launch
-            repository.updatePhoto(photo.copy(caption = caption.take(12)))
+            repository.updatePhoto(photo.copy(caption = caption))
         }
     }
 

@@ -2,6 +2,7 @@ package de.breadcrumbz.app.ui.trips
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.view.WindowManager
 import androidx.compose.foundation.Image
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,9 +26,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RectangleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -46,6 +50,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -65,12 +71,14 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.content.FileProvider
 import de.breadcrumbz.app.domain.model.Entry
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.state.TripMapViewModel
 import de.breadcrumbz.app.ui.map.PlacePinIcon
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -122,6 +130,107 @@ private fun SmallMeta(text: String, withPin: Boolean = false) {
 }
 
 /**
+ * Das Polaroid selbst: Der Rand wird gemeinsam mit dem Bild verschoben und gezoomt, das Bild
+ * bleibt auf ein normales 4:3-Format zugeschnitten. Ein Klick auf den Titel
+ * schaltet ihn in den Bearbeitungsmodus, ein Klick auf das Bild öffnet das
+ * Original im Android-Bildviewer.
+ */
+@Composable
+private fun PhotoPolaroidDetail(
+    photo: Photo,
+    bitmap: ImageBitmap?,
+    viewModel: TripMapViewModel,
+    scale: Float,
+    pan: Offset,
+    onOpenOriginal: () -> Unit,
+) {
+    var editingTitle by remember(photo.id) { mutableStateOf(false) }
+    var titleDraft by remember(photo.id, photo.caption) { mutableStateOf(photo.caption) }
+    val focusRequester = remember { FocusRequester() }
+    // Titel sofort fokussieren, damit Tippen ihn wirklich bearbeitbar macht.
+    LaunchedEffect(editingTitle) {
+        if (editingTitle) focusRequester.requestFocus()
+    }
+    // Bei jedem Öffnen ein neuer, kleiner Schrägwinkel.
+    val tilt = remember(photo.id) { (-9..9).random().toFloat() }
+    val titleIsEmpty = photo.caption.isBlank()
+
+    Column(
+        modifier = Modifier
+            .width(300.dp)
+            .graphicsLayer(
+                scaleX = scale,
+                scaleY = scale,
+                rotationZ = tilt,
+                translationX = pan.x,
+                translationY = pan.y,
+            )
+            .clip(RoundedCornerShape(4.dp))
+            .background(paper)
+            .border(3.dp, ink, RoundedCornerShape(4.dp))
+            .padding(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(4f / 3f)
+                .clip(RoundedCornerShape(2.dp))
+                .background(Color(0xFFE7DAC2))
+                .clickable {
+                    if (editingTitle) {
+                        editingTitle = false
+                    } else {
+                        onOpenOriginal()
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = "Original anzeigen",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Text("Foto konnte nicht geladen werden", color = ink)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        if (editingTitle) {
+            BasicTextField(
+                value = titleDraft,
+                onValueChange = {
+                    titleDraft = it
+                    viewModel.updatePhotoCaption(photo.id, it)
+                },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.titleMedium.copy(
+                    color = ink,
+                    fontFamily = comic,
+                    textAlign = TextAlign.Center,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+            )
+        } else {
+            Text(
+                text = photo.caption.ifBlank { "Titel" },
+                color = if (titleIsEmpty) ink.copy(alpha = 0.55f) else ink,
+                fontFamily = comic,
+                fontStyle = if (titleIsEmpty) FontStyle.Italic else FontStyle.Normal,
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.clickable { editingTitle = true },
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+    }
+}
+
+/**
  * Pop-up für jedes Element: Foto, Pin oder Eintrag. Der Hauptbereich bleibt
  * sichtbar und wird nur leicht abgedunkelt.
  */
@@ -143,6 +252,14 @@ fun FullscreenElement(
     val density = LocalDensity.current
     // Die Foto-Detailansicht zeigt wirklich nur das Polaroid – kein Extra-Kartenform.
     val photoOnly = elementKey.startsWith("photo-")
+    val detailPhoto = if (photoOnly) {
+        photos.firstOrNull { it.id == elementKey.removePrefix("photo-") }
+    } else {
+        null
+    }
+    // Gesten wirken über den ganzen Bildschirm, nicht nur auf einem Kartenausschnitt.
+    var photoScale by remember(detailPhoto?.id) { mutableStateOf(1f) }
+    var photoPan by remember(detailPhoto?.id) { mutableStateOf(Offset.Zero) }
 
     Dialog(
         onDismissRequest = onClose,
@@ -165,124 +282,92 @@ fun FullscreenElement(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(20.dp)
-                .clickable { onClose() },
-            contentAlignment = Alignment.Center,
+                .then(if (photoOnly) Modifier else Modifier.padding(20.dp))
+                .clickable { onClose() }
+                .then(
+                    if (photoOnly) {
+                        Modifier.pointerInput(detailPhoto?.id) {
+                            detectTransformGestures { _, panChange, zoom, _ ->
+                                photoScale = (photoScale * zoom).coerceIn(1f, 5f)
+                                photoPan = Offset(
+                                    (photoPan.x + panChange.x)
+                                        .coerceIn(-1_200f * photoScale, 1_200f * photoScale),
+                                    (photoPan.y + panChange.y)
+                                        .coerceIn(-1_600f * photoScale, 1_600f * photoScale),
+                                )
+                            }
+                        }
+                    } else {
+                        Modifier
+                    },
+                ),
+            // Einträge liegen bündig links oben; das Polaroid bleibt zentriert.
+            contentAlignment = if (photoOnly) Alignment.Center else Alignment.TopStart,
         ) {
             Card(
-                shape = RoundedCornerShape(20.dp),
+                // Keine runden Ecken mehr – das Detailfenster ist eine flache Fläche.
+                shape = RectangleShape,
                 colors = CardDefaults.cardColors(
                     containerColor = if (photoOnly) Color.Transparent else paper,
                 ),
-                elevation = CardDefaults.cardElevation(
-                    defaultElevation = if (photoOnly) 0.dp else 4.dp,
-                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 620.dp)
-                    // Klicks im Kartenkartenbereich nicht nach außen durchreichen.
-                    .clickable { },
+                    .then(
+                        if (photoOnly) {
+                            Modifier.fillMaxSize()
+                        } else {
+                            Modifier.fillMaxWidth().heightIn(max = 620.dp)
+                        },
+                    )
+                    // Klicks im Kartenbereich nicht nach außen durchreichen.
+                    .clickable { if (photoOnly) onClose() },
             ) {
                 CompositionLocalProvider(LocalContentColor provides ink) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                            .then(
+                                if (photoOnly) Modifier else Modifier.verticalScroll(
+                                    rememberScrollState(),
+                                ),
+                            )
+                            .then(
+                                if (photoOnly) Modifier else Modifier.padding(
+                                    horizontal = 16.dp, vertical = 10.dp,
+                                ),
+                            ),
                     ) {
                         // Kein Zurück-Knopf: Tippen daneben oder die Back-Taste schließen.
                         when {
                             elementKey.startsWith("photo-") -> {
                                 val id = elementKey.removePrefix("photo-")
-                                val photo = photos.firstOrNull { it.id == id }
-                                if (photo == null) {
+                                val currentPhoto = photos.firstOrNull { it.id == id }
+                                if (currentPhoto == null) {
                                     MissingElement(onClose)
                                 } else {
-                                    val bitmap = rememberBigImage(viewModel, photo.fileName)
-                                    // Bei jedem Öffnen ein neuer, kleiner Schrägwinkel.
-                                    val tilt = remember(photo.id) {
-                                        (-9..9).random().toFloat()
-                                    }
-                                    var scale by remember(photo.id) { mutableStateOf(1f) }
-                                    var pan by remember(photo.id) {
-                                        mutableStateOf(Offset.Zero)
-                                    }
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(420.dp)
-                                            .pointerInput(photo.id) {
-                                                detectTransformGestures { _, panChange, zoom, _ ->
-                                                    scale = (scale * zoom).coerceIn(1f, 4f)
-                                                    val limitX = 180f * scale
-                                                    val limitY = 210f * scale
-                                                    pan = Offset(
-                                                        (pan.x + panChange.x)
-                                                            .coerceIn(-limitX, limitX),
-                                                        (pan.y + panChange.y)
-                                                            .coerceIn(-limitY, limitY),
-                                                    )
-                                                }
-                                            },
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        // Nur das Polaroid: Bild, dicker Rand, Titel.
-                                        Column(
-                                            modifier = Modifier
-                                                .width(280.dp)
-                                                .graphicsLayer(
-                                                    scaleX = scale,
-                                                    scaleY = scale,
-                                                    rotationZ = tilt,
-                                                    translationX = pan.x,
-                                                    translationY = pan.y,
-                                                )
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(paper)
-                                                .border(3.dp, ink, RoundedCornerShape(4.dp))
-                                                .padding(
-                                                    start = 12.dp, end = 12.dp, top = 12.dp,
-                                                ),
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(220.dp)
-                                                    .background(Color(0xFFE7DAC2)),
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                if (bitmap != null) {
-                                                    Image(
-                                                        bitmap = bitmap,
-                                                        contentDescription =
-                                                            photo.caption.ifBlank { "Foto" },
-                                                        contentScale = ContentScale.Fit,
-                                                        modifier = Modifier.fillMaxSize(),
-                                                    )
-                                                } else {
-                                                    Text(
-                                                        "Foto konnte nicht geladen werden",
-                                                        color = ink,
-                                                    )
-                                                }
-                                            }
-                                            Spacer(Modifier.height(16.dp))
-                                            Text(
-                                                text = photo.caption.ifBlank { "Titel" },
-                                                color = ink,
-                                                fontFamily = comic,
-                                                fontStyle = if (photo.caption.isBlank()) {
-                                                    FontStyle.Italic
-                                                } else {
-                                                    FontStyle.Normal
-                                                },
-                                                style = MaterialTheme.typography.titleMedium,
-                                                textAlign = TextAlign.Center,
+                                    val bitmap = rememberBigImage(viewModel, currentPhoto.fileName)
+                                    PhotoPolaroidDetail(
+                                        photo = currentPhoto,
+                                        bitmap = bitmap,
+                                        viewModel = viewModel,
+                                        scale = photoScale,
+                                        pan = photoPan,
+                                        onOpenOriginal = {
+                                            val file = File(viewModel.photoPath(currentPhoto.fileName))
+                                            val uri = FileProvider.getUriForFile(
+                                                context,
+                                                "${context.packageName}.fileprovider",
+                                                file,
                                             )
-                                            Spacer(Modifier.height(18.dp))
-                                        }
-                                    }
+                                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                setDataAndType(uri, "image/*")
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            }
+                                            context.startActivity(
+                                                Intent.createChooser(intent, "Original anzeigen"),
+                                            )
+                                        },
+                                    )
                                 }
                             }
 

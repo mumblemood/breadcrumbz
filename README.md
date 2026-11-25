@@ -55,10 +55,14 @@ mit sicherem Rand sichtbar sind. Ein zusätzlicher Pin entsteht durch das Auflö
 
 **Timeline:** Die Reihenfolge von Elementen und Einträgen richtet sich
 automatisch nach den **Foto-Daten**; manuell gesetzte Zeiten bleiben erhalten.
-Die Zeitleiste ist **neu aufgebaut**: Pins und Fotos bekommen nur so viel Breite,
-wie sie brauchen, Einträge mehr – dadurch passt deutlich mehr in den sichtbaren
-Bereich. Unten liegt eine **bedienbare Scrollbar**: Der Regler zeigt die absolute
-Position, Tippen oder Ziehen springt direkt dorthin. Sie lässt sich überall
+Die Zeitleiste ist **neu aufgebaut**: Jeder Bereich berechnet seine Breite
+**dynamisch aus seinem echten Inhalt** (Textlänge und Bildformat). Die Klammerung
+**[Tag 1 (Eintrag mit Bildern) (Eintrag mit Bildern)]** bleibt erhalten; kein
+Rahmen und kein Bild steht über – die Bilder füllen die Eintragsfläche bis auf
+einen kleinen Abstand in der Höhe aus. „Tag 1" steht als **reiner Text ohne
+Hintergrund**; am linken Rand des Tagesrahmens steht das Datum **um 90°
+gedreht, von rechts lesbar**. Unten liegt eine **bedienbare Scrollbar**: Der
+Regler zeigt die absolute Position, Tippen oder Ziehen springt direkt dorthin. Sie lässt sich überall
 wischen; Ziehen eines Elements startet erst nach längerem Halten. Am
 Bildschirmrand scrollt die Zeitleiste beim Ziehen mit.
 Ein Bild darf nur in einen Eintrag **desselben Tages** gezogen werden. Die Linie sieht genauso aus wie auf der Karte. Es gibt **kein Auf-/Zuklappen** mehr – alle Tage und Einträge sind immer sichtbar, das macht die Zeitleiste stabiler. Beim Ziehen leuchtet der Eintrag auf, dem du das Element zuordnen willst. **Tagesrahmen überlappen sich nicht**: ihre Grenzen liegen genau in der Mitte zwischen zwei Tagen. Oben links im Tagesrahmen steht **„Tag 1", „Tag 2" …** statt des Datums. Es gibt nur noch den Tagesrahmen und den grauen Eintragsrahmen; der frühere beige Rahmen ist weg. Wischen in der Zeitleiste zentriert das Element auf der Karte und zoomt nötigenfalls auf Stufe 15; bewegt man die Karte, folgt die Zeitleiste. Die **Kilometerleiste** liegt oben und überlappt keine Pins. Unter dem Pin eines Eintrags stehen **Titel, dann der Text**, darunter die Fotos **rechts daneben aufgereiht**. Das **Datum (dd.MM.yyyy)** steht über der Nadel. Es gibt genau **einen Pin je Ereignis** (Eintrag oder einzelner Pin), nie einen zusätzlichen für ein Foto. Der Eintragsrahmen bleibt innerhalb des Tagesrahmens.
@@ -88,11 +92,18 @@ verloren. Während des Pinch-Zooms wird nichts ausgewählt. Ein schlechtes Foto
 
 Die Detailansichten öffnen sich als **Pop-up** über etwas dunklerem Hauptbereich;
 ein Klick daneben oder die Back-Taste schließt es – ein **Zurück-Knopf gibt es
-nicht mehr**. Die **Foto-Detailansicht zeigt nur das Polaroid mit Bild und Titel**,
-bei jedem Öffnen in einem neuen leichten Schrägwinkel. Das ganze Polaroid lässt
-sich mit zwei Fingern **pinch-zoomen** und verschieben; der Titel ist dort nur zu
-lesen. Ein Klick auf ein Foto öffnet die Detailansicht – sowohl auf der Karte als
-auch in der Zeitleiste. Im Eintrag sind **Titel und Tagebuch felderfrei**: keine
+nicht mehr**. Das Detailfenster liegt **bündig links** und hat **keine abgerundeten
+Ecken oben oder unten**. Die **Foto-Detailansicht zeigt nur das Polaroid mit Bild
+und Titel**, bei jedem Öffnen in einem neuen leichten Schrägwinkel. Das Bild ist
+auf ein **normales 4:3-Format zugeschnitten**; im Bild selbst wird nicht gezoomt.
+Das **ganze Polaroid** lässt sich über den **ganzen Bildschirm** mit zwei Fingern
+**pinch-zoomen** und verschieben. Ein Klick auf das Bild öffnet das **Original im
+Android-Bildviewer**. Ein Klick auf den Titel macht ihn bearbeitbar; solange er
+leer ist, steht er **kursiv und heller** als Hinweis auf ein optionales Feld und
+ist **weder auf der Karte noch in der Zeitleiste sichtbar**. Ein Klick auf den
+grauen Eintragsrahmen in der Zeitleiste öffnet das Detailfenster des Eintrags.
+Ein Klick auf ein Foto öffnet die Detailansicht – sowohl auf der Karte als auch
+in der Zeitleiste. Im Eintrag sind **Titel und Tagebuch felderfrei**: keine
 Rahmen, keine Beschriftungen, nur eine feine **Bindung links** wie bei einem
 Tagebuch. Die angehängten Fotos stehen rechts daneben, eine Liste der Pins gibt
 es nicht mehr. Foto-Orte werden aus dem
