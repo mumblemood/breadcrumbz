@@ -956,7 +956,8 @@ fun AdventureTimeline(
                                         // Derselbe Abstand wie bei der Breitenberechnung,
                                         // sonst ragt der Streifen über den Rahmen hinaus.
                                         val stripWidth = point.photoWidthsPx.sum() +
-                                            (point.photoWidthsPx.size - 1).coerceAtLeast(0) * gapPx
+                                            (point.photoWidthsPx.size - 1).coerceAtLeast(0) *
+                                                with(density) { 8.dp.toPx() }
                                         Row(
                                             modifier = Modifier
                                                 .width(with(density) { stripWidth.toDp() }),
