@@ -4,7 +4,11 @@ package de.breadcrumbz.app.domain.model
 enum class TransportMode(val label: String) {
     WALK("Zu Fuß"),
     BIKE("Fahrrad"),
-    KAYAK("Kajak"),
+    /**
+     * Boot. Der interne Name bleibt KAYAK, damit gespeicherte Reisen,
+     * Backups und verschickte Reisen ohne Umbau weiter passen.
+     */
+    KAYAK("Boot"),
     CAR("Auto"),
     TRAIN("Bahn"),
     PLANE("Flugzeug"),
@@ -15,7 +19,7 @@ enum class TransportMode(val label: String) {
 fun TransportMode.symbol(): String = when (this) {
     TransportMode.WALK -> "🚶"
     TransportMode.BIKE -> "🚲"
-    TransportMode.KAYAK -> "🛶"
+    TransportMode.KAYAK -> "⛵"
     TransportMode.CAR -> "🚗"
     TransportMode.TRAIN -> "🚆"
     TransportMode.PLANE -> "✈️"

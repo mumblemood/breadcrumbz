@@ -362,7 +362,7 @@ object RouteStyling {
         }
     }
 
-    /** Bogen für das Kajak; wave = true erzeugt eine Welle. */
+    /** Bogen für das Boot; wave = true erzeugt eine Welle. */
     private fun arc(from: GeoPoint, to: GeoPoint, wave: Boolean): List<GeoPoint> {
         val steps = 24
         val midLat = (from.latitude + to.latitude) / 2.0
