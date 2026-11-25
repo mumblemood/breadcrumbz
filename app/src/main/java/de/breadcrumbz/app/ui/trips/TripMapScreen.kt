@@ -155,9 +155,6 @@ private fun formatDate(time: Long?, withYear: Boolean = false): String {
     return SimpleDateFormat(pattern, Locale.GERMANY).format(Date(time))
 }
 
-private fun dayKeyOf(time: Long): String =
-    SimpleDateFormat("yyyy-MM-dd", Locale.GERMANY).format(Date(time))
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TripMapScreen(
@@ -185,9 +182,6 @@ fun TripMapScreen(
     var fullscreenKey by remember { mutableStateOf<String?>(null) }
     var centerKey by remember { mutableStateOf<String?>(null) }
     val markers = remember { mutableMapOf<String, Marker>() }
-    var expandedDay by remember { mutableStateOf<String?>(null) }
-    var didAutoExpandDay by remember { mutableStateOf(false) }
-    var expandedEntryIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var stackPhotoIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var coverPickerOpen by remember { mutableStateOf(false) }
     var segmentModeStopId by remember { mutableStateOf<String?>(null) }
@@ -212,25 +206,12 @@ fun TripMapScreen(
     val photoTimes = remember(photos) {
         photos.associate { it.id to (it.capturedAt ?: it.createdAt) }
     }
-    // Fotos eines aufgeklappten Eintrags werden auf der Karte einzeln gezeigt.
-    val expandedPhotoIds = remember(photos, expandedEntryIds) {
-        photos.filter { photo ->
-            photo.entryId?.let { it in expandedEntryIds } == true
-        }.map { it.id }.toSet()
-    }
     val frontPhotoId = remember(centerKey) {
         val key = centerKey
         when {
             key?.startsWith("photo-") == true -> key.removePrefix("photo-")
             key?.startsWith("entryphoto-") == true -> key.removePrefix("entryphoto-")
             else -> null
-        }
-    }
-
-    LaunchedEffect(timeline) {
-        if (!didAutoExpandDay && timeline.isNotEmpty()) {
-            expandedDay = dayKeyOf(timeline.first().time)
-            didAutoExpandDay = true
         }
     }
 
@@ -338,7 +319,6 @@ fun TripMapScreen(
     fun openNewEntry(stopId: String? = null) {
         scope.launch {
             val entry = viewModel.createEntry(stopId)
-            expandedDay = dayKeyOf(entry.entryAt ?: entry.createdAt)
             fullscreenKey = "entry-${entry.id}"
         }
     }
@@ -724,7 +704,7 @@ fun TripMapScreen(
                                         }
                                     },
                                     frontPhotoId = frontPhotoId,
-                                    expandedPhotoIds = expandedPhotoIds,
+                                    expandedPhotoIds = emptySet(),
                                 ),
                             )
                         }
@@ -889,18 +869,6 @@ fun TripMapScreen(
                     stops = stops,
                     photosByEntry = photosByEntry,
                     entryBodies = allEntries.associate { it.id to it.body },
-                    expandedDay = expandedDay,
-                    expandedEntryIds = expandedEntryIds,
-                    onDayToggle = { day ->
-                        expandedDay = if (expandedDay == day) null else day
-                    },
-                    onEntryToggle = { id ->
-                        expandedEntryIds = if (expandedEntryIds.contains(id)) {
-                            expandedEntryIds - id
-                        } else {
-                            expandedEntryIds + id
-                        }
-                    },
                     onItemClick = { item -> handleTimelineClick(item) },
                     onPhotoClick = { id -> fullscreenKey = "photo-$id" },
                     photoBitmap = { id -> thumbnails[id] },

@@ -3,7 +3,7 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Version 0.16.0 – Foto-Detail als Polaroid, ein Pin je Ereignis, handgezeichnete Route, sortierte Zeitleiste.**
+**Aktueller Stand: Version 0.17.0 – Zeitleiste ohne Auf-/Zuklappen, Tage als „Tag 1, Tag 2 …".**
 
 Die **Reisenliste** (Startseite) zeigt alle Reisen chronologisch, die neueste oben.
 Das **App-Logo** steht oben links. Das **„+"** sitzt mittig oben **innerhalb der Liste**
@@ -48,32 +48,13 @@ Fotos und Pins gibt, bleibt die **aktuelle Position in der Mitte** und die Karte
 wird nur so weit rausgezoomt, dass sie den Bildschirm in der Höhe füllt. Danach
 passt sie die Karte mit sicherem Rand an alle Punkte an.
 Foto-Stapel entstehen nach dem **Abstand der Originalorte**: nahe Fotos stapeln
-sich, entfernte liegen einzeln. Klappst du einen Eintrag in der Zeitleiste auf,
-wandern seine Fotos vorübergehend einzeln an ihre Originalorte – ein zusätzlicher
-Pin entsteht dadurch nicht.
+sich, entfernte liegen einzeln. Ein zusätzlicher Pin entsteht dadurch nicht.
 
 **Timeline:** Die Reihenfolge von Elementen und Einträgen richtet sich
 automatisch nach den **Foto-Daten**; manuell gesetzte Zeiten bleiben erhalten.
 Sie lässt sich überall wischen; Ziehen eines Elements startet erst
 nach längerem Halten. Am Bildschirmrand scrollt die Zeitleiste beim Ziehen mit.
-Ein Bild darf nur in einen Eintrag **desselben Tages** gezogen werden. Die Linie sieht genauso aus wie auf der Karte. Ein Tippen
-auf den Rahmen **oder auf die Eintragskarte** öffnet bzw. schließt Tag und Eintrag
-– Pfeile gibt es nicht. Beim Ziehen leuchtet der Eintrag auf, dem du das Element
-zuordnen willst. **Tagesrahmen überlappen sich nicht mehr**: ihre Grenzen liegen
-genau in der Mitte zwischen zwei Tagen. Es gibt nur noch den Tagesrahmen und den
-grauen Eintragsrahmen – der frühere beige Rahmen um die Eintragskarte ist weg.
-Ihre Höhe bleibt beim Auf-/Zuklappen gleich, nur die Breite ändert sich. Das
-Element in der **Bildschirmmitte bleibt dabei stehen**; automatische Bewegungen
-laufen weich. Wischen in der Zeitleiste zentriert das Element auf der Karte und
-zoomt nötigenfalls auf Stufe 15; bewegt man die Karte, folgt die Zeitleiste. Die
-**Kilometerleiste** liegt oben und überlappt keine Pins. Die
-Zeitleiste nutzt die unteren zwei Fünftel des Bildschirms. Unter dem Pin eines
-Eintrags stehen **Titel, dann der Text**, darunter der Fotostapel; aufgeklappt
-werden die Fotos **rechts daneben aufgereiht**. Das **Datum (dd.MM.yyyy)** steht
-über der Nadel. Es gibt genau **einen Pin je Ereignis** (Eintrag oder einzelner
-Pin), nie einen zusätzlichen für ein Foto. Eingeklappte Einträge sind schmal und
-ihr Rahmen bleibt innerhalb des Tagesrahmens. Bei geschlossenen Tagen siehst du
-eine kleine Vorschau aus Fotos und Titeln im Tagesrahmen.
+Ein Bild darf nur in einen Eintrag **desselben Tages** gezogen werden. Die Linie sieht genauso aus wie auf der Karte. Es gibt **kein Auf-/Zuklappen** mehr – alle Tage und Einträge sind immer sichtbar, das macht die Zeitleiste stabiler. Beim Ziehen leuchtet der Eintrag auf, dem du das Element zuordnen willst. **Tagesrahmen überlappen sich nicht**: ihre Grenzen liegen genau in der Mitte zwischen zwei Tagen. Oben links im Tagesrahmen steht **„Tag 1", „Tag 2" …** statt des Datums. Es gibt nur noch den Tagesrahmen und den grauen Eintragsrahmen; der frühere beige Rahmen ist weg. Wischen in der Zeitleiste zentriert das Element auf der Karte und zoomt nötigenfalls auf Stufe 15; bewegt man die Karte, folgt die Zeitleiste. Die **Kilometerleiste** liegt oben und überlappt keine Pins. Unter dem Pin eines Eintrags stehen **Titel, dann der Text**, darunter die Fotos **rechts daneben aufgereiht**. Das **Datum (dd.MM.yyyy)** steht über der Nadel. Es gibt genau **einen Pin je Ereignis** (Eintrag oder einzelner Pin), nie einen zusätzlichen für ein Foto. Der Eintragsrahmen bleibt innerhalb des Tagesrahmens.
 
 **Ortsnamen** werden automatisch als **„Stadt, Staat"** aus den Koordinaten
 ermittelt. Vorhandene alte Namen werden beim ersten Start dieser Version einmalig

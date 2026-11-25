@@ -94,16 +94,12 @@ private val dayMarker = Color(0xFFCDE3DF)
 private fun dayKey(time: Long): String =
     SimpleDateFormat("yyyy-MM-dd", Locale.GERMANY).format(Date(time))
 
-private fun dayLabel(time: Long): String =
-    SimpleDateFormat("dd.MM.yyyy", Locale.GERMANY).format(Date(time))
-
 /** Rahmen hinter den Kindern: ein Rechteck pro Tag bzw. pro Eintrag. */
 @Composable
 private fun TimelineFrame(
     rect: Rect,
     fill: Color,
     highlight: Boolean = false,
-    onClick: () -> Unit,
 ) {
     val density = LocalDensity.current
     Box(
@@ -122,8 +118,7 @@ private fun TimelineFrame(
                 if (highlight) 3.dp else 1.dp,
                 if (highlight) accent else ink.copy(alpha = 0.45f),
                 RoundedCornerShape(14.dp),
-            )
-            .clickable { onClick() },
+            ),
     )
 }
 
@@ -136,10 +131,6 @@ fun AdventureTimeline(
     items: List<TimelineItem>,
     stops: List<Stop>,
     photosByEntry: Map<String, List<String>>,
-    expandedDay: String?,
-    expandedEntryIds: Set<String>,
-    onDayToggle: (String) -> Unit,
-    onEntryToggle: (String) -> Unit,
     onItemClick: (TimelineItem) -> Unit,
     onPhotoClick: (String) -> Unit,
     photoBitmap: (String) -> ImageBitmap?,
@@ -165,8 +156,6 @@ fun AdventureTimeline(
     }
     val scrollState = rememberScrollState()
     var timelineBounds by remember { mutableStateOf(Rect.Zero) }
-    // Beim Auf-/Zuklappen merken wir uns das Element in der Bildschirmmitte.
-    var anchorKey by remember { mutableStateOf<String?>(null) }
     // Beim Ziehen wird der Eintrag hervorgehoben, auf den man zusteuert.
     var dragTargetEntryId by remember { mutableStateOf<String?>(null) }
     // Verhindert, dass eine programmgesteuerte Scrollbewegung die Karte zurückzieht.
@@ -191,8 +180,15 @@ fun AdventureTimeline(
     }
     val totalKm = stopKm.values.maxOrNull() ?: 0.0
 
+    // Die Tage werden fortlaufend nummeriert – oben links im Tagesrahmen.
+    val dayLabels = remember(items) {
+        items.map { dayKey(it.time) }.distinct().sorted()
+            .mapIndexed { index, key -> key to "Tag ${index + 1}" }
+            .toMap()
+    }
+
     val points = remember(
-        items, expandedDay, expandedEntryIds, photosByEntry, photoTimes, stopKm, stops, stepPx,
+        items, dayLabels, photosByEntry, photoTimes, stopKm, stops, stepPx,
     ) {
         val result = mutableListOf<TimelinePoint>()
         val kmOf = { item: TimelineItem -> item.stopId?.let { stopKm[it] } ?: 0.0 }
@@ -202,7 +198,7 @@ fun AdventureTimeline(
             result.add(
                 TimelinePoint(
                     key = "day-$key",
-                    label = dayLabel(first.time),
+                    label = dayLabels[key].orEmpty(),
                     detail = "",
                     x = 0f,
                     km = kmOf(first),
@@ -213,35 +209,32 @@ fun AdventureTimeline(
                     kind = 0,
                 ),
             )
-            if (expandedDay == key) {
-                dayItems.forEach { item ->
-                    result.add(
-                        TimelinePoint(
-                            key = item.id,
-                            label = item.title.ifBlank {
-                                if (item.kind == TimelineKind.STOP) "Pin" else
-                                    if (item.kind == TimelineKind.PHOTO) "Foto" else "Eintrag"
-                            },
-                            detail = when (item.kind) {
-                                TimelineKind.STOP -> "Station"
-                                TimelineKind.ENTRY -> ""
-                                TimelineKind.PHOTO -> "Foto"
-                            },
-                            x = 0f,
-                            km = kmOf(item),
-                            dayKey = key,
-                            item = item,
-                            photoId = null,
-                            entryId = item.entryId,
-                            kind = when (item.kind) {
-                                TimelineKind.STOP -> 1
-                                TimelineKind.ENTRY -> 2
-                                TimelineKind.PHOTO -> 3
-                            },
-                        ),
-                    )
-                }
-
+            dayItems.forEach { item ->
+                result.add(
+                    TimelinePoint(
+                        key = item.id,
+                        label = item.title.ifBlank {
+                            if (item.kind == TimelineKind.STOP) "Pin" else
+                                if (item.kind == TimelineKind.PHOTO) "Foto" else "Eintrag"
+                        },
+                        detail = when (item.kind) {
+                            TimelineKind.STOP -> "Station"
+                            TimelineKind.ENTRY -> ""
+                            TimelineKind.PHOTO -> "Foto"
+                        },
+                        x = 0f,
+                        km = kmOf(item),
+                        dayKey = key,
+                        item = item,
+                        photoId = null,
+                        entryId = item.entryId,
+                        kind = when (item.kind) {
+                            TimelineKind.STOP -> 1
+                            TimelineKind.ENTRY -> 2
+                            TimelineKind.PHOTO -> 3
+                        },
+                    ),
+                )
             }
         }
         result.forEachIndexed { index, point ->
@@ -262,8 +255,7 @@ fun AdventureTimeline(
         if (widthPx > 0f) onScrollFraction(scrollState.value / widthPx)
     }
     LaunchedEffect(externalKey, viewportPx, stepPx) {
-        // Während der Anker-Korrektur nach dem Auf-/Zuklappen nicht eingreifen.
-        if (anchorKey != null || externalKey == null) return@LaunchedEffect
+        if (externalKey == null) return@LaunchedEffect
         val index = points.indexOfFirst { it.key == externalKey }
         if (index >= 0) {
             val maxScroll = (with(density) { contentWidth.toPx() } - viewportPx)
@@ -365,20 +357,6 @@ fun AdventureTimeline(
             }.toMap()
         }
 
-        // Nach dem Auf-/Zuklappen bleibt dasselbe Element in der Bildschirmmitte.
-        LaunchedEffect(points, stepPx) {
-            val key = anchorKey
-            if (key != null) {
-                val index = points.indexOfFirst { it.key == key }
-                if (index >= 0) {
-                    val target = (index * stepPx + stepPx / 2f - viewportPx / 2f)
-                        .roundToInt().coerceAtLeast(0)
-                    scrollState.animateScrollTo(target)
-                }
-                anchorKey = null
-            }
-        }
-
         Box(
             modifier = Modifier
                 .width(contentWidth)
@@ -386,80 +364,32 @@ fun AdventureTimeline(
         ) {
             // Tag-Rahmen außen, Eintragsrahmen darüber – beide liegen hinter
             // der Linie und hinter den Elementen.
-            dayFrames.forEach { (key, rect) ->
-                TimelineFrame(rect = rect, fill = dayMarker) {
-                    anchorKey = centerKey
-                    onDayToggle(key)
-                }
-                // Geschlossener Tag: kleine Vorschau aus Fotos und Titeln,
-                // vollständig innerhalb des Tagesrahmens. Keine Zähler.
-                if (expandedDay != key) {
-                    val dayItems = items.filter { dayKey(it.time) == key }
-                    val previewIds = buildList {
-                        dayItems.forEach { item ->
-                            if (item.kind == TimelineKind.PHOTO && item.photoId != null) {
-                                add(item.photoId)
-                            }
-                            item.entryId?.let { id -> photosByEntry[id]?.let { addAll(it) } }
-                        }
-                    }.distinct().take(3)
-                    val previewTitles = dayItems.map { it.title }
-                        .filter { it.isNotBlank() }
-                        .distinct()
-                        .take(2)
-                    Column(
-                        modifier = Modifier
-                            .offset(
-                                x = with(density) { (rect.left + 10f).toDp() },
-                                y = with(density) { (dayTopPx + 66.dp.toPx()).toDp() },
-                            )
-                            .width(with(density) { (rect.width - 20f).toDp() }),
-                    ) {
-                        if (previewIds.isNotEmpty()) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                previewIds.forEach { photoId ->
-                                    val bitmap = photoBitmap(photoId)
-                                    Box(
-                                        modifier = Modifier
-                                            .size(34.dp)
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(paper)
-                                            .border(1.dp, ink.copy(alpha = 0.35f)),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        if (bitmap != null) {
-                                            Image(
-                                                bitmap = bitmap,
-                                                contentDescription = null,
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if (previewTitles.isNotEmpty()) {
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = previewTitles.joinToString(" · "),
-                                color = ink,
-                                fontSize = 9.sp,
-                                maxLines = 1,
-                            )
-                        }
-                    }
-                }
+            dayFrames.forEach { (_, rect) ->
+                TimelineFrame(rect = rect, fill = dayMarker)
             }
             entryFrames.forEach { (id, rect) ->
                 TimelineFrame(
                     rect = rect,
                     fill = fieldGray,
                     highlight = id == dragTargetEntryId,
-                ) {
-                    anchorKey = centerKey
-                    onEntryToggle(id)
-                }
+                )
+            }
+            // "Tag 1", "Tag 2" … oben links im jeweiligen Tagesrahmen.
+            dayFrames.forEach { (key, rect) ->
+                Text(
+                    text = dayLabels[key].orEmpty(),
+                    color = paper,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .offset(
+                            x = with(density) { (rect.left + 6f).toDp() },
+                            y = with(density) { (rect.top + 3f).toDp() },
+                        )
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(teal)
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
             }
 
             androidx.compose.foundation.Canvas(
@@ -519,13 +449,8 @@ fun AdventureTimeline(
                 val lineY = with(density) { (baseY + sin(index * 0.85f) * 6f).toDp() }
                 val cardY = lineY + 28.dp
                 val highlighted = point.key == centerKey
-                val expanded = item?.entryId?.let { expandedEntryIds.contains(it) } == true
                 val dragOffset = remember(point.key) { mutableStateOf(Offset.Zero) }
-                val cardWidth = when {
-                    point.kind == 2 && expanded -> 300.dp
-                    point.kind == 2 -> 140.dp
-                    else -> 168.dp
-                }
+                val cardWidth = if (point.kind == 2) 300.dp else 168.dp
                 val halfCardPx = with(density) { cardWidth.toPx() / 2f }
 
                 // Datum direkt über der Nadel des Eintrags.
@@ -669,39 +594,23 @@ fun AdventureTimeline(
                                 },
                             )
                         }
-                        // Einträge toggeln über den Rahmen; der Titel öffnet den Eintrag.
+                        // Kein Auf-/Zuklappen mehr: Foto öffnet Detail, Pin öffnet Element.
                         .then(
-                            if (point.kind != 2) {
-                                Modifier.clickable {
-                                    when {
-                                        point.kind == 0 && point.dayKey != null -> {
-                                            anchorKey = centerKey
-                                            onDayToggle(point.dayKey)
-                                        }
-                                        point.kind == 3 && point.photoId != null ->
-                                            onPhotoClick(point.photoId)
-                                        point.kind == 4 && point.photoId != null ->
-                                            onPhotoClick(point.photoId)
-                                        point.item != null -> onItemClick(point.item)
-                                    }
+                            when (point.kind) {
+                                3 -> Modifier.clickable {
+                                    point.photoId?.let(onPhotoClick)
                                 }
-                            } else {
-                                Modifier
+                                1 -> Modifier.clickable {
+                                    point.item?.let(onItemClick)
+                                }
+                                else -> Modifier
                             },
                         ),
                     contentAlignment = Alignment.TopCenter,
                 ) {
                     when (point.kind) {
-                        0 -> Text(
-                            point.label,
-                            color = paper,
-                            style = MaterialTheme.typography.labelMedium
-                                .copy(fontWeight = FontWeight.Bold),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(teal)
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                        )
+                        // Der Tag steht als "Tag 1", "Tag 2" … oben links im Rahmen.
+                        0 -> {}
 
                         3, 4 -> {
                             val bitmap = point.photoId?.let(photoBitmap)
@@ -787,8 +696,7 @@ fun AdventureTimeline(
                         }
 
                         else -> {
-                            // Unter dem Pin: Titel, dann Text, darunter der Fotostapel.
-                            // Der Pin selbst liegt über der Karte – deshalb hier keiner.
+                            // Immer offen: Titel, Text und Fotos rechts daneben.
                             val entryId = item?.entryId
                             val entryPhotos = entryId?.let { photosByEntry[it] }.orEmpty()
                             val body = entryId?.let { entryBodies[it] }.orEmpty()
@@ -801,14 +709,7 @@ fun AdventureTimeline(
                             }
                             Column(
                                 modifier = Modifier
-                                    .clickable {
-                                        anchorKey = centerKey
-                                        item?.entryId?.let(onEntryToggle)
-                                    }
-                                    .background(
-                                        if (expanded) fieldGray else Color.Transparent,
-                                        RoundedCornerShape(8.dp),
-                                    )
+                                    .background(fieldGray, RoundedCornerShape(8.dp))
                                     .padding(horizontal = 8.dp, vertical = 6.dp),
                             ) {
                                 Text(
@@ -824,70 +725,35 @@ fun AdventureTimeline(
                                         text = body,
                                         color = ink,
                                         style = MaterialTheme.typography.bodySmall,
-                                        maxLines = if (expanded) 4 else 2,
+                                        maxLines = 4,
                                         modifier = Modifier.fillMaxWidth(),
                                     )
                                 }
                                 if (ordered.isNotEmpty()) {
                                     Spacer(Modifier.height(5.dp))
-                                    if (!expanded) {
-                                        // Zugeklappt: kleiner überlappender Fotostapel.
-                                        Box(
-                                            modifier = Modifier
-                                                .height(32.dp)
-                                                .fillMaxWidth(),
-                                        ) {
-                                            ordered.take(3).forEachIndexed { layer, photoId ->
-                                                val bitmap = photoBitmap(photoId)
-                                                Box(
-                                                    modifier = Modifier
-                                                        .offset(x = (layer * 16).dp)
-                                                        .size(30.dp)
-                                                        .rotate((-8f + layer * 5f))
-                                                        .clip(RoundedCornerShape(3.dp))
-                                                        .background(paper)
-                                                        .padding(3.dp)
-                                                        .clip(RoundedCornerShape(2.dp))
-                                                        .background(Color(0xFFE7DAC2)),
-                                                    contentAlignment = Alignment.Center,
-                                                ) {
-                                                    if (bitmap != null) {
-                                                        Image(
-                                                            bitmap = bitmap,
-                                                            contentDescription = null,
-                                                            contentScale = ContentScale.Fit,
-                                                            modifier = Modifier.fillMaxSize(),
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        // Aufgeklappt: Fotos rechts daneben aufgereiht.
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .horizontalScroll(rememberScrollState()),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        ) {
-                                            ordered.forEach { photoId ->
-                                                val bitmap = photoBitmap(photoId)
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(64.dp)
-                                                        .clip(RoundedCornerShape(4.dp))
-                                                        .background(paper)
-                                                        .border(1.dp, Color(0xFFDCCDB4)),
-                                                    contentAlignment = Alignment.Center,
-                                                ) {
-                                                    if (bitmap != null) {
-                                                        Image(
-                                                            bitmap = bitmap,
-                                                            contentDescription = null,
-                                                            contentScale = ContentScale.Crop,
-                                                            modifier = Modifier.fillMaxSize(),
-                                                        )
-                                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        ordered.forEach { photoId ->
+                                            val bitmap = photoBitmap(photoId)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(64.dp)
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(paper)
+                                                    .border(1.dp, Color(0xFFDCCDB4)),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                if (bitmap != null) {
+                                                    Image(
+                                                        bitmap = bitmap,
+                                                        contentDescription = null,
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier.fillMaxSize(),
+                                                    )
                                                 }
                                             }
                                         }
