@@ -1240,6 +1240,12 @@ fun TripMapScreen(
         val geoB = geoFor(itemB) ?: geoA
         val viewA = itemView(previousKey) ?: ItemView(geoA, mapView.zoomLevelDouble)
         val viewB = itemView(nextKey) ?: ItemView(geoB, viewA.zoom)
+        // Rund um jedes Element bleibt die Karte eine Weile stehen (Ausschnitt
+        // und Zoom rasten ein) und gleitet erst dazwischen weich weiter.
+        val hold = 0.3f
+        val part = ((part - hold) / (1f - 2f * hold)).coerceIn(0f, 1f).let { t ->
+            t * t * (3f - 2f * t)
+        }
         val onRoute = routePointBetween(geoA, geoB, previousKey, nextKey, part)
         // Versatz zur Bildmitte gleitet mit, damit nichts springt.
         val center = GeoPoint(
