@@ -75,6 +75,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.breadcrumbz.app.R
 import de.breadcrumbz.app.data.photo.ImportedPhoto
 import de.breadcrumbz.app.data.photo.PhotoSourceReader
+import de.breadcrumbz.app.domain.model.Photo
+import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TimelineItem
 import de.breadcrumbz.app.domain.model.OverlayMode
 import de.breadcrumbz.app.domain.model.RouteMode
@@ -651,12 +653,10 @@ fun TripMapScreen(
                             appliedOverlayMode = mode
                         }
 
-                        if (stops.isNotEmpty() && !didCenter) {
-                            view.controller.animateTo(
-                                GeoPoint(stops.first().latitude, stops.first().longitude),
-                                14.0,
-                                600L,
-                            )
+                        if (!didCenter && view.height > 0 &&
+                            (stops.isNotEmpty() || photos.isNotEmpty())
+                        ) {
+                            zoomToRelevant(view, stops, photos)
                             didCenter = true
                         }
 
@@ -698,13 +698,17 @@ fun TripMapScreen(
                                     filePath = { name -> viewModel.photoPath(name) },
                                     onPhotoClick = { ids ->
                                         if (ids.size == 1) {
+                                            // Nach dem Auflösen ist jedes Bild einzeln anklickbar.
+                                            stackPhotoIds = emptyList()
                                             fullscreenKey = "photo-${ids.first()}"
                                         } else {
                                             stackPhotoIds = ids
                                         }
                                     },
                                     frontPhotoId = frontPhotoId,
-                                    expandedPhotoIds = emptySet(),
+                                    // Ein Klick auf den Stapel löst ihn vorübergehend auf;
+                                    // danach ist jedes Foto einzeln anklickbar.
+                                    expandedPhotoIds = stackPhotoIds.toSet(),
                                 ),
                             )
                         }
@@ -925,51 +929,6 @@ fun TripMapScreen(
         }
     }
 
-    if (stackPhotoIds.isNotEmpty()) {
-        AlertDialog(
-            onDismissRequest = { stackPhotoIds = emptyList() },
-            title = { Text("${stackPhotoIds.size} Fotos an diesem Ort") },
-            text = {
-                Column {
-                    stackPhotoIds.forEach { id ->
-                        val photo = photos.firstOrNull { it.id == id } ?: return@forEach
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            val thumbnail = thumbnails[id]
-                            if (thumbnail != null) {
-                                Image(
-                                    bitmap = thumbnail,
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(RoundedCornerShape(8.dp)),
-                                )
-                            }
-                            Spacer(Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(formatDate(photo.capturedAt))
-                                if (photo.caption.isNotBlank()) {
-                                    Text(photo.caption, style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                            TextButton(onClick = {
-                                fullscreenKey = "photo-$id"
-                                stackPhotoIds = emptyList()
-                            }) {
-                                Text("Öffnen")
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { stackPhotoIds = emptyList() }) { Text("Schließen") }
-            },
-        )
-    }
-
     // Verkehrsmittel für einen Abschnitt – direkt nach einem Tap auf die Linie.
     segmentModeStopId?.let { stopId ->
         val stop = stops.firstOrNull { it.id == stopId }
@@ -1103,6 +1062,31 @@ private fun focusStop(mapView: MapView, latitude: Double, longitude: Double) {
 private fun fillZoom(mapView: MapView): Double {
     val heightPx = mapView.height.takeIf { it > 0 }?.toDouble() ?: 512.0
     return maxOf(1.0, log2(heightPx / 256.0))
+}
+
+/** Beim Öffnen der Reise alle Pins und platzierten Fotos mit Rand einpassen. */
+private fun zoomToRelevant(view: MapView, stops: List<Stop>, photos: List<Photo>) {
+    val points = buildList {
+        stops.forEach { add(GeoPoint(it.latitude, it.longitude)) }
+        photos.forEach { photo ->
+            val latitude = photo.latitude
+            val longitude = photo.longitude
+            if (latitude != null && longitude != null) {
+                add(GeoPoint(latitude, longitude))
+            }
+        }
+    }
+    if (points.isEmpty()) return
+    val box = BoundingBox.fromGeoPoints(points)
+    val latMargin = maxOf((box.latNorth - box.latSouth) * 0.15, 0.02)
+    val lonMargin = maxOf((box.lonEast - box.lonWest) * 0.15, 0.02)
+    val padded = BoundingBox(
+        (box.latNorth + latMargin).coerceAtMost(85.0),
+        (box.lonEast + lonMargin).coerceAtMost(180.0),
+        (box.latSouth - latMargin).coerceAtLeast(-85.0),
+        (box.lonWest - lonMargin).coerceAtLeast(-180.0),
+    )
+    view.zoomToBoundingBox(padded, true, 140)
 }
 
 /** Aktuelle Position weich in die Mitte bringen. */

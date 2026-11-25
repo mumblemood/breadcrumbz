@@ -39,6 +39,8 @@ class PolaroidOverlay(
         val representative: Photo,
         val latitude: Double,
         val longitude: Double,
+        /** Platzhalter, wenn ein Stapel vorübergehend einzeln gezeigt wird. */
+        val fanIndex: Int = 0,
     )
 
     private val cache = LruCache<String, Bitmap>(24)
@@ -110,8 +112,24 @@ class PolaroidOverlay(
             // Oberer weißer Rand: die Spitze der Nadel landet in seiner Mitte.
             val top = needleLength - padding / 2f
             val rect = RectF(-cardWidth / 2f, top, cardWidth / 2f, top + cardHeight)
-            val pinX = point.x.toFloat()
-            val pinY = point.y.toFloat()
+            val originX = point.x.toFloat()
+            val originY = point.y.toFloat()
+            // Aufgelöste Stapel liegen leicht versetzt nebeneinander, damit man
+            // jedes einzelne Polaroid treffen kann. Die Nadel zeigt trotzdem
+            // weiter auf den ursprünglichen Ort.
+            val fanStepX = cardWidth * 0.58f
+            val fanStepY = cardHeight * 0.92f
+            val fanSlot = group.fanIndex - 1
+            val pinX = if (fanSlot >= 0) {
+                originX + (((fanSlot % 4) - 1.5f) * fanStepX)
+            } else {
+                originX
+            }
+            val pinY = if (fanSlot >= 0) {
+                originY + ((fanSlot / 4) * fanStepY)
+            } else {
+                originY
+            }
 
             // Hintere Karten des Stapels.
             val layers = minOf(3, group.ids.size)
@@ -167,9 +185,9 @@ class PolaroidOverlay(
             }
             canvas.restore()
 
-            // Nadel von der Koordinate bis zur Mitte des oberen weißen Rahmens.
-            canvas.drawLine(pinX, pinY, pinX, pinY + needleLength, pinPaint)
-            canvas.drawCircle(pinX, pinY, 9f * zoomFactor, pinPaint)
+            // Nadel vom Originalort bis zur Mitte des oberen weißen Rahmens.
+            canvas.drawLine(originX, originY, pinX, pinY + top, pinPaint)
+            canvas.drawCircle(originX, originY, 9f * zoomFactor, pinPaint)
             if (group.ids.size > 1) {
                 val badgeRadius = 34f * zoomFactor
                 val badgeX = pinX + cardWidth / 2f - badgeRadius * 0.35f
@@ -221,7 +239,7 @@ class PolaroidOverlay(
         val buckets = mutableListOf<MutableList<Photo>>()
 
         placed.forEach { photo ->
-            // Aufgeklappte Einträge zeigen jedes Bild einzeln an seinem eigenen Ort.
+            // Aufgelöster Stapel: jedes Bild bekommt einen eigenen Platz.
             if (photo.id in expandedPhotoIds) {
                 buckets.add(mutableListOf(photo))
                 return@forEach
@@ -247,11 +265,17 @@ class PolaroidOverlay(
             } else {
                 sorted
             }
+            val fanIndex = if (items.size == 1 && items.first().id in expandedPhotoIds) {
+                expandedPhotoIds.toList().indexOf(items.first().id) + 1
+            } else {
+                0
+            }
             Group(
                 ids = ordered.map { it.id },
                 representative = ordered.last(),
                 latitude = sorted.mapNotNull { it.latitude }.average(),
                 longitude = sorted.mapNotNull { it.longitude }.average(),
+                fanIndex = fanIndex,
             )
         }.sortedBy { it.representative.capturedAt ?: Long.MAX_VALUE }
     }

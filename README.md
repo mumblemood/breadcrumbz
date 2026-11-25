@@ -3,7 +3,7 @@
 Eine lokale, quelloffene Android-App, um Reisen, Urlaube und Ausflüge mit Fotos,
 Kartenroute und Tagebuch schön zu dokumentieren.
 
-**Aktueller Stand: Version 0.17.0 – Zeitleiste ohne Auf-/Zuklappen, Tage als „Tag 1, Tag 2 …".**
+**Aktueller Stand: Version 0.18.0 – kompakte Zeitleiste mit Scrollbar, Detailansicht als Tagebuch.**
 
 Die **Reisenliste** (Startseite) zeigt alle Reisen chronologisch, die neueste oben.
 Das **App-Logo** steht oben links. Das **„+"** sitzt mittig oben **innerhalb der Liste**
@@ -48,12 +48,19 @@ Fotos und Pins gibt, bleibt die **aktuelle Position in der Mitte** und die Karte
 wird nur so weit rausgezoomt, dass sie den Bildschirm in der Höhe füllt. Danach
 passt sie die Karte mit sicherem Rand an alle Punkte an.
 Foto-Stapel entstehen nach dem **Abstand der Originalorte**: nahe Fotos stapeln
-sich, entfernte liegen einzeln. Ein zusätzlicher Pin entsteht dadurch nicht.
+sich, entfernte liegen einzeln. Ein Tippen auf einen Stapel löst ihn **vorübergehend
+auf**; danach ist jedes Bild einzeln anklickbar und öffnet direkt seine Detailansicht.
+Beim Öffnen einer Reise zoomt die Karte so, dass **alle Pins und platzierten Fotos**
+mit sicherem Rand sichtbar sind. Ein zusätzlicher Pin entsteht durch das Auflösen nicht.
 
 **Timeline:** Die Reihenfolge von Elementen und Einträgen richtet sich
 automatisch nach den **Foto-Daten**; manuell gesetzte Zeiten bleiben erhalten.
-Sie lässt sich überall wischen; Ziehen eines Elements startet erst
-nach längerem Halten. Am Bildschirmrand scrollt die Zeitleiste beim Ziehen mit.
+Die Zeitleiste ist **neu aufgebaut**: Pins und Fotos bekommen nur so viel Breite,
+wie sie brauchen, Einträge mehr – dadurch passt deutlich mehr in den sichtbaren
+Bereich. Unten liegt eine **bedienbare Scrollbar**: Der Regler zeigt die absolute
+Position, Tippen oder Ziehen springt direkt dorthin. Sie lässt sich überall
+wischen; Ziehen eines Elements startet erst nach längerem Halten. Am
+Bildschirmrand scrollt die Zeitleiste beim Ziehen mit.
 Ein Bild darf nur in einen Eintrag **desselben Tages** gezogen werden. Die Linie sieht genauso aus wie auf der Karte. Es gibt **kein Auf-/Zuklappen** mehr – alle Tage und Einträge sind immer sichtbar, das macht die Zeitleiste stabiler. Beim Ziehen leuchtet der Eintrag auf, dem du das Element zuordnen willst. **Tagesrahmen überlappen sich nicht**: ihre Grenzen liegen genau in der Mitte zwischen zwei Tagen. Oben links im Tagesrahmen steht **„Tag 1", „Tag 2" …** statt des Datums. Es gibt nur noch den Tagesrahmen und den grauen Eintragsrahmen; der frühere beige Rahmen ist weg. Wischen in der Zeitleiste zentriert das Element auf der Karte und zoomt nötigenfalls auf Stufe 15; bewegt man die Karte, folgt die Zeitleiste. Die **Kilometerleiste** liegt oben und überlappt keine Pins. Unter dem Pin eines Eintrags stehen **Titel, dann der Text**, darunter die Fotos **rechts daneben aufgereiht**. Das **Datum (dd.MM.yyyy)** steht über der Nadel. Es gibt genau **einen Pin je Ereignis** (Eintrag oder einzelner Pin), nie einen zusätzlichen für ein Foto. Der Eintragsrahmen bleibt innerhalb des Tagesrahmens.
 
 **Ortsnamen** werden automatisch als **„Stadt, Staat"** aus den Koordinaten
@@ -79,12 +86,16 @@ Alte Einzelbilder wurden bereits in eigene Einträge überführt – nichts ging
 verloren. Während des Pinch-Zooms wird nichts ausgewählt. Ein schlechtes Foto
 überspringt der Import, statt die App abzustürzen.
 
-Die Detailansichten öffnen sich als **Pop-up** über leicht abgedunkeltem
-Hauptbereich; ein Klick daneben schließt es. Die **Foto-Detailansicht zeigt nur
-das Polaroid mit Bild und Titel**, bei jedem Öffnen in einem neuen leichten
-Schrägwinkel. Das ganze Polaroid lässt sich mit zwei Fingern **pinch-zoomen**
- und verschieben; der Titel ist dort nur zu lesen. Im Eintrag siehst du auch die
-angehängten Fotos, aber **keine Liste der Pins** mehr. Foto-Orte werden aus dem
+Die Detailansichten öffnen sich als **Pop-up** über etwas dunklerem Hauptbereich;
+ein Klick daneben oder die Back-Taste schließt es – ein **Zurück-Knopf gibt es
+nicht mehr**. Die **Foto-Detailansicht zeigt nur das Polaroid mit Bild und Titel**,
+bei jedem Öffnen in einem neuen leichten Schrägwinkel. Das ganze Polaroid lässt
+sich mit zwei Fingern **pinch-zoomen** und verschieben; der Titel ist dort nur zu
+lesen. Ein Klick auf ein Foto öffnet die Detailansicht – sowohl auf der Karte als
+auch in der Zeitleiste. Im Eintrag sind **Titel und Tagebuch felderfrei**: keine
+Rahmen, keine Beschriftungen, nur eine feine **Bindung links** wie bei einem
+Tagebuch. Die angehängten Fotos stehen rechts daneben, eine Liste der Pins gibt
+es nicht mehr. Foto-Orte werden aus dem
 unveränderten Original ausgelesen und notfalls aus den GPS-Spalten des
 MediaStore ergänzt – bei SAF-Kopien zusätzlich über den Dateinamen, auch wenn die
 Galerie-Auswahl sonst nur eine GPS-lose Kopie liefert. Zeit und Ort stehen

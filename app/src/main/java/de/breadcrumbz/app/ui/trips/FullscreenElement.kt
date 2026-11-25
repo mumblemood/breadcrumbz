@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -33,8 +34,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -46,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -151,13 +151,13 @@ fun FullscreenElement(
             dismissOnBackPress = true,
         ),
     ) {
-        // Nur leicht dimmen, damit Karte und Timeline darunter erkennbar bleiben.
+        // Etwas dunkler dimmen, damit sich die Detailansicht klar abhebt.
         // Muss im Dialog-Fenster selbst gesetzt werden, nicht im Hauptfenster.
         val dialogView = LocalView.current
         val dialogWindow = (dialogView.parent as? DialogWindowProvider)?.window
         if (dialogWindow != null) {
             val params = dialogWindow.attributes
-            params.dimAmount = 0.18f
+            params.dimAmount = 0.38f
             dialogWindow.attributes = params
             dialogWindow.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         }
@@ -190,18 +190,7 @@ fun FullscreenElement(
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                     ) {
-                        // Foto-Detail: nur das Polaroid, kein Zurück-Knopf.
-                        if (!photoOnly) {
-                            Button(
-                                onClick = onClose,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = ink,
-                                    contentColor = paper,
-                                ),
-                            ) { Text("← Zurück", color = paper) }
-                            Spacer(Modifier.height(8.dp))
-                        }
-
+                        // Kein Zurück-Knopf: Tippen daneben oder die Back-Taste schließen.
                         when {
                             elementKey.startsWith("photo-") -> {
                                 val id = elementKey.removePrefix("photo-")
@@ -445,17 +434,11 @@ fun FullscreenElement(
                                         ?.let { target -> stops.firstOrNull { it.id == target }?.title }
                                     val timeIsAuto = entry.timeFromPhoto && entry.entryAt != null
                                     val placeIsAuto = entry.placeFromPhoto && entry.stopId != null
-                                    val fieldColors = OutlinedTextFieldDefaults.colors(
-                                        focusedTextColor = ink,
-                                        unfocusedTextColor = ink,
-                                        disabledTextColor = ink,
-                                        cursorColor = ink,
-                                        focusedLabelColor = ink,
-                                        unfocusedLabelColor = ink,
-                                        focusedBorderColor = ink,
-                                        unfocusedBorderColor = frame,
-                                        focusedContainerColor = paper,
-                                        unfocusedContainerColor = paper,
+                                    // Tagebuch-Schrift: kein Rahmen, kein Label,
+                                    // nur eine feine Bindung links (siehe unten).
+                                    val diaryStyle = MaterialTheme.typography.bodyLarge.copy(
+                                        color = ink,
+                                        fontFamily = comic,
                                     )
 
                                     fun pickDateTime() {
@@ -491,17 +474,31 @@ fun FullscreenElement(
                                         ).show()
                                     }
 
-                                    Column(modifier = Modifier.fillMaxWidth()) {
-                                        OutlinedTextField(
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            // Buchrücken: eine Linie links, sonst kein Rahmen.
+                                            .drawBehind {
+                                                val x = 2.dp.toPx()
+                                                drawLine(
+                                                    color = frame,
+                                                    start = Offset(x, 0f),
+                                                    end = Offset(x, size.height),
+                                                    strokeWidth = 3.dp.toPx(),
+                                                )
+                                            }
+                                            .padding(start = 16.dp),
+                                    ) {
+                                        BasicTextField(
                                             value = titleDraft,
                                             onValueChange = {
                                                 titleDraft = it
                                                 viewModel.updateEntryText(entry.id, it, bodyDraft)
                                             },
-                                            label = { Text("Titel", color = ink) },
                                             singleLine = true,
-                                            textStyle = MaterialTheme.typography.bodyMedium,
-                                            colors = fieldColors,
+                                            textStyle = diaryStyle.copy(
+                                                fontWeight = FontWeight.Bold,
+                                            ),
                                             modifier = Modifier.fillMaxWidth(),
                                         )
                                         Spacer(Modifier.height(6.dp))
@@ -560,16 +557,14 @@ fun FullscreenElement(
                                             }
                                         }
                                         Spacer(Modifier.height(10.dp))
-                                        OutlinedTextField(
+                                        BasicTextField(
                                             value = bodyDraft,
                                             onValueChange = {
                                                 bodyDraft = it
                                                 viewModel.updateEntryText(entry.id, titleDraft, it)
                                             },
-                                            label = { Text("Tagebuch", color = ink) },
-                                            minLines = 4,
-                                            textStyle = MaterialTheme.typography.bodyMedium,
-                                            colors = fieldColors,
+                                            minLines = 5,
+                                            textStyle = diaryStyle,
                                             modifier = Modifier.fillMaxWidth(),
                                         )
 
