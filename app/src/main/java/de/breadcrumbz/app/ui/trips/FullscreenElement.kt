@@ -950,22 +950,23 @@ fun FullscreenElement(
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             if (stop.entryId == null && linkedEntries.isEmpty()) {
-                                                // Notizbuch-Symbol: direkt ein leerer tbe
-                                                // an diesem Pin anlegen und öffnen.
-                                                Box(
+                                                // Einträge entstehen nur hier, von Hand: ein
+                                                // leerer tbe an diesem Pin, mit der Zeit des Pins.
+                                                Row(
                                                     modifier = Modifier
-                                                        .size(36.dp)
-                                                        .clip(CircleShape)
+                                                        .clip(RoundedCornerShape(18.dp))
                                                         .background(frame)
-                                                        .border(1.dp, ink, CircleShape)
-                                                        .clickable {
-                                                            onAddEntry(stop.id)
-                                                        },
-                                                    contentAlignment = Alignment.Center,
+                                                        .border(1.dp, ink, RoundedCornerShape(18.dp))
+                                                        .clickable { onAddEntry(stop.id) }
+                                                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
                                                 ) {
+                                                    Text("📝", fontSize = 16.sp)
+                                                    Spacer(Modifier.width(6.dp))
                                                     Text(
-                                                        "📝",
-                                                        fontSize = 19.sp,
+                                                        "Eintrag anlegen",
+                                                        color = ink,
+                                                        style = MetaTextStyle.copy(fontSize = 13.sp, lineHeight = 15.sp),
                                                     )
                                                 }
                                                 Spacer(Modifier.width(8.dp))

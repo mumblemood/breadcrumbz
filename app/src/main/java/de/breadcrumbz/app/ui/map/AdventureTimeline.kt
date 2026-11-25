@@ -457,9 +457,8 @@ fun AdventureTimeline(
                     ""
                 }
                 val textWidth = when (item.kind) {
-                    TimelineKind.STOP -> measuredWidth(
-                        label, TimelineTitleSmall, 2, 44f, 132f,
-                    )
+                    // Ein Pin ohne Eintrag ist nur ein unbeschrifteter Pin auf der Linie.
+                    TimelineKind.STOP -> 0f
                     TimelineKind.ENTRY -> maxOf(
                         measuredWidth(label, TimelineTitle, 2, 56f, 150f),
                         measuredWidth(body, typography.bodySmall, 3, 56f, 150f),
@@ -477,8 +476,7 @@ fun AdventureTimeline(
                     photoWidths.sum() + gapPx * (photoWidths.size - 1)
                 }
                 val rawSlot = when (item.kind) {
-                    TimelineKind.STOP -> iconPx +
-                        (if (textWidth > 0f) gapPx + textWidth else 0f) + padPx
+                    TimelineKind.STOP -> iconPx + padPx
                     TimelineKind.ENTRY -> textWidth +
                         (if (stripWidth > 0f) gapPx + stripWidth else 0f) + padPx
                     TimelineKind.PHOTO -> (photoWidths.firstOrNull()
@@ -1332,7 +1330,10 @@ fun AdventureTimeline(
                                 }
                             }
 
-                            1, 5 -> Column(
+                            // Pin ohne Eintrag: keine Karte, nur der Pin auf der Linie.
+                            1 -> {}
+
+                            5 -> Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
                                     .width(cardWidth)
