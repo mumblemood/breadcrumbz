@@ -80,6 +80,16 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import kotlin.math.sin
 
+// Schrift wie überall in der App: Titel in Handschrift (Caveat), Text in Nunito.
+private val TimelineTitle = TextStyle(
+    fontFamily = HandFont,
+    fontWeight = FontWeight.Bold,
+    fontSize = 20.sp,
+    lineHeight = 22.sp,
+)
+private val TimelineTitleSmall = TimelineTitle.copy(fontSize = 17.sp, lineHeight = 19.sp)
+private val TimelinePhotoCaption = TimelineTitle.copy(fontSize = 14.sp, lineHeight = 15.sp)
+
 private data class TimelinePoint(
     val key: String,
     val label: String,
@@ -271,13 +281,15 @@ fun AdventureTimeline(
     } else {
         with(density) { 320.dp.toPx() }
     }
-    // Karten beginnen bei cardY = baseY + sin(6) + 24 = maximal 104 dp.
-    // Der Eintragsrahmen schließt direkt daran an; die Bilder füllen ihn bis
-    // auf den kleinen Abstand nach unten und die Kartenpolsterung komplett aus.
-    val cardTopMaxPx = with(density) { 104.dp.toPx() }
-    val entryTopPx = with(density) { 88.dp.toPx() }
-    val photoHeightPx = (availableHeightPx - cardTopMaxPx -
-        with(density) { 22.dp.toPx() })
+    // Feste Ebenen von oben nach unten: km-Leiste, Tagesrahmen (ab 46 dp),
+    // Linie mit Pins (68–80 dp), Eintragsrahmen (ab 90 dp), Karten (ab 98 dp).
+    // Alle Karten beginnen auf derselben Höhe – sie folgen nicht mehr der
+    // Welle der Linie, sonst ragen sie unten aus ihrem Rahmen.
+    val cardTopDp = 98.dp
+    val entryTopPx = with(density) { 90.dp.toPx() }
+    // Unter der Karte: 4 dp Kartenpolsterung, 8 dp bis zum Eintragsrahmen,
+    // 10 dp bis zum Tagesrahmen, 10 dp bis zum unteren Rand.
+    val photoHeightPx = (availableHeightPx - with(density) { (98 + 8 + 8 + 10 + 10).dp.toPx() })
         .coerceAtLeast(with(density) { 76.dp.toPx() })
     val photoCaptionHeightPx = with(density) { 20.dp.toPx() }
 
@@ -421,15 +433,15 @@ fun AdventureTimeline(
                 }
                 val textWidth = when (item.kind) {
                     TimelineKind.STOP -> measuredWidth(
-                        label, typography.bodySmall, 2, 44f, 132f,
+                        label, TimelineTitleSmall, 2, 44f, 132f,
                     )
                     TimelineKind.ENTRY -> maxOf(
-                        measuredWidth(label, typography.bodyMedium, 2, 56f, 150f),
+                        measuredWidth(label, TimelineTitle, 2, 56f, 150f),
                         measuredWidth(body, typography.bodySmall, 3, 56f, 150f),
                     )
                     TimelineKind.PHOTO -> measuredWidth(
                         label,
-                        typography.bodySmall.copy(fontSize = 9.sp),
+                        TimelinePhotoCaption,
                         1, 44f, 120f,
                     )
                     else -> 0f
@@ -728,7 +740,8 @@ fun AdventureTimeline(
                         dayPoints.maxByOrNull { it.x + it.slot / 2f }?.key
                     }
             }
-            val endShiftPx = (dayPad - endGapPx).coerceAtLeast(0f)
+            // Karten bleiben genau in ihrem Rahmen (kein Versatz nach rechts).
+            val endShiftPx = 0f
 
             Box(
                 modifier = Modifier
@@ -899,7 +912,7 @@ fun AdventureTimeline(
                     val lineY = with(density) {
                         (baseY + sin(index * 0.85f) * 6.dp.toPx()).toDp()
                     }
-                    val cardY = lineY + 24.dp
+                    val cardY = cardTopDp
                     val highlighted = point.key == centerKey
                     val dragOffset = remember(point.key) { mutableStateOf(Offset.Zero) }
                     val cardWidth = with(density) { point.slot.toDp() }
@@ -1129,7 +1142,7 @@ fun AdventureTimeline(
                                         Text(
                                             text = point.label,
                                             color = ink,
-                                            fontSize = 9.sp,
+                                            style = TimelinePhotoCaption,
                                             maxLines = 1,
                                         )
                                     }
@@ -1161,7 +1174,7 @@ fun AdventureTimeline(
                                         Text(
                                             text = point.label,
                                             color = ink,
-                                            style = MaterialTheme.typography.bodySmall,
+                                            style = TimelineTitleSmall,
                                             maxLines = 2,
                                         )
                                     }
@@ -1204,7 +1217,7 @@ fun AdventureTimeline(
                                                 Text(
                                                     text = point.label,
                                                     color = ink,
-                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    style = TimelineTitle,
                                                     maxLines = 2,
                                                 )
                                             }

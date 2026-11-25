@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,57 +14,61 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import de.breadcrumbz.app.R
 import de.breadcrumbz.app.data.photo.PhotoImporter
 import de.breadcrumbz.app.state.TripOverview
 import de.breadcrumbz.app.ui.theme.BodyFont
-import de.breadcrumbz.app.ui.theme.PaperCard
 import de.breadcrumbz.app.ui.theme.HandFont
 import de.breadcrumbz.app.ui.theme.Ink
 import de.breadcrumbz.app.ui.theme.Paper
+import de.breadcrumbz.app.ui.theme.PaperCard
+import de.breadcrumbz.app.ui.theme.ParchmentEdge
 import de.breadcrumbz.app.ui.theme.PolaroidWhite
+import de.breadcrumbz.app.ui.theme.RiverBlue
 import de.breadcrumbz.app.ui.theme.SealRed
 import de.breadcrumbz.app.ui.theme.Sepia
-import de.breadcrumbz.app.ui.theme.Tape
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.cos
 
-private val DateChip = androidx.compose.ui.graphics.Color(0xFFE8B86A)
-
 private fun shortDate(value: Long): String =
     SimpleDateFormat("dd.MM.yyyy", Locale.GERMANY).format(Date(value))
 
 /**
- * Reiseliste: jede Reise als kleiner, gefalteter Kartenausschnitt.
- * Die Linie ist eine Skizze aus den Pins (gleiche Reihenfolge wie die
- * Route), darunter das Etikett mit Datum, Titel und Gesamt-km.
+ * Reiseliste: jede Reise als Postkarte aus der alten Karte.
+ * Links das Titelbild als Polaroid, rechts die Skizze der Route mit allen
+ * Pins, unten das Etikett mit Titel, Zeitraum, Ort und Gesamt-km.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -73,181 +78,263 @@ fun TripMapCard(
     onOpen: () -> Unit,
     onEdit: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(16.dp)
     val coverBitmap = remember(coverPath) {
         coverPath?.let { PhotoImporter.decode(it, sampleSize = 4) }?.asImageBitmap()
     }
     val points = overview.routePoints
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(214.dp)
             .shadow(6.dp, shape)
             .clip(shape)
-            .background(Paper)
+            .background(PaperCard)
             .border(2.dp, Ink, shape)
             .combinedClickable(onClick = onOpen, onLongClick = onEdit),
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            // Faltkanten der Karte.
-            val crease = Sepia.copy(alpha = 0.14f)
-            val creaseWidth = 1.dp.toPx()
-            drawLine(crease, Offset(size.width / 3f, 0f), Offset(size.width / 3f, size.height), creaseWidth)
-            drawLine(crease, Offset(size.width * 2f / 3f, 0f), Offset(size.width * 2f / 3f, size.height), creaseWidth)
-            drawLine(crease, Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), creaseWidth)
-
-            // Ein paar leise Höhenlinien als Schmuck.
-            val contour = Sepia.copy(alpha = 0.16f)
-            for (i in 0..2) {
-                val y = size.height * (0.18f + i * 0.09f)
-                val wave = Path().apply {
-                    moveTo(0f, y)
-                    cubicTo(
-                        size.width * 0.3f, y - 18.dp.toPx(),
-                        size.width * 0.6f, y + 18.dp.toPx(),
-                        size.width, y - 6.dp.toPx(),
-                    )
-                }
-                drawPath(wave, contour, style = Stroke(width = 1.dp.toPx()))
+        // Oberer Teil: Kartenausschnitt.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(150.dp)
+                .background(Paper),
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawMapBackground()
+                val left = if (coverBitmap != null) size.width * 0.44f else 28.dp.toPx()
+                drawRouteSketch(
+                    points = points,
+                    left = left,
+                    right = size.width - 28.dp.toPx(),
+                    top = 22.dp.toPx(),
+                    bottom = size.height - 22.dp.toPx(),
+                )
             }
 
-            if (points.size >= 2) {
-                // Skizze in den Bereich über dem Etikett einpassen,
-                // mit Längengrad-Korrektur, damit nichts verzerrt.
-                val left = 24.dp.toPx()
-                val right = size.width - 24.dp.toPx()
-                val top = 22.dp.toPx()
-                val bottom = size.height - 96.dp.toPx()
-                val midLat = points.map { it.first }.average()
-                val lonScale = cos(Math.toRadians(midLat)).coerceAtLeast(0.2)
-                val xs = points.map { it.second * lonScale }
-                val ys = points.map { it.first }
-                val spanX = (xs.max() - xs.min()).coerceAtLeast(1e-6)
-                val spanY = (ys.max() - ys.min()).coerceAtLeast(1e-6)
-                val scale = minOf((right - left) / spanX, (bottom - top) / spanY)
-                val offsetX = left + ((right - left) - spanX * scale) / 2.0
-                val offsetY = top + ((bottom - top) - spanY * scale) / 2.0
-                val projected = points.indices.map { index ->
-                    Offset(
-                        (offsetX + (xs[index] - xs.min()) * scale).toFloat(),
-                        (offsetY + (ys.max() - ys[index]) * scale).toFloat(),
-                    )
-                }
-                val route = Path().apply {
-                    moveTo(projected.first().x, projected.first().y)
-                    projected.drop(1).forEach { lineTo(it.x, it.y) }
-                }
-                // Wie überall: weißer Unterzug, schwarze gestrichelte Linie.
-                drawPath(
-                    route,
-                    androidx.compose.ui.graphics.Color.White,
-                    style = Stroke(
-                        width = 6.dp.toPx(),
-                        cap = StrokeCap.Round,
-                        join = StrokeJoin.Round,
-                    ),
-                )
-                drawPath(
-                    route,
-                    androidx.compose.ui.graphics.Color(0xFF111111),
-                    style = Stroke(
-                        width = 2.6.dp.toPx(),
-                        join = StrokeJoin.Round,
-                        pathEffect = PathEffect.dashPathEffect(
-                            floatArrayOf(9.dp.toPx(), 6.dp.toPx()),
-                        ),
-                    ),
-                )
-                listOf(projected.first(), projected.last()).forEach { end ->
-                    drawCircle(SealRed, radius = 6.dp.toPx(), center = end)
-                    drawCircle(Ink, radius = 6.dp.toPx(), center = end, style = Stroke(1.5.dp.toPx()))
-                }
-            } else if (points.size == 1) {
-                val center = Offset(size.width / 2f, (size.height - 96.dp.toPx()) / 2f + 22.dp.toPx())
-                drawCircle(SealRed, radius = 7.dp.toPx(), center = center)
-                drawCircle(Ink, radius = 7.dp.toPx(), center = center, style = Stroke(1.5.dp.toPx()))
-            }
-        }
-
-        if (coverBitmap != null) {
-            Box(
+            // Kleine Kompassrose oben rechts.
+            Icon(
+                painter = painterResource(R.drawable.ic_compass),
+                contentDescription = null,
+                tint = Color.Unspecified,
                 modifier = Modifier
-                    .offset(x = 18.dp, y = 16.dp)
-                    .rotate(-6f)
-                    .shadow(4.dp)
-                    .background(PolaroidWhite)
-                    .padding(start = 5.dp, end = 5.dp, top = 5.dp, bottom = 14.dp),
-            ) {
-                Image(
-                    bitmap = coverBitmap,
-                    contentDescription = "Titelbild",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(width = 86.dp, height = 68.dp),
-                )
-                // Polaroid mit Klebeband.
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp)
+                    .size(26.dp)
+                    .alpha(0.75f),
+            )
+
+            if (coverBitmap != null) {
+                // Titelbild als Polaroid – ohne Klebeband.
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .offset(y = (-9).dp)
-                        .size(width = 36.dp, height = 13.dp)
-                        .background(Tape),
-                )
+                        .align(Alignment.CenterStart)
+                        .padding(start = 16.dp)
+                        .rotate(-4f)
+                        .shadow(5.dp)
+                        .background(PolaroidWhite)
+                        .border(1.dp, ParchmentEdge)
+                        .padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 16.dp),
+                ) {
+                    Image(
+                        bitmap = coverBitmap,
+                        contentDescription = "Titelbild",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(width = 118.dp, height = 92.dp),
+                    )
+                }
             }
         }
 
-        // Etikett unten wie im Design-Beispiel.
+        // Trennlinie wie eine Faltkante.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(Ink),
+        )
+
+        // Etikett.
         val range = listOfNotNull(
             overview.startDate?.let { shortDate(it) },
             overview.endDate?.let { shortDate(it) },
         ).distinct().joinToString(" – ")
         Row(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(12.dp)
                 .fillMaxWidth()
-                .background(PaperCard, RoundedCornerShape(14.dp))
-                .border(2.dp, Ink, RoundedCornerShape(14.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.Bottom,
+                .padding(start = 16.dp, end = 14.dp, top = 8.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                if (range.isNotBlank()) {
-                    Text(
-                        text = range,
-                        color = Ink,
-                        fontFamily = HandFont,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        modifier = Modifier
-                            .background(DateChip, RoundedCornerShape(6.dp))
-                            .padding(horizontal = 8.dp),
-                    )
-                }
                 Text(
                     text = overview.trip.title.ifBlank { "Neue Reise" },
                     color = if (overview.trip.title.isBlank()) Sepia else Ink,
                     fontFamily = HandFont,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 26.sp,
-                    lineHeight = 28.sp,
+                    fontSize = 28.sp,
+                    lineHeight = 30.sp,
                     fontStyle = if (overview.trip.titleIsAuto) FontStyle.Italic else FontStyle.Normal,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+                val details = listOfNotNull(
+                    range.ifBlank { null },
+                    overview.place?.takeIf { it.isNotBlank() },
+                ).joinToString(" · ")
+                if (details.isNotBlank()) {
+                    Text(
+                        text = details,
+                        color = Sepia,
+                        fontFamily = BodyFont,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             if (overview.distanceKm >= 0.1) {
                 Spacer(Modifier.width(10.dp))
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("Gesamt", color = Sepia, fontFamily = BodyFont, fontSize = 12.sp)
+                // Kilometer als runder Stempel.
+                Column(
+                    modifier = Modifier
+                        .size(58.dp)
+                        .rotate(-8f)
+                        .border(2.dp, SealRed, RoundedCornerShape(50))
+                        .padding(4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
                     Text(
-                        text = "${overview.distanceKm.toInt().coerceAtLeast(1)} km",
-                        color = Ink,
+                        text = "${overview.distanceKm.toInt().coerceAtLeast(1)}",
+                        color = SealRed,
                         fontFamily = BodyFont,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
+                        lineHeight = 17.sp,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "km",
+                        color = SealRed,
+                        fontFamily = BodyFont,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        lineHeight = 12.sp,
                     )
                 }
             }
         }
+    }
+}
+
+/** Leise Höhenlinien, ein Fluss und feine Gitterlinien wie auf einer alten Karte. */
+private fun DrawScope.drawMapBackground() {
+    val grid = Sepia.copy(alpha = 0.10f)
+    val step = 28.dp.toPx()
+    var x = step
+    while (x < size.width) {
+        drawLine(grid, Offset(x, 0f), Offset(x, size.height), 1.dp.toPx())
+        x += step
+    }
+    var y = step
+    while (y < size.height) {
+        drawLine(grid, Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
+        y += step
+    }
+
+    val contour = Sepia.copy(alpha = 0.18f)
+    for (i in 0..3) {
+        val base = size.height * (0.22f + i * 0.17f)
+        val wave = Path().apply {
+            moveTo(0f, base)
+            cubicTo(
+                size.width * 0.3f, base - 16.dp.toPx(),
+                size.width * 0.62f, base + 16.dp.toPx(),
+                size.width, base - 6.dp.toPx(),
+            )
+        }
+        drawPath(wave, contour, style = Stroke(width = 1.dp.toPx()))
+    }
+
+    val river = Path().apply {
+        moveTo(size.width * 0.55f, size.height)
+        cubicTo(
+            size.width * 0.62f, size.height * 0.7f,
+            size.width * 0.78f, size.height * 0.75f,
+            size.width * 0.86f, size.height * 0.4f,
+        )
+        quadraticBezierTo(size.width * 0.9f, size.height * 0.2f, size.width, size.height * 0.12f)
+    }
+    drawPath(
+        river,
+        RiverBlue.copy(alpha = 0.35f),
+        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+    )
+}
+
+/** Skizze der Route aus den Pins – mit Längengrad-Korrektur, damit nichts verzerrt. */
+private fun DrawScope.drawRouteSketch(
+    points: List<Pair<Double, Double>>,
+    left: Float,
+    right: Float,
+    top: Float,
+    bottom: Float,
+) {
+    if (points.isEmpty()) return
+    if (points.size == 1) {
+        val center = Offset((left + right) / 2f, (top + bottom) / 2f)
+        drawCircle(SealRed, radius = 7.dp.toPx(), center = center)
+        drawCircle(Ink, radius = 7.dp.toPx(), center = center, style = Stroke(1.5.dp.toPx()))
+        return
+    }
+    val midLat = points.map { it.first }.average()
+    val lonScale = cos(Math.toRadians(midLat)).coerceAtLeast(0.2)
+    val xs = points.map { it.second * lonScale }
+    val ys = points.map { it.first }
+    val spanX = (xs.max() - xs.min()).coerceAtLeast(1e-6)
+    val spanY = (ys.max() - ys.min()).coerceAtLeast(1e-6)
+    val scale = minOf((right - left) / spanX, (bottom - top) / spanY)
+    val offsetX = left + ((right - left) - spanX * scale) / 2.0
+    val offsetY = top + ((bottom - top) - spanY * scale) / 2.0
+    val projected = points.indices.map { index ->
+        Offset(
+            (offsetX + (xs[index] - xs.min()) * scale).toFloat(),
+            (offsetY + (ys.max() - ys[index]) * scale).toFloat(),
+        )
+    }
+    val route = Path().apply {
+        moveTo(projected.first().x, projected.first().y)
+        for (index in 1 until projected.size) {
+            val previous = projected[index - 1]
+            val current = projected[index]
+            // Leicht geschwungen wie von Hand gezogen.
+            val mid = Offset((previous.x + current.x) / 2f, (previous.y + current.y) / 2f)
+            val bend = if (index % 2 == 0) 6.dp.toPx() else -6.dp.toPx()
+            quadraticBezierTo(mid.x, mid.y + bend, current.x, current.y)
+        }
+    }
+    // Wie überall: weißer Unterzug, schwarze gestrichelte Linie.
+    drawPath(
+        route,
+        Color.White,
+        style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
+    )
+    drawPath(
+        route,
+        Color(0xFF111111),
+        style = Stroke(
+            width = 2.6.dp.toPx(),
+            join = StrokeJoin.Round,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(9.dp.toPx(), 6.dp.toPx())),
+        ),
+    )
+    // Zwischenhalte als kleine Tintenpunkte, Start und Ziel als rote Siegel.
+    projected.drop(1).dropLast(1).forEach { stop ->
+        drawCircle(PaperCard, radius = 3.5.dp.toPx(), center = stop)
+        drawCircle(Ink, radius = 3.5.dp.toPx(), center = stop, style = Stroke(1.5.dp.toPx()))
+    }
+    listOf(projected.first(), projected.last()).forEach { end ->
+        drawCircle(SealRed, radius = 6.dp.toPx(), center = end)
+        drawCircle(Ink, radius = 6.dp.toPx(), center = end, style = Stroke(1.5.dp.toPx()))
     }
 }

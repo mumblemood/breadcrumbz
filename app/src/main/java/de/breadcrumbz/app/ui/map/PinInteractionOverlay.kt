@@ -29,6 +29,8 @@ class PinInteractionOverlay(
     private val onMove: (String, Double, Double, Boolean) -> Unit,
     /** Foto-Polaroids sollen kein Halten-auf-freier-Fläche auslösen. */
     private val ignoreLongPress: (Float, Float) -> Boolean = { _, _ -> false },
+    /** Pin liegt an dieser Stelle unter einem Foto – dann gehört der Tap dem Foto. */
+    private val isPinHidden: (String, Float, Float) -> Boolean = { _, _, _ -> false },
 ) : Overlay() {
 
     private val handler = Handler(Looper.getMainLooper())
@@ -232,7 +234,8 @@ class PinInteractionOverlay(
             val height = 28f * density * scale
             abs(point.x - event.x) < half + 8f * density &&
                 event.y >= point.y - height - 8f * density &&
-                event.y <= point.y + 8f * density
+                event.y <= point.y + 8f * density &&
+                !isPinHidden(stop.id, event.x, event.y)
         }
     }
 

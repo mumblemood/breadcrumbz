@@ -60,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -82,6 +83,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.content.res.ResourcesCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.breadcrumbz.app.R
 import de.breadcrumbz.app.data.photo.ImportedPhoto
@@ -713,8 +715,15 @@ fun TripMapScreen(
     val placedPhotos = remember(photos) {
         photos.filter { it.latitude != null && it.longitude != null }
     }
+    val entryStopIds = remember(allEntries) {
+        allEntries.associate { it.id to it.stopId }
+    }
+    val captionTypeface = remember(context) {
+        runCatching { ResourcesCompat.getFont(context, R.font.caveat) }.getOrNull()
+    }
     val polaroidOverlay = remember(
         placedPhotos, viewModel, frontPhotoId, stackPhotoIds, highlightedPhotoId,
+        entryStopIds, captionTypeface,
     ) {
         PolaroidOverlay(
             photos = placedPhotos,
@@ -731,6 +740,16 @@ fun TripMapScreen(
             expandedPhotoIds = stackPhotoIds.toSet(),
             onPhotoLongClick = { id -> photoToDelete = id },
             highlightPhotoId = highlightedPhotoId,
+            expandedAtZoom = mapView.zoomLevelDouble,
+            // Pins werden mit ihren Fotos gezeichnet: kein Pin liegt über
+            // einem fremden Foto, das vor ihm liegt.
+            pins = {
+                markers.map { (id, marker) ->
+                    PolaroidOverlay.MapPin(id, marker.position, marker.icon)
+                }
+            },
+            stopIdOf = { photo -> photo.stopId ?: photo.entryId?.let { entryStopIds[it] } },
+            captionTypeface = captionTypeface,
         )
     }
 
@@ -940,6 +959,7 @@ fun TripMapScreen(
             ignoreLongPress = { x, y ->
                 polaroidOverlay.isPhotoAt(x, y) || routeEditOverlay.isRouteAt(x, y)
             },
+            isPinHidden = { id, x, y -> polaroidOverlay.isPinCoveredAt(id, x, y) },
         )
     }
 
@@ -1114,7 +1134,18 @@ fun TripMapScreen(
                     }
                 },
                 navigationIcon = {
-                    TextButton(onClick = onBack) { Text("←") }
+                    // Großer, gut treffbarer Zurück-Pfeil (48 dp Tippfläche).
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_arrow_back),
+                            contentDescription = "Zurück",
+                            tint = Ink,
+                            modifier = Modifier.size(32.dp),
+                        )
+                    }
                 },
                 actions = {
                     Box {
@@ -1205,11 +1236,14 @@ fun TripMapScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(3f)
+                    // Linien der Karte dürfen nicht unter der Zeitleiste
+                    // hervorschauen (schräger Strich am unteren Rand).
+                    .clipToBounds()
                     .onGloballyPositioned { mapBounds = it.boundsInRoot() },
             ) {
                 AndroidView(
                     factory = { mapView },
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().clipToBounds(),
                     update = { view ->
                         val mode = trip?.overlayMode ?: OverlayMode.STANDARD
                         if (appliedOverlayMode != mode) {
@@ -1268,8 +1302,9 @@ fun TripMapScreen(
                                 marker.icon = it
                             }
                             marker.isDraggable = false
+                            // Nicht als eigenes Overlay: die Polaroid-Ebene
+                            // zeichnet jeden Pin zusammen mit seinen Fotos.
                             markers[stop.id] = marker
-                            view.overlays.add(marker)
                         }
                         view.overlays.add(pinOverlay)
                         view.overlays.add(routeEditOverlay)
@@ -1349,12 +1384,12 @@ fun TripMapScreen(
                             .background(PaperCard, CircleShape)
                             .border(2.dp, Ink, CircleShape),
                     ) {
-                        // Kompassrose statt Vollbild-Symbol.
+                        // Vier Rahmen-Ecken: die ganze Reise ins Bild einpassen.
                         Icon(
-                            painter = painterResource(R.drawable.ic_compass),
+                            painter = painterResource(R.drawable.ic_fit_all),
                             contentDescription = "Ganze Reise vollständig anzeigen",
                             tint = Color.Unspecified,
-                            modifier = Modifier.size(28.dp),
+                            modifier = Modifier.size(26.dp),
                         )
                     }
                 }
