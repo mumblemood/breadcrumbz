@@ -151,9 +151,7 @@ class TripMapViewModel(
             }
             // Fotos mit Eintrag erscheinen aufgeklappt im Eintrag, nicht doppelt.
             allPhotos.filter { photo ->
-                photo.entryId == null &&
-                    photo.stopId !in outerStopIds &&
-                    photo.entryId !in outerEntryIds
+                photo.entryId == null && photo.stopId !in outerStopIds
             }.forEach { photo ->
                 add(
                     TimelineItem(
