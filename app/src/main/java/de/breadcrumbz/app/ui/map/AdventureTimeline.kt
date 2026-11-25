@@ -813,15 +813,20 @@ fun AdventureTimeline(
 
                 // Die Linie selbst ist klickbar, bevor Pins und Karten darüber
                 // liegen. Ein Tap nahe der Spline öffnet denselben Dialog wie
-                // ein Tap auf die Linie der Karte.
+                // ein Tap auf die Linie der Karte. Die Klickfläche ist nur ein
+                // schmaler Streifen um die Linie: Eine Fläche über die ganze
+                // Höhe würde Taps auf die Eintragsrahmen (Papierfläche)
+                // verschlucken, weil in Compose nur die oberste Fläche den Tap
+                // bekommt.
+                val lineBandDp = 18.dp
                 Box(
                     modifier = Modifier
+                        .offset(y = with(density) { baseY.toDp() } - lineBandDp)
                         .width(contentWidth)
-                        .fillMaxHeight()
-                        .pointerInput(segmentHits, baseY) {
-                            val lineBand = with(density) { 18.dp.toPx() }
+                        .height(lineBandDp * 2)
+                        .pointerInput(segmentHits) {
+                            val lineBand = with(density) { lineBandDp.toPx() }
                             detectTapGestures { offset ->
-                                if (abs(offset.y - baseY) > lineBand) return@detectTapGestures
                                 val hit = segmentHits.firstOrNull { segment ->
                                     offset.x >= segment.left && offset.x <= segment.right
                                 } ?: segmentHits.minByOrNull { segment ->
@@ -840,7 +845,11 @@ fun AdventureTimeline(
 
                 points.forEachIndexed { index, point ->
                     val item = point.item
-                    val lineY = with(density) { (baseY + sin(index * 0.85f) * 6f).toDp() }
+                    // Dieselbe Welle wie die gezeichnete Linie (6 dp, nicht 6 px),
+                    // damit Pins und Karten genau auf der Linie sitzen.
+                    val lineY = with(density) {
+                        (baseY + sin(index * 0.85f) * 6.dp.toPx()).toDp()
+                    }
                     val cardY = lineY + 24.dp
                     val highlighted = point.key == centerKey
                     val dragOffset = remember(point.key) { mutableStateOf(Offset.Zero) }

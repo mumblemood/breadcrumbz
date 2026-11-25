@@ -52,6 +52,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -181,10 +184,19 @@ private fun AddPhotoIcon() {
 }
 
 @Composable
-private fun rememberBigImage(viewModel: TripMapViewModel, fileName: String): ImageBitmap? =
-    remember(fileName) {
-        PhotoImporter.decode(viewModel.photoPath(fileName))?.asImageBitmap()
+private fun rememberBigImage(viewModel: TripMapViewModel, fileName: String): ImageBitmap? {
+    // Im Hintergrund und auf Bildschirmgröße verkleinert laden: ein volles
+    // 50-MP-Foto würde sonst ruckeln oder die App abstürzen lassen.
+    val image by produceState<ImageBitmap?>(initialValue = null, fileName) {
+        value = withContext(Dispatchers.IO) {
+            PhotoImporter.decode(viewModel.photoPath(fileName), maxSide = BIG_IMAGE_MAX_SIDE)
+                ?.asImageBitmap()
+        }
     }
+    return image
+}
+
+private const val BIG_IMAGE_MAX_SIDE = 2048
 
 private fun dateText(time: Long?): String =
     time?.let { SimpleDateFormat("dd.MM.yyyy · HH:mm", Locale.GERMANY).format(Date(it)) }

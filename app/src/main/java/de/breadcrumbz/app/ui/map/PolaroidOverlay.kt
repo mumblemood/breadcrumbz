@@ -360,7 +360,7 @@ class PolaroidOverlay(
 
     private fun bitmapFor(fileName: String): Bitmap? {
         cache.get(fileName)?.let { return it }
-        val bitmap = PhotoImporter.decode(filePath(fileName), sampleSize = 2) ?: return null
+        val bitmap = PhotoImporter.decode(filePath(fileName), maxSide = 1024) ?: return null
         cache.put(fileName, bitmap)
         return bitmap
     }

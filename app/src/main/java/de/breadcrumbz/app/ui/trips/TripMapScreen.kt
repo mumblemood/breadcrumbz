@@ -52,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -291,10 +292,16 @@ private fun rememberThumbnail(viewModel: TripMapViewModel, fileName: String): Im
     }
 
 @Composable
-private fun rememberFullImage(viewModel: TripMapViewModel, fileName: String): ImageBitmap? =
-    remember(fileName) {
-        PhotoImporter.decode(viewModel.photoPath(fileName))?.asImageBitmap()
+private fun rememberFullImage(viewModel: TripMapViewModel, fileName: String): ImageBitmap? {
+    // Im Hintergrund und verkleinert laden – schützt vor Abstürzen bei großen Fotos.
+    val image by produceState<ImageBitmap?>(initialValue = null, fileName) {
+        value = withContext(Dispatchers.IO) {
+            PhotoImporter.decode(viewModel.photoPath(fileName), maxSide = 2048)
+                ?.asImageBitmap()
+        }
     }
+    return image
+}
 
 private fun formatDate(time: Long?, withYear: Boolean = false): String {
     if (time == null) return "–"
@@ -689,6 +696,11 @@ fun TripMapScreen(
         val oldIds = previousRouteIds
         previousRouteIds = ids
         if (oldIds.isEmpty() || oldIds == ids) return@LaunchedEffect
+        // Nur bei einer reinen Umsortierung (gleiche Pins, neue Reihenfolge)
+        // wandern die Häkchen mit. Kommt ein Pin dazu oder fällt einer weg –
+        // z. B. ein neuer Pin ohne Zeit, der deshalb ans Ende rutscht –, bleiben
+        // An- und Abreise dort, wo sie gesetzt wurden.
+        if (oldIds.toSet() != ids.toSet()) return@LaunchedEffect
         val oldFirst = oldIds.firstOrNull()
         val oldLast = oldIds.lastOrNull()
         val newFirst = ids.firstOrNull()

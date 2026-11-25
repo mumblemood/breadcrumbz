@@ -56,45 +56,92 @@ object PhotoImporter {
     fun decodeThumbnail(bytes: ByteArray): Bitmap? = decode(bytes, sampleSize = 6)
 
     /**
-     * Dekodiert ein gespeichertes Foto und dreht es entsprechend der EXIF-Angabe
-     * in die Anzeige-Ausrichtung. Die Datei selbst bleibt unverändert, damit vorhandene
-     * Fotos und Backups nicht nachbearbeitet werden müssen.
+     * Dekodiert ein gespeichertes Foto und bringt es entsprechend der EXIF-Angabe
+     * in die Anzeige-Ausrichtung (gedreht und/oder gespiegelt). Die Datei selbst
+     * bleibt unverändert, damit vorhandene Fotos und Backups nicht nachbearbeitet
+     * werden müssen.
+     *
+     * @param maxSide größer 0: das Bild wird beim Laden so weit verkleinert, dass
+     *   die längere Seite höchstens etwa so lang ist. Das schützt vor Abstürzen
+     *   bei sehr großen Fotos (z. B. 50 Megapixel). Dann wird sampleSize ignoriert.
      */
-    fun decode(filePath: String, sampleSize: Int = 1): Bitmap? {
-        val degrees = try {
-            rotationDegrees(ExifInterface(filePath))
+    fun decode(filePath: String, sampleSize: Int = 1, maxSide: Int = 0): Bitmap? {
+        val orientation = try {
+            orientationOf(ExifInterface(filePath))
         } catch (_: Exception) {
-            0
+            ExifInterface.ORIENTATION_NORMAL
         }
-        val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-        return rotate(BitmapFactory.decodeFile(filePath, options) ?: return null, degrees)
+        val sample = if (maxSide > 0) {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(filePath, bounds)
+            sampleFor(bounds.outWidth, bounds.outHeight, maxSide)
+        } else {
+            sampleSize
+        }
+        val bitmap = try {
+            BitmapFactory.decodeFile(
+                filePath,
+                BitmapFactory.Options().apply { inSampleSize = sample },
+            )
+        } catch (_: OutOfMemoryError) {
+            null
+        } ?: return null
+        return applyOrientation(bitmap, orientation)
     }
 
     fun decode(bytes: ByteArray, sampleSize: Int = 1): Bitmap? {
-        val degrees = try {
-            rotationDegrees(ExifInterface(ByteArrayInputStream(bytes)))
+        val orientation = try {
+            orientationOf(ExifInterface(ByteArrayInputStream(bytes)))
         } catch (_: Exception) {
-            0
+            ExifInterface.ORIENTATION_NORMAL
         }
-        val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-        return rotate(
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null,
-            degrees,
-        )
+        val bitmap = try {
+            BitmapFactory.decodeByteArray(
+                bytes, 0, bytes.size,
+                BitmapFactory.Options().apply { inSampleSize = sampleSize },
+            )
+        } catch (_: OutOfMemoryError) {
+            null
+        } ?: return null
+        return applyOrientation(bitmap, orientation)
     }
 
-    private fun rotationDegrees(exif: ExifInterface): Int = when (
+    /** Größte Zweierpotenz, bei der die längere Seite noch mindestens maxSide bleibt. */
+    private fun sampleFor(width: Int, height: Int, maxSide: Int): Int {
+        val longest = maxOf(width, height)
+        if (longest <= 0) return 1
+        var sample = 1
+        while (longest / (sample * 2) >= maxSide) sample *= 2
+        return sample
+    }
+
+    private fun orientationOf(exif: ExifInterface): Int =
         exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-    ) {
-        ExifInterface.ORIENTATION_ROTATE_90 -> 90
-        ExifInterface.ORIENTATION_ROTATE_180 -> 180
-        ExifInterface.ORIENTATION_ROTATE_270 -> 270
-        else -> 0
-    }
 
-    private fun rotate(bitmap: Bitmap, degrees: Int): Bitmap {
-        if (degrees == 0) return bitmap
-        val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
-        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+    /** Alle acht EXIF-Ausrichtungen, auch gespiegelte (z. B. manche Selfie-Kameras). */
+    private fun applyOrientation(bitmap: Bitmap, orientation: Int): Bitmap {
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.setScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.setRotate(90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.setRotate(-90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+            else -> return bitmap
+        }
+        return try {
+            Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                .also { if (it !== bitmap) bitmap.recycle() }
+        } catch (_: OutOfMemoryError) {
+            bitmap
+        }
     }
 }

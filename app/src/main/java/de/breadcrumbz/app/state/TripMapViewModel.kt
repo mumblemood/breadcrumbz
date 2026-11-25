@@ -702,6 +702,16 @@ class TripMapViewModel(
      */
     fun setTripBoundaries(anreiseStopId: String?, abreiseStopId: String?) {
         viewModelScope.launch(Dispatchers.IO) {
+            // Schnelles Umschalten: jede Änderung wartet, bis die vorige fertig
+            // geschrieben ist. Sonst könnte ein älterer Stand gewinnen.
+            boundaryLock.withLock { applyTripBoundaries(anreiseStopId, abreiseStopId) }
+        }
+    }
+
+    private val boundaryLock = Mutex()
+
+    private suspend fun applyTripBoundaries(anreiseStopId: String?, abreiseStopId: String?) {
+        run {
             val marked = setOfNotNull(anreiseStopId, abreiseStopId)
             val changes = repository.observeStops(tripId).first()
                 .filter { it.isArrivalDeparture != (it.id in marked) }
