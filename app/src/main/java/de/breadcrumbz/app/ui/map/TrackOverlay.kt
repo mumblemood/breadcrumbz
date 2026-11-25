@@ -3,6 +3,7 @@ package de.breadcrumbz.app.ui.map
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -10,7 +11,8 @@ import org.osmdroid.views.overlay.Overlay
 import kotlin.math.atan2
 import kotlin.math.hypot
 
-enum class TrackStyle { FOOTPRINTS, TIRES }
+/** FOOTPRINTS = zu Fuß, ROAD = Auto/Campingbus als Landstraße alter Karten. */
+enum class TrackStyle { FOOTPRINTS, ROAD }
 
 /** Ein Abschnitt, der als Spur statt als gestrichelte Linie gezeichnet wird. */
 data class TrackPath(
@@ -23,7 +25,8 @@ data class TrackPath(
 /**
  * Zeichnet Spuren auf die Karte:
  * - zu Fuß: abwechselnd linke und rechte Fußabdrücke entlang der Strecke,
- * - Auto/Campingbus: zwei parallele Reifenspuren mit kurzen Profilstrichen.
+ * - Auto/Campingbus: eine Landstraße wie auf alten Karten – helles Band
+ *   mit zwei feinen Tintenrändern.
  * Abstände sind in dp, damit die Spur bei jedem Zoom gleich dicht wirkt.
  */
 class TrackOverlay(private val paths: List<TrackPath>) : Overlay() {
@@ -36,12 +39,20 @@ class TrackOverlay(private val paths: List<TrackPath>) : Overlay() {
         color = Color.WHITE
         style = Paint.Style.FILL
     }
-    private val tread = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val oval = RectF()
+    private val roadEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#3B2B20")
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
     }
-    private val oval = RectF()
+    private val roadFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#F6EFE1")
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val roadPath = Path()
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow || paths.isEmpty()) return
@@ -61,12 +72,15 @@ class TrackOverlay(private val paths: List<TrackPath>) : Overlay() {
             }
             val alpha = if (path.subtle) 120 else 230
             ink.alpha = alpha
-            tread.alpha = alpha
             halo.alpha = if (path.subtle) 90 else 170
+            if (path.style == TrackStyle.ROAD) {
+                drawRoad(canvas, xs, ys, path.subtle, density)
+                return@forEach
+            }
 
             val step = when (path.style) {
                 TrackStyle.FOOTPRINTS -> 11f * density
-                TrackStyle.TIRES -> 5f * density
+                TrackStyle.ROAD -> 5f * density
             }
             var carry = step / 2f
             var count = 0
@@ -88,7 +102,7 @@ class TrackOverlay(private val paths: List<TrackPath>) : Overlay() {
                     if (visible) {
                         when (path.style) {
                             TrackStyle.FOOTPRINTS -> footprint(canvas, x, y, angle, count % 2 == 0, density)
-                            TrackStyle.TIRES -> tireMark(canvas, x, y, angle, count, density)
+                            TrackStyle.ROAD -> Unit
                         }
                     }
                     count++
@@ -116,22 +130,23 @@ class TrackOverlay(private val paths: List<TrackPath>) : Overlay() {
         canvas.restore()
     }
 
-    /** Zwei parallele Reifenspuren; jeder Punkt trägt einen Profilstrich. */
-    private fun tireMark(canvas: Canvas, x: Float, y: Float, angle: Float, count: Int, density: Float) {
-        canvas.save()
-        canvas.translate(x, y)
-        canvas.rotate(angle)
-        val offset = 4.5f * density
-        val half = 1.6f * density
-        tread.strokeWidth = 1.7f * density
-        // Leicht schräge Profilstriche, abwechselnd versetzt wie bei einem Reifen.
-        val skew = if (count % 2 == 0) 0.9f * density else -0.9f * density
-        for (side in listOf(-offset, offset)) {
-            canvas.drawCircle(0f, side, half + 0.9f * density, halo)
-        }
-        for (side in listOf(-offset, offset)) {
-            canvas.drawLine(-skew, side - half, skew, side + half, tread)
-        }
-        canvas.restore()
+    /** Landstraße: Tintenband, darin ein helles Band – ergibt zwei feine Ränder. */
+    private fun drawRoad(canvas: Canvas, xs: FloatArray, ys: FloatArray, subtle: Boolean, density: Float) {
+        roadPath.reset()
+        roadPath.moveTo(xs[0], ys[0])
+        for (index in 1 until xs.size) roadPath.lineTo(xs[index], ys[index])
+        val scale = if (subtle) 0.6f else 1f
+        halo.style = Paint.Style.STROKE
+        halo.strokeWidth = 10f * density * scale
+        halo.strokeCap = Paint.Cap.ROUND
+        halo.strokeJoin = Paint.Join.ROUND
+        canvas.drawPath(roadPath, halo)
+        halo.style = Paint.Style.FILL
+        roadEdge.alpha = if (subtle) 120 else 235
+        roadEdge.strokeWidth = 7f * density * scale
+        canvas.drawPath(roadPath, roadEdge)
+        roadFill.alpha = 255
+        roadFill.strokeWidth = 4.4f * density * scale
+        canvas.drawPath(roadPath, roadFill)
     }
 }

@@ -112,7 +112,7 @@ object RouteStyling {
                     (index == ordered.lastIndex && to.isArrivalDeparture)
                 val track = when (mode) {
                     TransportMode.WALK -> TrackStyle.FOOTPRINTS
-                    TransportMode.CAR, TransportMode.CAMPER -> TrackStyle.TIRES
+                    TransportMode.CAR, TransportMode.CAMPER -> TrackStyle.ROAD
                     else -> null
                 }
                 if (track != null && trackPaths != null) {
