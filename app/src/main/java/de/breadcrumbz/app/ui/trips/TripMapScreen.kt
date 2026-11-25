@@ -605,8 +605,25 @@ fun TripMapScreen(
 
     fun openNewEntry(stopId: String? = null) {
         scope.launch {
-            val entry = viewModel.createEntry(stopId)
+            // Über „+“ ohne Pin: nur behalten, wenn etwas eingetragen wird.
+            val entry = if (stopId == null) {
+                viewModel.createDraftEntry()
+            } else {
+                viewModel.createEntry(stopId)
+            }
             fullscreenKey = "entry-${entry.id}"
+        }
+    }
+
+    // Ist der neue „+“-Eintrag nicht mehr offen (auch nicht beim Foto-Auswählen
+    // oder Verorten), wird er gelöscht, falls er leer geblieben ist.
+    LaunchedEffect(fullscreenKey, photoTargetEntryId, pendingEntryId) {
+        val draft = viewModel.currentDraftEntryId ?: return@LaunchedEffect
+        if (fullscreenKey != "entry-$draft" &&
+            photoTargetEntryId != draft &&
+            pendingEntryId != draft
+        ) {
+            viewModel.finishDraftEntry()
         }
     }
 

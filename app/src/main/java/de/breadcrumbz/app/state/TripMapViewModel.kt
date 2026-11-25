@@ -263,6 +263,43 @@ class TripMapViewModel(
         }
     }
 
+    /** Über „+“ angelegter Eintrag, der nur mit Inhalt bestehen bleibt. */
+    @Volatile
+    private var draftEntryId: String? = null
+
+    val currentDraftEntryId: String? get() = draftEntryId
+
+    /**
+     * Neuer Eintrag über „+“: Er wird sofort angelegt, damit Fotos und Ort
+     * wie gewohnt funktionieren. Bleibt er leer, wird er beim Schließen
+     * wieder entfernt (siehe [finishDraftEntry]).
+     */
+    suspend fun createDraftEntry(): Entry {
+        finishDraftEntry()
+        val created = createEntry(null)
+        draftEntryId = created.id
+        return created
+    }
+
+    /** Der „+“-Eintrag ist geschlossen: leer → löschen, sonst behalten. */
+    fun finishDraftEntry() {
+        val id = draftEntryId ?: return
+        draftEntryId = null
+        saveScope.launch { discardEntryIfEmpty(id) }
+    }
+
+    private suspend fun discardEntryIfEmpty(entryId: String) {
+        // Erst den zuletzt getippten Text schreiben, dann prüfen.
+        flushEntryText(entryId)
+        val entry = repository.observeEntriesForTrip(tripId).first()
+            .firstOrNull { it.id == entryId } ?: return
+        val hasPhotos = repository.observePhotos(tripId).first().any { it.entryId == entryId }
+        val hasPins = repository.observeStops(tripId).first().any { it.entryId == entryId }
+        val isEmpty = entry.title.isBlank() && entry.body.isBlank() &&
+            entry.stopId == null && entry.entryAt == null && !hasPhotos && !hasPins
+        if (isEmpty) repository.deleteEntry(entryId)
+    }
+
     /** Direkte Bearbeitung im geöffneten Eintrag – kein Dialog mehr. */
     fun updateEntryText(entryId: String, title: String, body: String) {
         // Nicht mehr pro Tastendruck parallel speichern: der jeweils neueste
@@ -313,6 +350,8 @@ class TripMapViewModel(
         // Die Ansicht wird geschlossen: noch nicht gespeicherten Text sofort
         // schreiben. saveScope läuft unabhängig vom viewModelScope weiter.
         flushPendingTexts()
+        // Reise verlassen, während der neue „+“-Eintrag noch leer offen war.
+        finishDraftEntry()
         super.onCleared()
     }
 
