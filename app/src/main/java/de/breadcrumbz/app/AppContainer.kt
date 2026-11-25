@@ -92,6 +92,7 @@ class AppContainer(context: Context) {
 
     val backupManager = BackupManager(
         context = appContext,
+        database = database,
         tripDao = tripDao,
         stopDao = stopDao,
         entryDao = entryDao,

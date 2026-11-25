@@ -54,7 +54,9 @@ veröffentlicht.
   der Falz und die vollständige rechte Seite mit Text und Bildern.
 - **Sichern und wiederherstellen:** Über die Systemauswahl kannst du ein
   Backup als ZIP-Datei exportieren oder einspielen. Vor einem Import wird die
-  bestehende Datenbank als Snapshot gesichert.
+  bestehende Datenbank als Snapshot gesichert. Der Import führt zusammen und
+  löscht nichts: Neues kommt dazu, Vorhandenes wird nur ersetzt, wenn das
+  Backup neuer ist.
 
 ## So kommst du los
 

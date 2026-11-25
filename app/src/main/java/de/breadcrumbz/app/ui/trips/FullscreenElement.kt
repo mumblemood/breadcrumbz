@@ -48,6 +48,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -218,7 +219,11 @@ private fun PhotoPolaroidDetail(
     onOpenOriginal: () -> Unit,
 ) {
     var editingTitle by remember(photo.id) { mutableStateOf(false) }
-    var titleDraft by remember(photo.id, photo.caption) { mutableStateOf(photo.caption) }
+    // Nur an das Foto gebunden: jede Speicherung würde sonst die Eingabe zurücksetzen.
+    var titleDraft by remember(photo.id) { mutableStateOf(photo.caption) }
+    DisposableEffect(photo.id) {
+        onDispose { viewModel.flushPendingTexts() }
+    }
     val focusRequester = remember { FocusRequester() }
     // Titel sofort fokussieren, damit Tippen ihn wirklich bearbeitbar macht.
     LaunchedEffect(editingTitle) {
@@ -226,7 +231,7 @@ private fun PhotoPolaroidDetail(
     }
     // Bei jedem Öffnen ein neuer, kleiner Schrägwinkel.
     val tilt = remember(photo.id) { (-9..9).random().toFloat() }
-    val titleIsEmpty = photo.caption.isBlank()
+    val titleIsEmpty = titleDraft.isBlank()
     // Ortsnamen wie überall: „Stadt, Staat". Koordinaten erscheinen nie.
     var resolvedPlace by remember(photo.id, placeText) {
         mutableStateOf(placeText)
@@ -305,7 +310,7 @@ private fun PhotoPolaroidDetail(
             )
         } else {
             Text(
-                text = photo.caption.ifBlank { "Titel" },
+                text = titleDraft.ifBlank { "Titel" },
                 color = if (titleIsEmpty) ink.copy(alpha = 0.55f) else ink,
                 fontFamily = comic,
                 fontStyle = if (titleIsEmpty) FontStyle.Italic else FontStyle.Normal,
@@ -863,6 +868,10 @@ fun FullscreenElement(
                                 } else {
                                     var titleDraft by remember(entry.id) { mutableStateOf(entry.title) }
                                     var bodyDraft by remember(entry.id) { mutableStateOf(entry.body) }
+                                    // Beim Schließen des tbe wird der Text sofort gespeichert.
+                                    DisposableEffect(entry.id) {
+                                        onDispose { viewModel.flushPendingTexts() }
+                                    }
                                     var placePickerOpen by remember(entry.id) {
                                         mutableStateOf(false)
                                     }

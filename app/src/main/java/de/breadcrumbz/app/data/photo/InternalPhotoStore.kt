@@ -44,6 +44,27 @@ class InternalPhotoStore(context: Context) {
         }
     }
 
+    /**
+     * Übernimmt eine Bilddatei aus dem Backup-Zwischenordner. Eine vorhandene
+     * Datei gleichen Namens bleibt unangetastet (gleicher Name = gleiches Foto).
+     */
+    fun importFile(fileName: String, source: File): Boolean {
+        if (fileName.isBlank() || fileName.contains('/') || fileName.contains('\\') ||
+            fileName == "." || fileName == ".."
+        ) {
+            return false
+        }
+        val target = File(directory, fileName)
+        if (target.exists()) return true
+        return try {
+            source.copyTo(target)
+            true
+        } catch (_: Exception) {
+            target.delete()
+            false
+        }
+    }
+
     suspend fun delete(fileName: String): Boolean = withContext(Dispatchers.IO) {
         if (fileName.contains('/') || fileName.contains('\\')) {
             false

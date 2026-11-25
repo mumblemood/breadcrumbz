@@ -24,7 +24,14 @@ import de.breadcrumbz.app.domain.util.clusterPhotos
 import de.breadcrumbz.app.domain.util.haversineMeters
 import de.breadcrumbz.app.domain.util.photoMatchesStop
 import de.breadcrumbz.app.domain.util.segmentKey
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -42,6 +49,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+
+private const val TEXT_SAVE_DELAY_MS = 400L
 
 /** Zustand für die Kartenansicht einer Reise. */
 class TripMapViewModel(
@@ -51,6 +61,13 @@ class TripMapViewModel(
     private val settingsStore: SettingsStore,
     private val tripId: String,
 ) : ViewModel() {
+
+    /** Eigener Bereich fürs Speichern von Text – läuft auch nach dem Schließen weiter. */
+    private val saveScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val textWriteLock = Mutex()
+    private val textSaveJobs = mutableMapOf<String, Job>()
+    private val pendingEntryTexts = ConcurrentHashMap<String, Pair<String, String>>()
+    private val pendingCaptions = ConcurrentHashMap<String, String>()
 
     val trip = repository.observeTrips()
         .map { trips -> trips.firstOrNull { it.id == tripId } }
@@ -248,15 +265,62 @@ class TripMapViewModel(
 
     /** Direkte Bearbeitung im geöffneten Eintrag – kein Dialog mehr. */
     fun updateEntryText(entryId: String, title: String, body: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val entry = repository.observeEntriesForTrip(tripId)
-                .first().firstOrNull { it.id == entryId } ?: return@launch
+        // Nicht mehr pro Tastendruck parallel speichern: der jeweils neueste
+        // Text wird gemerkt und kurz nach der letzten Eingabe geschrieben.
+        // So kann ein älterer Speichervorgang nie den neueren überholen.
+        pendingEntryTexts[entryId] = title to body
+        scheduleTextSave("entry-$entryId") { flushEntryText(entryId) }
+    }
+
+    /** Wartende Texte sofort speichern, z. B. beim Schließen des Detailfensters. */
+    fun flushPendingTexts() {
+        saveScope.launch {
+            pendingEntryTexts.keys.toList().forEach { flushEntryText(it) }
+            pendingCaptions.keys.toList().forEach { flushCaption(it) }
+        }
+    }
+
+    private fun scheduleTextSave(key: String, save: suspend () -> Unit) {
+        synchronized(textSaveJobs) {
+            textSaveJobs[key]?.cancel()
+            textSaveJobs[key] = saveScope.launch {
+                delay(TEXT_SAVE_DELAY_MS)
+                // Einmal begonnen, wird das Speichern nicht mehr abgebrochen.
+                withContext(NonCancellable) { save() }
+            }
+        }
+    }
+
+    private suspend fun flushEntryText(entryId: String): Unit = textWriteLock.withLock {
+        val (title, body) = pendingEntryTexts.remove(entryId) ?: return@withLock
+        val entry = repository.observeEntriesForTrip(tripId)
+            .first().firstOrNull { it.id == entryId } ?: return@withLock
+        if (entry.title != title || entry.body != body) {
             repository.updateEntry(entry.copy(title = title, body = body))
         }
+        Unit
+    }
+
+    private suspend fun flushCaption(photoId: String): Unit = textWriteLock.withLock {
+        val caption = pendingCaptions.remove(photoId) ?: return@withLock
+        val photo = repository.observePhotos(tripId).first()
+            .firstOrNull { it.id == photoId } ?: return@withLock
+        if (photo.caption != caption) repository.updatePhoto(photo.copy(caption = caption))
+        Unit
+    }
+
+    override fun onCleared() {
+        // Die Ansicht wird geschlossen: noch nicht gespeicherten Text sofort
+        // schreiben. saveScope läuft unabhängig vom viewModelScope weiter.
+        flushPendingTexts()
+        super.onCleared()
     }
 
     fun setEntryTime(entryId: String, time: Long?) {
         viewModelScope.launch(Dispatchers.IO) {
+            // Erst den getippten Text sichern, sonst würde die Zeitänderung
+            // den alten Text zurückschreiben.
+            flushEntryText(entryId)
             val entry = repository.observeEntriesForTrip(tripId)
                 .first().firstOrNull { it.id == entryId } ?: return@launch
             repository.updateEntry(entry.copy(entryAt = time, timeFromPhoto = false))
@@ -322,6 +386,7 @@ class TripMapViewModel(
     suspend fun addPhotosToEntry(entryId: String, images: List<ImportedPhoto>) =
         withContext(Dispatchers.IO) {
             if (images.isEmpty()) return@withContext
+            flushEntryText(entryId)
             val entry = repository.observeEntriesForTrip(tripId).first()
                 .firstOrNull { it.id == entryId } ?: return@withContext
             val now = System.currentTimeMillis()
@@ -511,11 +576,8 @@ class TripMapViewModel(
 
     /** Foto-Titel, leer bedeutet „optionales Feld noch nicht ausgefüllt“. */
     fun updatePhotoCaption(photoId: String, caption: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val photo = repository.observePhotos(tripId).first().firstOrNull { it.id == photoId }
-                ?: return@launch
-            repository.updatePhoto(photo.copy(caption = caption))
-        }
+        pendingCaptions[photoId] = caption
+        scheduleTextSave("photo-$photoId") { flushCaption(photoId) }
     }
 
     fun setCoverPhoto(photoId: String) {

@@ -16,6 +16,13 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TripDao {
+    /** Backup-Import: nur einfügen, wenn es die Zeile noch nicht gibt (-1 = schon da). */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfMissing(row: TripEntity): Long
+
+    @Query("SELECT updatedAt FROM trips WHERE id = :id")
+    suspend fun updatedAtOf(id: String): Long?
+
     @Query("SELECT * FROM trips ORDER BY updatedAt DESC")
     fun observeAll(): Flow<List<TripEntity>>
 
@@ -35,6 +42,13 @@ interface TripDao {
 
 @Dao
 interface StopDao {
+    /** Backup-Import: nur einfügen, wenn es die Zeile noch nicht gibt (-1 = schon da). */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfMissing(row: StopEntity): Long
+
+    @Query("SELECT updatedAt FROM stops WHERE id = :id")
+    suspend fun updatedAtOf(id: String): Long?
+
     @Query("SELECT * FROM stops WHERE tripId = :tripId ORDER BY sortIndex ASC")
     fun observeForTrip(tripId: String): Flow<List<StopEntity>>
 
@@ -58,6 +72,10 @@ interface StopDao {
 
 @Dao
 interface WaypointDao {
+    /** Backup-Import: nur einfügen, wenn es die Zeile noch nicht gibt (-1 = schon da). */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfMissing(row: RouteWaypointEntity): Long
+
     @Query("SELECT * FROM route_waypoints WHERE tripId = :tripId ORDER BY sortIndex ASC")
     fun observeForTrip(tripId: String): Flow<List<RouteWaypointEntity>>
 
@@ -76,6 +94,16 @@ interface WaypointDao {
 
 @Dao
 interface SegmentModeDao {
+    /** Backup-Import: nur einfügen, wenn es die Zeile noch nicht gibt (-1 = schon da). */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfMissing(row: RouteSegmentModeEntity): Long
+
+    @Query("SELECT updatedAt FROM route_segment_modes WHERE id = :id")
+    suspend fun updatedAtOf(id: String): Long?
+
+    @Update
+    suspend fun update(mode: RouteSegmentModeEntity)
+
     @Query("SELECT * FROM route_segment_modes WHERE tripId = :tripId")
     fun observeForTrip(tripId: String): Flow<List<RouteSegmentModeEntity>>
 
@@ -91,6 +119,17 @@ interface SegmentModeDao {
 
 @Dao
 interface EntryDao {
+    /** Backup-Import: nur einfügen, wenn es die Zeile noch nicht gibt (-1 = schon da). */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfMissing(row: EntryEntity): Long
+
+    @Query("SELECT updatedAt FROM entries WHERE id = :id")
+    suspend fun updatedAtOf(id: String): Long?
+
+    /** Nur diese Zeile ändern – für den Backup-Import ohne REPLACE. */
+    @Update
+    suspend fun update(entry: EntryEntity)
+
     @Query("SELECT * FROM entries WHERE stopId = :stopId ORDER BY sortIndex ASC")
     fun observeForStop(stopId: String): Flow<List<EntryEntity>>
 
@@ -113,6 +152,10 @@ interface EntryDao {
 
 @Dao
 interface PhotoDao {
+    /** Backup-Import: nur einfügen, wenn es die Zeile noch nicht gibt (-1 = schon da). */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfMissing(row: PhotoEntity): Long
+
     @Query("SELECT * FROM photos WHERE tripId = :tripId ORDER BY sortIndex ASC")
     fun observeForTrip(tripId: String): Flow<List<PhotoEntity>>
 
