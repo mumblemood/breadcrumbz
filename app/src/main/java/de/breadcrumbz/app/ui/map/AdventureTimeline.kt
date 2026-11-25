@@ -99,6 +99,16 @@ private data class TimelinePoint(
     val photoWidthsPx: List<Float> = emptyList(),
 )
 
+/** Klickbereich für einen Reiseabschnitt auf der gezeichneten Zeitleiste. */
+private data class TimelineSegmentHit(
+    val fromStopId: String,
+    val toStopId: String,
+    val left: Float,
+    val right: Float,
+) {
+    val center: Float get() = (left + right) / 2f
+}
+
 private val ink = Color(0xFF3B2B20)
 private val paper = Color(0xFFFBF4E4)
 private val accent = Color(0xFFB8782F)
@@ -199,6 +209,8 @@ fun AdventureTimeline(
     photosByEntry: Map<String, List<String>>,
     onItemClick: (TimelineItem) -> Unit,
     onPhotoClick: (String) -> Unit,
+    /** Tippen auf die Linie öffnet denselben Abschnitts-Dialog wie auf der Karte. */
+    onSegmentClick: (String, String) -> Unit = { _, _ -> },
     /** Das Pin-Symbol öffnet die Pin-Detailansicht – auch bei Einträgen mit Ort. */
     onPinClick: (String) -> Unit = {},
     photoBitmap: (String) -> ImageBitmap?,
@@ -453,6 +465,32 @@ fun AdventureTimeline(
         (points.size - 1).coerceAtLeast(0) * itemGapPx +
         with(density) { 56.dp.toPx() }
     val contentWidth = with(density) { contentWidthPx.toDp() }
+
+    // Die Abschnitte der Karte auf die gezeichnete Zeitleiste abbilden. Ein
+    // markierter Endpin hat keinen eigenen Punkt mehr; dann grenzt der nächste
+    // sichtbare Punkt den Abschnitt ab.
+    val segmentHits = remember(stops, points, startPx, contentWidthPx) {
+        fun xFor(stop: Stop): Float? = points.firstOrNull { point ->
+            point.item?.stopId == stop.id ||
+                (stop.entryId != null && point.entryId == stop.entryId) ||
+                (point.item?.entryId != null && point.item?.entryId == stop.entryId)
+        }?.x
+        val xs = stops.map(::xFor)
+        val leftFallback = startPx + with(density) { 28.dp.toPx() }
+        val rightFallback = contentWidthPx - with(density) { 56.dp.toPx() }
+        val minWidth = with(density) { 8.dp.toPx() }
+        stops.zipWithNext().mapIndexed { index, (from, to) ->
+            val fromX = xs[index] ?: xs.getOrNull(index - 1) ?: leftFallback
+            val toX = xs[index + 1] ?: xs.getOrNull(index + 2) ?: rightFallback
+            val left = minOf(fromX, toX)
+            val right = maxOf(fromX, toX)
+            if (right - left >= minWidth) {
+                TimelineSegmentHit(from.id, to.id, left, right)
+            } else {
+                null
+            }
+        }.filterNotNull()
+    }
     val viewportPx = if (timelineBounds.width > 0f) {
         timelineBounds.width
     } else {
@@ -746,6 +784,33 @@ fun AdventureTimeline(
                         )
                     }
                 }
+
+                // Die Linie selbst ist klickbar, bevor Pins und Karten darüber
+                // liegen. Ein Tap nahe der Spline öffnet denselben Dialog wie
+                // ein Tap auf die Linie der Karte.
+                Box(
+                    modifier = Modifier
+                        .width(contentWidth)
+                        .fillMaxHeight()
+                        .pointerInput(segmentHits, baseY) {
+                            val lineBand = with(density) { 18.dp.toPx() }
+                            detectTapGestures { offset ->
+                                if (abs(offset.y - baseY) > lineBand) return@detectTapGestures
+                                val hit = segmentHits.firstOrNull { segment ->
+                                    offset.x >= segment.left && offset.x <= segment.right
+                                } ?: segmentHits.minByOrNull { segment ->
+                                    abs(offset.x - segment.center)
+                                } ?: return@detectTapGestures
+                                val tolerance = maxOf(
+                                    with(density) { 24.dp.toPx() },
+                                    (hit.right - hit.left) / 2f,
+                                )
+                                if (abs(offset.x - hit.center) <= tolerance + lineBand) {
+                                    onSegmentClick(hit.fromStopId, hit.toStopId)
+                                }
+                            }
+                        },
+                )
 
                 points.forEachIndexed { index, point ->
                     val item = point.item

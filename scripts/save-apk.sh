@@ -2,7 +2,7 @@
 # Legt eine gebaute APK unter „Interner Speicher/mumblemood“ ab.
 # Der Dateiname enthält jetzt immer die Versions-ID (versionCode), damit auch
 # technische Änderungen sichtbar hochgezählt werden:
-# 0.18.0 / code 32 -> Breadcrumbz_v0.18_b32.apk
+# 0.18.0 / code 33 -> Breadcrumbz_v0.18_b33.apk
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)

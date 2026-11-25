@@ -1,7 +1,6 @@
 package de.breadcrumbz.app.ui.trips
 
 import android.Manifest
-import android.graphics.BitmapFactory
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -82,6 +81,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.breadcrumbz.app.R
 import de.breadcrumbz.app.data.photo.ImportedPhoto
+import de.breadcrumbz.app.data.photo.PhotoImporter
 import de.breadcrumbz.app.data.photo.PhotoSourceReader
 import de.breadcrumbz.app.data.route.RoutingService
 import de.breadcrumbz.app.domain.model.Photo
@@ -287,14 +287,13 @@ private fun RouteScrollbar(
 @Composable
 private fun rememberThumbnail(viewModel: TripMapViewModel, fileName: String): ImageBitmap? =
     remember(fileName) {
-        val options = BitmapFactory.Options().apply { inSampleSize = 8 }
-        BitmapFactory.decodeFile(viewModel.photoPath(fileName), options)?.asImageBitmap()
+        PhotoImporter.decode(viewModel.photoPath(fileName), sampleSize = 8)?.asImageBitmap()
     }
 
 @Composable
 private fun rememberFullImage(viewModel: TripMapViewModel, fileName: String): ImageBitmap? =
     remember(fileName) {
-        BitmapFactory.decodeFile(viewModel.photoPath(fileName))?.asImageBitmap()
+        PhotoImporter.decode(viewModel.photoPath(fileName))?.asImageBitmap()
     }
 
 private fun formatDate(time: Long?, withYear: Boolean = false): String {
@@ -1365,6 +1364,10 @@ fun TripMapScreen(
                     entryBodies = allEntries.associate { it.id to it.body },
                     onItemClick = { item -> handleTimelineClick(item) },
                     onPhotoClick = { id -> focusPhoto(id, moveMap = true) },
+                    onSegmentClick = { fromId, toId ->
+                        routeSegments.firstOrNull { it.key == segmentKey(fromId, toId) }
+                            ?.let { segmentDialog = SegmentDialog.Detail(it) }
+                    },
                     photoBitmap = bitmapForPhoto,
                     photoTimes = photoTimes,
                     mapZoom = mapZoom,

@@ -1,7 +1,6 @@
 package de.breadcrumbz.app.ui.map
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -12,6 +11,7 @@ import android.os.Looper
 import android.util.LruCache
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import de.breadcrumbz.app.data.photo.PhotoImporter
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.util.haversineMeters
 import org.osmdroid.util.GeoPoint
@@ -360,8 +360,7 @@ class PolaroidOverlay(
 
     private fun bitmapFor(fileName: String): Bitmap? {
         cache.get(fileName)?.let { return it }
-        val options = BitmapFactory.Options().apply { inSampleSize = 2 }
-        val bitmap = BitmapFactory.decodeFile(filePath(fileName), options) ?: return null
+        val bitmap = PhotoImporter.decode(filePath(fileName), sampleSize = 2) ?: return null
         cache.put(fileName, bitmap)
         return bitmap
     }

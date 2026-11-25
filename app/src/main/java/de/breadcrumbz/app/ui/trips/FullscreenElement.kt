@@ -3,7 +3,6 @@ package de.breadcrumbz.app.ui.trips
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.view.WindowManager
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -66,6 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
+import de.breadcrumbz.app.data.photo.PhotoImporter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -182,7 +182,7 @@ private fun AddPhotoIcon() {
 @Composable
 private fun rememberBigImage(viewModel: TripMapViewModel, fileName: String): ImageBitmap? =
     remember(fileName) {
-        BitmapFactory.decodeFile(viewModel.photoPath(fileName))?.asImageBitmap()
+        PhotoImporter.decode(viewModel.photoPath(fileName))?.asImageBitmap()
     }
 
 private fun dateText(time: Long?): String =

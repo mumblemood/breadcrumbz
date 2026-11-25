@@ -1,6 +1,5 @@
 package de.breadcrumbz.app.ui.trips
 
-import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -51,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import de.breadcrumbz.app.data.photo.PhotoImporter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -406,8 +406,7 @@ private fun TripCard(
     ) {
         // Ein festgelegtes Titelbild liegt nur ganz leicht sichtbar hinter den Feldern.
         val coverBitmap = remember(coverPath) {
-            val options = BitmapFactory.Options().apply { inSampleSize = 4 }
-            coverPath?.let { BitmapFactory.decodeFile(it, options) }?.asImageBitmap()
+            coverPath?.let { PhotoImporter.decode(it, sampleSize = 4) }?.asImageBitmap()
         }
         Box {
             if (coverBitmap != null) {
