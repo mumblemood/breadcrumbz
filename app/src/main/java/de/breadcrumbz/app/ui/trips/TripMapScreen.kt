@@ -169,6 +169,7 @@ private data class ScrollSync(
 /** Ein Abschnitt gehört immer zu genau einem Start-Ziel-Paar. */
 private data class RouteSegment(
     val key: String,
+    val fromStopId: String,
     val arrivalStopId: String,
     val points: List<GeoPoint>,
 )
@@ -678,6 +679,7 @@ fun TripMapScreen(
                 add(
                     RouteSegment(
                         key = segmentKey(from.id, to.id),
+                        fromStopId = from.id,
                         arrivalStopId = to.id,
                         points = buildList {
                             add(GeoPoint(from.latitude, from.longitude))
