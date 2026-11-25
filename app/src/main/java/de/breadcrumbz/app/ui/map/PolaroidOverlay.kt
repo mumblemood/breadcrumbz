@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.os.Handler
 import android.os.Looper
 import android.util.LruCache
@@ -13,12 +14,11 @@ import android.view.MotionEvent
 import android.view.ViewConfiguration
 import de.breadcrumbz.app.data.photo.PhotoImporter
 import de.breadcrumbz.app.domain.model.Photo
-import de.breadcrumbz.app.domain.util.haversineMeters
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Overlay
 import kotlin.math.abs
-import kotlin.math.pow
+import kotlin.math.hypot
 
 /**
  * Foto-Polaroids auf der Karte. Das Bild wird nie verzogen: Der Rahmen passt
@@ -38,7 +38,25 @@ class PolaroidOverlay(
     private val onPhotoLongClick: (String) -> Unit = {},
     /** Markiertes Foto: leichtes Leuchten hinter dem Polaroid. */
     private val highlightPhotoId: String? = null,
+    /** Zoomstufe beim Auffächern: zoomt man deutlich heraus, schließt sich der Stapel wieder. */
+    private val expandedAtZoom: Double = 0.0,
+    /** Pins der Reise. Sie werden hier gezeichnet, gemeinsam mit ihren Fotos. */
+    private val pins: () -> List<MapPin> = { emptyList() },
+    /** Zu welchem Pin gehört ein Foto (direkt oder über seinen Eintrag)? */
+    private val stopIdOf: (Photo) -> String? = { it.stopId },
+    /** Schrift der Bildunterschrift (gleiche Schrift wie in der App). */
+    private val captionTypeface: Typeface? = null,
 ) : Overlay() {
+
+    /** Ein Pin auf der Karte: Ort und fertig skaliertes Symbol. */
+    class MapPin(val stopId: String, val position: GeoPoint, val icon: Drawable?)
+
+    /**
+     * Pin und seine Fotos bilden eine Einheit. Einheiten weiter unten auf dem
+     * Bildschirm liegen vorn – so liegt nie ein fremder Pin über einem Foto,
+     * das vor ihm liegt.
+     */
+    private class PinUnit(val stopId: String?, val pin: MapPin?, val groups: MutableList<Group>)
 
     private var ignoreTapsUntilRelease = false
     private val handler = Handler(Looper.getMainLooper())
@@ -55,24 +73,30 @@ class PolaroidOverlay(
         val longitude: Double,
         /** Platzhalter, wenn ein Stapel vorübergehend einzeln gezeigt wird. */
         val fanIndex: Int = 0,
+        /** Pin, zu dem die meisten Fotos dieses Stapels gehören. */
+        val stopId: String? = null,
     )
 
     private val cache = LruCache<String, Bitmap>(24)
     private val hitAreas = mutableListOf<Triple<RectF, List<String>, String>>()
+    /** Für jeden gezeichneten Pin: wie viele Foto-Flächen lagen zu dem Zeitpunkt schon darunter. */
+    private val pinOrder = mutableMapOf<String, Int>()
 
     /** Damit langes Halten auf einem Polaroid keinen neuen Pin erzeugt. */
     fun isPhotoAt(x: Float, y: Float): Boolean =
         hitAreas.any { it.first.contains(x, y) }
+
+    /** Liegt an dieser Stelle ein Foto über dem Pin? Dann gehört der Tap dem Foto. */
+    fun isPinCoveredAt(stopId: String, x: Float, y: Float): Boolean {
+        val drawnBefore = pinOrder[stopId] ?: return false
+        return hitAreas.drop(drawnBefore).any { it.first.contains(x, y) }
+    }
 
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#55FFE08A")
     }
     private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#FBF4E4")
-    }
-    // Halbdurchsichtiges Klebeband auf der vorderen Ecke.
-    private val tapePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#D9D6BE8C")
     }
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#55000000")
@@ -95,7 +119,7 @@ class PolaroidOverlay(
     private val captionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#3B2B20")
         textAlign = Paint.Align.CENTER
-        typeface = Typeface.create("cursive", Typeface.NORMAL)
+        typeface = captionTypeface ?: Typeface.DEFAULT
     }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
@@ -116,11 +140,68 @@ class PolaroidOverlay(
         borderPaint.strokeWidth = 2f * scale
         pinPaint.strokeWidth = 3f * scale
         badgeTextPaint.textSize = 34f * zoomFactor
-        captionPaint.textSize = 28f * zoomFactor
+        captionPaint.textSize = 36f * zoomFactor
 
         val projection = mapView.projection
-        groups(mapView.zoomLevelDouble).forEach { group ->
-            val bitmap = bitmapFor(group.representative.fileName) ?: return@forEach
+        pinOrder.clear()
+
+        // Fotos und Pins zu Einheiten zusammenfassen (Pin + seine Fotos).
+        val pinList = pins()
+        val units = linkedMapOf<String, PinUnit>()
+        pinList.forEach { pin -> units[pin.stopId] = PinUnit(pin.stopId, pin, mutableListOf()) }
+        groups(mapView).forEach { group ->
+            val stopId = group.stopId
+            val unit = stopId?.let { units[it] }
+            if (unit != null) {
+                unit.groups.add(group)
+            } else {
+                units["photo-" + group.representative.id] = PinUnit(null, null, mutableListOf(group))
+            }
+        }
+        fun anchorY(unit: PinUnit): Float {
+            unit.pin?.let { return projection.toPixels(it.position, null).y.toFloat() }
+            return unit.groups.maxOf {
+                projection.toPixels(GeoPoint(it.latitude, it.longitude), null).y.toFloat()
+            }
+        }
+        units.values.sortedBy { anchorY(it) }.forEach { unit ->
+            unit.groups.forEach { group ->
+                drawGroup(
+                    canvas, projection, group, zoomFactor, scale, imageWidth, padding,
+                    captionHeight, shadowOffset, needleLength,
+                )
+            }
+            unit.pin?.let { pin ->
+                val icon = pin.icon ?: return@let
+                val point = projection.toPixels(pin.position, null)
+                val width = icon.bounds.width().takeIf { it > 0 } ?: icon.intrinsicWidth
+                val height = icon.bounds.height().takeIf { it > 0 } ?: icon.intrinsicHeight
+                // Spitze unten mittig auf dem Ort – wie vorher beim Marker.
+                icon.setBounds(
+                    point.x - width / 2, point.y - height,
+                    point.x - width / 2 + width, point.y,
+                )
+                icon.draw(canvas)
+                icon.setBounds(0, 0, width, height)
+                pinOrder[pin.stopId] = hitAreas.size
+            }
+        }
+    }
+
+    private fun drawGroup(
+        canvas: Canvas,
+        projection: org.osmdroid.views.Projection,
+        group: Group,
+        zoomFactor: Float,
+        scale: Float,
+        imageWidth: Float,
+        padding: Float,
+        captionHeight: Float,
+        shadowOffset: Float,
+        needleLength: Float,
+    ) {
+        run {
+            val bitmap = bitmapFor(group.representative.fileName) ?: return
             val ratio = bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1)
             val naturalHeight = imageWidth / ratio.coerceAtLeast(0.01f)
             // Rahmen passt sich an: Breite wird proportional mitgezogen, nie verzerrt.
@@ -215,22 +296,6 @@ class PolaroidOverlay(
                 null,
             )
             canvas.drawRect(rect, borderPaint)
-            // Klebeband schräg über der linken oberen Ecke. Die Mitte des
-            // oberen Rands bleibt frei für die Nadel.
-            val tapeX = rect.left + padding * 1.2f
-            val tapeY = rect.top + padding * 1.2f
-            val tapeHalfWidth = cardWidth * 0.16f
-            val tapeHalfHeight = 4.5f * scale
-            canvas.save()
-            canvas.rotate(-38f, tapeX, tapeY)
-            canvas.drawRect(
-                tapeX - tapeHalfWidth,
-                tapeY - tapeHalfHeight,
-                tapeX + tapeHalfWidth,
-                tapeY + tapeHalfHeight,
-                tapePaint,
-            )
-            canvas.restore()
             val title = group.representative.caption.take(12)
             if (title.isNotBlank()) {
                 canvas.drawText(title, 0f, rect.bottom - 14f * zoomFactor, captionPaint)
@@ -278,7 +343,7 @@ class PolaroidOverlay(
                     downX = event.x
                     downY = event.y
                     tapMoved = false
-                    val hit = hitAreas.firstOrNull { it.first.contains(event.x, event.y) }
+                    val hit = hitAreas.lastOrNull { it.first.contains(event.x, event.y) }
                     if (hit != null) {
                         val photoId = hit.third
                         longPress = Runnable {
@@ -311,7 +376,7 @@ class PolaroidOverlay(
                 ignoreTapsUntilRelease = false
                 tapMoved = false
                 if (blocked) return false
-                val hit = hitAreas.firstOrNull { it.first.contains(event.x, event.y) }
+                val hit = hitAreas.lastOrNull { it.first.contains(event.x, event.y) }
                 if (hit != null) {
                     onPhotoClick(hit.second)
                     return true
@@ -327,28 +392,45 @@ class PolaroidOverlay(
     }
 
     /**
-     * Stapel entstehen nach der Entfernung der Originalorte, nicht nach dem Pin.
-     * Beim Rauszoomen wächst der Abstand, bis zu dem Fotos zusammenwandern.
+     * Stapel entstehen nach dem Abstand auf dem Bildschirm: Liegen zwei
+     * Polaroids so nah, dass sie sich deutlich überdecken würden, wandern sie
+     * auf einen Stapel. Beim Rauszoomen rücken die Orte zusammen und es
+     * entstehen Stapel, beim Reinzoomen fallen sie von selbst wieder
+     * auseinander. Ein angetippter Stapel bleibt aufgefächert, bis man
+     * deutlich herauszoomt.
      */
-    private fun groups(zoom: Double): List<Group> {
-        val thresholdMeters = 25.0 * 2.0.pow((14.0 - zoom).coerceIn(0.0, 7.0))
+    private fun groups(mapView: MapView): List<Group> {
+        val zoom = mapView.zoomLevelDouble
+        val projection = mapView.projection
+        val zoomFactor = (1.0 + (zoom - 14.0) * 0.075).coerceIn(0.8, 1.3).toFloat()
+        // Etwas mehr als die halbe Polaroidbreite: so überdecken sich
+        // nebeneinanderliegende Bilder höchstens leicht.
+        val thresholdPx = 88f * 5f * zoomFactor * 0.6f
+        val expanded = if (expandedPhotoIds.isNotEmpty() && zoom >= expandedAtZoom - 0.75) {
+            expandedPhotoIds
+        } else {
+            emptySet()
+        }
         val placed = photos.filter { it.latitude != null && it.longitude != null }
             .sortedBy { it.capturedAt ?: Long.MAX_VALUE }
+        val screen = placed.associate { photo ->
+            val point = projection.toPixels(GeoPoint(photo.latitude!!, photo.longitude!!), null)
+            photo.id to (point.x.toFloat() to point.y.toFloat())
+        }
         val buckets = mutableListOf<MutableList<Photo>>()
 
         placed.forEach { photo ->
             // Aufgelöster Stapel: jedes Bild bekommt einen eigenen Platz.
-            if (photo.id in expandedPhotoIds) {
+            if (photo.id in expanded) {
                 buckets.add(mutableListOf(photo))
                 return@forEach
             }
+            val (x, y) = screen.getValue(photo.id)
             val neighbour = buckets.firstOrNull { bucket ->
-                bucket.none { it.id in expandedPhotoIds } &&
+                bucket.none { it.id in expanded } &&
                     bucket.any { other ->
-                        haversineMeters(
-                            photo.latitude!!, photo.longitude!!,
-                            other.latitude!!, other.longitude!!,
-                        ) <= thresholdMeters
+                        val (ox, oy) = screen.getValue(other.id)
+                        hypot(x - ox, y - oy) <= thresholdPx
                     }
             }
             if (neighbour != null) neighbour.add(photo) else buckets.add(mutableListOf(photo))
@@ -363,17 +445,21 @@ class PolaroidOverlay(
             } else {
                 sorted
             }
-            val fanIndex = if (items.size == 1 && items.first().id in expandedPhotoIds) {
-                expandedPhotoIds.toList().indexOf(items.first().id) + 1
+            val fanIndex = if (items.size == 1 && items.first().id in expanded) {
+                expanded.toList().indexOf(items.first().id) + 1
             } else {
                 0
             }
+            val stopId = items.mapNotNull(stopIdOf)
+                .groupingBy { it }.eachCount()
+                .maxByOrNull { it.value }?.key
             Group(
                 ids = ordered.map { it.id },
                 representative = ordered.last(),
                 latitude = sorted.mapNotNull { it.latitude }.average(),
                 longitude = sorted.mapNotNull { it.longitude }.average(),
                 fanIndex = fanIndex,
+                stopId = stopId,
             )
         }.sortedBy { it.representative.capturedAt ?: Long.MAX_VALUE }
     }

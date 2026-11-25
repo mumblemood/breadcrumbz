@@ -96,10 +96,10 @@ import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.state.TripMapViewModel
 import de.breadcrumbz.app.ui.map.PlacePinIcon
+import de.breadcrumbz.app.ui.theme.BodyFont
 import de.breadcrumbz.app.ui.theme.HandFont
 import de.breadcrumbz.app.ui.theme.PaperAlertDialog
 import de.breadcrumbz.app.ui.theme.PolaroidWhite
-import de.breadcrumbz.app.ui.theme.Tape
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -941,10 +941,11 @@ fun FullscreenElement(
                                     val placeIsAuto = entry.placeFromPhoto && entry.stopId != null
                                     // Tagebuch-Schrift auf linierter Seite;
                                     // Bindung und Register kommen direkt darunter.
+                                    // Text in Nunito, Titel in Handschrift – wie überall.
                                     val diaryStyle = MaterialTheme.typography.bodyLarge.copy(
                                         color = ink,
-                                        fontFamily = comic,
-                                        fontSize = 21.sp,
+                                        fontFamily = BodyFont,
+                                        fontSize = 17.sp,
                                         lineHeight = 28.sp,
                                     )
 
@@ -1010,6 +1011,7 @@ fun FullscreenElement(
                                             },
                                             singleLine = true,
                                             textStyle = diaryStyle.copy(
+                                                fontFamily = comic,
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 30.sp,
                                                 lineHeight = 34.sp,
@@ -1022,6 +1024,7 @@ fun FullscreenElement(
                                                         color = ink.copy(alpha = 0.45f),
                                                         fontStyle = FontStyle.Italic,
                                                         style = diaryStyle.copy(
+                                                            fontFamily = comic,
                                                             fontWeight = FontWeight.Bold,
                                                             fontSize = 30.sp,
                                                             lineHeight = 34.sp,
@@ -1181,13 +1184,6 @@ fun FullscreenElement(
                                                                 )
                                                             }
                                                         }
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .align(Alignment.TopCenter)
-                                                                .offset(y = (-10).dp)
-                                                                .size(width = 34.dp, height = 12.dp)
-                                                                .background(Tape),
-                                                        )
                                                     }
                                                 }
                                             }
