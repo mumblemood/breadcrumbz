@@ -21,7 +21,15 @@ class SettingsStore(context: Context) {
         _onlineRouting.value = enabled
     }
 
+    /** Name, mit dem verschickte Reisen beim Empfänger angezeigt werden. */
+    var senderName: String
+        get() = prefs.getString(KEY_SENDER_NAME, "").orEmpty()
+        set(value) {
+            prefs.edit().putString(KEY_SENDER_NAME, value.trim()).apply()
+        }
+
     private companion object {
         const val KEY_ONLINE_ROUTING = "online_routing"
+        const val KEY_SENDER_NAME = "sender_name"
     }
 }

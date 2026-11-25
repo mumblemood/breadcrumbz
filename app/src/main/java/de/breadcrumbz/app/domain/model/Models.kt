@@ -25,6 +25,11 @@ data class Trip(
     val titleIsAuto: Boolean = false,
     val createdAt: Long,
     val updatedAt: Long,
+    /** Von jemand anderem empfangen: nur ansehen, Fotos nicht exportierbar. */
+    val isReceived: Boolean = false,
+    /** Name des Absenders (kann leer sein). */
+    val receivedFrom: String? = null,
+    val receivedAt: Long? = null,
 )
 
 data class Stop(

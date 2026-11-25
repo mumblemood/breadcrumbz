@@ -38,6 +38,19 @@ interface TripDao {
 
     @Query("DELETE FROM trips WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    /** null = Reise gibt es nicht. */
+    @Query("SELECT isReceived FROM trips WHERE id = :id")
+    suspend fun isReceived(id: String): Boolean?
+
+    @Query("SELECT id FROM trips WHERE isReceived = 1")
+    suspend fun receivedIds(): List<String>
+
+    @Query("SELECT * FROM trips WHERE id = :id")
+    suspend fun findById(id: String): TripEntity?
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insert(trip: TripEntity)
 }
 
 @Dao
@@ -170,6 +183,9 @@ interface PhotoDao {
 
     @Query("DELETE FROM photos WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("SELECT fileName FROM photos WHERE tripId = :tripId")
+    suspend fun fileNamesForTrip(tripId: String): List<String>
 
     @Query("SELECT COALESCE(MAX(sortIndex), -1) + 1 FROM photos WHERE tripId = :tripId")
     suspend fun nextSortIndex(tripId: String): Int

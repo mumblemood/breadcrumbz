@@ -55,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.breadcrumbz.app.R
 import de.breadcrumbz.app.data.backup.BackupManager
 import de.breadcrumbz.app.data.settings.SettingsStore
+import de.breadcrumbz.app.data.share.TripShareManager
 import de.breadcrumbz.app.domain.model.TransportMode
 import de.breadcrumbz.app.domain.model.Trip
 import de.breadcrumbz.app.state.TripsViewModel
@@ -78,6 +79,7 @@ private fun formatDate(value: Long?): String = value?.let {
 fun TripsScreen(
     viewModel: TripsViewModel,
     backupManager: BackupManager,
+    shareManager: TripShareManager,
     onOpenTrip: (String) -> Unit,
     onRefreshPlaces: () -> Unit,
     settingsStore: SettingsStore,
@@ -125,6 +127,14 @@ fun TripsScreen(
             }
         }
     }
+
+    // Empfangene Reise öffnen, sobald sie da ist.
+    val startReceive = rememberReceiveTrip(shareManager) { result ->
+        result?.let { onOpenTrip(it.tripId) }
+    }
+
+    // Titelbilder empfangener Reisen: keine Bildschirmfotos der Liste.
+    SecureScreen(enabled = overviews.any { it.trip.isReceived && it.coverPhoto != null })
 
     fun openEditor(trip: Trip) {
         editingId = trip.id
@@ -195,6 +205,13 @@ fun TripsScreen(
                                     importLauncher.launch(
                                         arrayOf("application/zip", "application/octet-stream"),
                                     )
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Reise empfangen") },
+                                onClick = {
+                                    menuExpanded = false
+                                    startReceive()
                                 },
                             )
                             DropdownMenuItem(
@@ -307,10 +324,17 @@ fun TripsScreen(
     if (showEditor) {
         PaperAlertDialog(
             onDismissRequest = { showEditor = false },
-            title = { Text("Reise bearbeiten") },
+            title = { Text(if (editingTrip?.isReceived == true) "Empfangene Reise" else "Reise bearbeiten") },
             text = {
                 Column {
-                    OutlinedTextField(
+                    if (editingTrip?.isReceived == true) {
+                        val from = editingTrip.receivedFrom?.let { "von $it " }.orEmpty()
+                        Text(
+                            "„${editingTrip.title}“ wurde ${from}empfangen. Du kannst sie " +
+                                "ansehen, aber nicht ändern oder weiterschicken. Schickt dir " +
+                                "der Absender eine neue Fassung, ersetzt sie diese hier.",
+                        )
+                    } else OutlinedTextField(
                         value = titleInput,
                         onValueChange = { titleInput = it },
                         label = { Text("Titel") },
@@ -348,24 +372,28 @@ fun TripsScreen(
                 }
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.saveTrip(
-                            id = editingId,
-                            title = titleInput,
-                            // Nicht angezeigte Felder unverändert weitergeben.
-                            description = editingTrip?.description.orEmpty(),
-                            // Zeitraum bleibt automatisch und wird nicht angefasst.
-                            startDate = editingTrip?.startDate,
-                            endDate = editingTrip?.endDate,
-                            transportMode = editingTrip?.defaultTransportMode
-                                ?: TransportMode.CAR,
-                        )
-                        showEditor = false
-                    },
-                    enabled = titleInput.isNotBlank(),
-                ) {
-                    Text("Speichern")
+                if (editingTrip?.isReceived == true) {
+                    TextButton(onClick = { showEditor = false }) { Text("Schließen") }
+                } else {
+                    TextButton(
+                        onClick = {
+                            viewModel.saveTrip(
+                                id = editingId,
+                                title = titleInput,
+                                // Nicht angezeigte Felder unverändert weitergeben.
+                                description = editingTrip?.description.orEmpty(),
+                                // Zeitraum bleibt automatisch und wird nicht angefasst.
+                                startDate = editingTrip?.startDate,
+                                endDate = editingTrip?.endDate,
+                                transportMode = editingTrip?.defaultTransportMode
+                                    ?: TransportMode.CAR,
+                            )
+                            showEditor = false
+                        },
+                        enabled = titleInput.isNotBlank(),
+                    ) {
+                        Text("Speichern")
+                    }
                 }
             },
             dismissButton = {

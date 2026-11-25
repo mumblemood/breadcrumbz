@@ -211,6 +211,20 @@ fun TripMapCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                if (overview.trip.isReceived) {
+                    // Empfangene Reise: kleines rotes Siegel-Etikett.
+                    Text(
+                        text = "✉ empfangen" +
+                            overview.trip.receivedFrom?.let { " von $it" }.orEmpty() +
+                            " · nur ansehen",
+                        color = SealRed,
+                        fontFamily = BodyFont,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             if (overview.distanceKm >= 0.1) {
                 Spacer(Modifier.width(10.dp))

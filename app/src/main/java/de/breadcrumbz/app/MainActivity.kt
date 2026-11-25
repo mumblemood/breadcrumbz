@@ -50,6 +50,7 @@ class MainActivity : ComponentActivity() {
                         TripsScreen(
                             viewModel = tripsViewModel,
                             backupManager = container.backupManager,
+                            shareManager = container.shareManager,
                             onOpenTrip = { openTripId = it },
                             onRefreshPlaces = { container.refreshPlaceNamesNow() },
                             settingsStore = container.settingsStore,
@@ -71,6 +72,8 @@ class MainActivity : ComponentActivity() {
                         TripMapScreen(
                             viewModel = mapViewModel,
                             routingService = container.routingService,
+                            shareManager = container.shareManager,
+                            settingsStore = container.settingsStore,
                             onBack = { openTripId = null },
                         )
                     }

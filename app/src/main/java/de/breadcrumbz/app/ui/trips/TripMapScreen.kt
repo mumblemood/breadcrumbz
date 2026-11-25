@@ -90,6 +90,8 @@ import de.breadcrumbz.app.data.photo.ImportedPhoto
 import de.breadcrumbz.app.data.photo.PhotoImporter
 import de.breadcrumbz.app.data.photo.PhotoSourceReader
 import de.breadcrumbz.app.data.route.RoutingService
+import de.breadcrumbz.app.data.settings.SettingsStore
+import de.breadcrumbz.app.data.share.TripShareManager
 import de.breadcrumbz.app.domain.model.Photo
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TimelineItem
@@ -399,10 +401,16 @@ private data class ItemView(val center: GeoPoint, val zoom: Double)
 fun TripMapScreen(
     viewModel: TripMapViewModel,
     routingService: RoutingService,
+    shareManager: TripShareManager,
+    settingsStore: SettingsStore,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val trip by viewModel.trip.collectAsStateWithLifecycle()
+    // Empfangene Reise: nur ansehen, keine Bildschirmfotos.
+    val readOnly = trip?.isReceived == true
+    SecureScreen(enabled = readOnly)
+    var shareDialogOpen by remember { mutableStateOf(false) }
     val stops by viewModel.stops.collectAsStateWithLifecycle()
     val photos by viewModel.photos.collectAsStateWithLifecycle()
     val entries by viewModel.entries.collectAsStateWithLifecycle()
@@ -634,6 +642,7 @@ fun TripMapScreen(
     }
 
     fun startGalleryPick() {
+        if (readOnly) return
         val permissions = buildList {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.READ_MEDIA_IMAGES)
@@ -652,6 +661,7 @@ fun TripMapScreen(
     }
 
     fun openNewEntry(stopId: String? = null) {
+        if (readOnly) return
         scope.launch {
             // Über „+“ ohne Pin: nur behalten, wenn etwas eingetragen wird.
             val entry = if (stopId == null) {
@@ -769,7 +779,7 @@ fun TripMapScreen(
     }
     val polaroidOverlay = remember(
         placedPhotos, viewModel, frontPhotoId, stackPhotoIds, highlightedPhotoId,
-        entryStopIds, captionTypeface,
+        entryStopIds, captionTypeface, readOnly,
     ) {
         PolaroidOverlay(
             photos = placedPhotos,
@@ -784,7 +794,7 @@ fun TripMapScreen(
             },
             frontPhotoId = frontPhotoId,
             expandedPhotoIds = stackPhotoIds.toSet(),
-            onPhotoLongClick = { id -> photoToDelete = id },
+            onPhotoLongClick = { id -> if (!readOnly) photoToDelete = id },
             highlightPhotoId = highlightedPhotoId,
             expandedAtZoom = mapView.zoomLevelDouble,
             // Pins werden mit ihren Fotos gezeichnet: kein Pin liegt über
@@ -962,7 +972,7 @@ fun TripMapScreen(
                     distanceToPolylineMeters(clicked, points)
                 }?.first
                 val nearest = routeSegments.firstOrNull { it.key == nearestKey }
-                segmentDialog = nearest?.let { SegmentDialog.Detail(it) }
+                if (!readOnly) segmentDialog = nearest?.let { SegmentDialog.Detail(it) }
             },
         )
     }
@@ -993,12 +1003,13 @@ fun TripMapScreen(
         )
     }
 
-    val pinOverlay = remember(stops, activeStopId, polaroidOverlay, routeEditOverlay) {
+    val pinOverlay = remember(stops, activeStopId, polaroidOverlay, routeEditOverlay, readOnly) {
         PinInteractionOverlay(
             markers = markers,
             stops = stops,
             selectedStopId = activeStopId,
-            allowCreate = true,
+            allowCreate = !readOnly,
+            allowMove = !readOnly,
             onTap = { id ->
                 viewModel.selectStop(id)
                 fullscreenKey = "stop-$id"
@@ -1332,7 +1343,7 @@ fun TripMapScreen(
                             } else {
                                 FontStyle.Normal
                             },
-                            modifier = Modifier.clickable {
+                            modifier = Modifier.clickable(enabled = !readOnly) {
                                 titleDraft = trip?.title.orEmpty()
                                 editingTitle = true
                             },
@@ -1365,6 +1376,26 @@ fun TripMapScreen(
                             expanded = tripMenuExpanded,
                             onDismissRequest = { tripMenuExpanded = false },
                         ) {
+                          if (readOnly) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Empfangen" +
+                                            trip?.receivedFrom?.let { " von $it" }.orEmpty() +
+                                            " – nur ansehen",
+                                    )
+                                },
+                                enabled = false,
+                                onClick = {},
+                            )
+                          } else {
+                            DropdownMenuItem(
+                                text = { Text("Reise verschicken …") },
+                                onClick = {
+                                    tripMenuExpanded = false
+                                    shareDialogOpen = true
+                                },
+                            )
                             DropdownMenuItem(
                                 text = {
                                     Text(
@@ -1426,6 +1457,7 @@ fun TripMapScreen(
                                     defaultModePickerOpen = true
                                 },
                             )
+                          }
                         }
                     }
                 },
@@ -1517,7 +1549,8 @@ fun TripMapScreen(
                             markers[stop.id] = marker
                         }
                         view.overlays.add(pinOverlay)
-                        view.overlays.add(routeEditOverlay)
+                        // Empfangene Reise: keine Griffe zum Verbiegen der Linie.
+                        if (!readOnly) view.overlays.add(routeEditOverlay)
                         view.invalidate()
                     },
                 )
@@ -1630,7 +1663,7 @@ fun TripMapScreen(
                 }
 
                 // Neuer Eintrag immer unten rechts, unabhängig vom gewählten Pin.
-                FloatingActionButton(
+                if (!readOnly) FloatingActionButton(
                     onClick = { openNewEntry() },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -1696,6 +1729,7 @@ fun TripMapScreen(
                     onPhotoClick = { id -> focusPhoto(id, moveMap = true) },
                     onSegmentClick = { fromId, toId ->
                         routeSegments.firstOrNull { it.key == segmentKey(fromId, toId) }
+                            ?.takeIf { !readOnly }
                             ?.let { segmentDialog = SegmentDialog.Detail(it) }
                     },
                     photoBitmap = bitmapForPhoto,
@@ -2062,6 +2096,18 @@ fun TripMapScreen(
             },
             onAddEntry = { stopId -> openNewEntry(stopId) },
             onAdoptPhotoLocation = { id -> viewModel.adoptPhotoLocation(id) },
+            readOnly = readOnly,
+        )
+    }
+
+    val shareTrip = trip
+    if (shareDialogOpen && shareTrip != null && !readOnly) {
+        ShareTripDialog(
+            tripId = shareTrip.id,
+            tripTitle = shareTrip.title,
+            shareManager = shareManager,
+            settingsStore = settingsStore,
+            onDismiss = { shareDialogOpen = false },
         )
     }
 }

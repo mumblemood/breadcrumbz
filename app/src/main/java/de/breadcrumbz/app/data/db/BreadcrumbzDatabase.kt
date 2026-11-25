@@ -24,7 +24,7 @@ import java.util.UUID
         RouteWaypointEntity::class,
         RouteSegmentModeEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 abstract class BreadcrumbzDatabase : RoomDatabase() {
@@ -375,5 +375,17 @@ val MIGRATION_12_13 = object : Migration(12, 13) {
             // defer_foreign_keys gilt nur für diese Transaktion und wird beim
             // Commit automatisch zurückgesetzt.
         }
+    }
+}
+
+/**
+ * v14: Empfangene Reisen werden markiert. Nur neue Spalten mit Standardwert –
+ * alle vorhandenen Reisen bleiben unverändert und gelten als eigene Reisen.
+ */
+val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `trips` ADD COLUMN `isReceived` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `trips` ADD COLUMN `receivedFrom` TEXT")
+        db.execSQL("ALTER TABLE `trips` ADD COLUMN `receivedAt` INTEGER")
     }
 }

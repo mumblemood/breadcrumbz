@@ -28,6 +28,9 @@ fun TripEntity.toDomain() = Trip(
     titleIsAuto = titleIsAuto,
     createdAt = createdAt,
     updatedAt = updatedAt,
+    isReceived = isReceived,
+    receivedFrom = receivedFrom,
+    receivedAt = receivedAt,
 )
 
 fun Trip.toEntity() = TripEntity(
@@ -43,6 +46,9 @@ fun Trip.toEntity() = TripEntity(
     titleIsAuto = titleIsAuto,
     createdAt = createdAt,
     updatedAt = updatedAt,
+    isReceived = isReceived,
+    receivedFrom = receivedFrom,
+    receivedAt = receivedAt,
 )
 
 fun StopEntity.toDomain() = Stop(

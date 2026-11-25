@@ -31,6 +31,8 @@ class PinInteractionOverlay(
     private val ignoreLongPress: (Float, Float) -> Boolean = { _, _ -> false },
     /** Pin liegt an dieser Stelle unter einem Foto – dann gehört der Tap dem Foto. */
     private val isPinHidden: (String, Float, Float) -> Boolean = { _, _, _ -> false },
+    /** false = Pins lassen sich nicht verschieben (empfangene Reise). */
+    private val allowMove: Boolean = true,
 ) : Overlay() {
 
     private val handler = Handler(Looper.getMainLooper())
@@ -100,7 +102,7 @@ class PinInteractionOverlay(
                 if (hit != null) {
                     candidateStopId = hit.id
                     // Nur der bereits ausgewählte Pin darf durch Halten losgelöst werden.
-                    if (hit.id == selectedStopId &&
+                    if (allowMove && hit.id == selectedStopId &&
                         !ignoreLongPress(event.x, event.y)
                     ) {
                         pendingStopId = hit.id
