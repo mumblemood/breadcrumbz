@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -44,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -234,7 +237,6 @@ fun TripsScreen(
                             coverPath = coverPath,
                             onOpen = { onOpenTrip(overview.trip.id) },
                             onEdit = { openEditor(overview.trip) },
-                            onDelete = { deleteCandidate = overview.trip },
                         )
                     }
                 }
@@ -307,6 +309,28 @@ fun TripsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Spacer(Modifier.height(8.dp))
+                    // Löschen nur hier als Symbol – nicht mehr auf der Reise-Karte.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(
+                            onClick = {
+                                editingTrip?.let {
+                                    deleteCandidate = it
+                                    showEditor = false
+                                }
+                            },
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Reise löschen",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -367,7 +391,6 @@ private fun TripCard(
     coverPath: String?,
     onOpen: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit,
 ) {
     Card(
         modifier = Modifier
@@ -418,8 +441,6 @@ private fun TripCard(
                     text = headline,
                     style = MaterialTheme.typography.titleLarge,
                 )
-                Spacer(Modifier.height(12.dp))
-                TextButton(onClick = onDelete) { Text("Löschen") }
             }
         }
     }

@@ -257,7 +257,9 @@ object RouteStyling {
             val p0 = source[(index - 1).coerceAtLeast(0)]
             val p1 = source[index]
             val p2 = source[index + 1]
-            val p3 = source[index + 2.coerceAtMost(source.lastIndex)]
+            // Klammer wichtig: erst index+2 berechnen, dann begrenzen.
+            // Sonst greift die letzte Runde über das Listenende hinaus.
+            val p3 = source[(index + 2).coerceAtMost(source.lastIndex)]
             for (step in 0 until 12) {
                 val t = step / 12f
                 val t2 = t * t

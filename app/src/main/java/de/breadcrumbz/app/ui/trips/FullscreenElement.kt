@@ -23,10 +23,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -129,6 +131,58 @@ private fun InkTextButton(
         colors = ButtonDefaults.textButtonColors(contentColor = ink),
         content = content,
     )
+}
+
+/** Kleines Polaroid mit überlappendem Plus – Taste für neue Fotos im Eintrag. */
+@Composable
+private fun AddPhotoIcon() {
+    Box(
+        modifier = Modifier.size(32.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        // Weißer Papierrand, leicht gedreht, mit Bildausschnitt und schmalem Streifen.
+        Box(
+            modifier = Modifier
+                .size(width = 23.dp, height = 27.dp)
+                .graphicsLayer(rotationZ = -9f)
+                .background(paper, RoundedCornerShape(2.dp))
+                .border(1.dp, pageEdge, RoundedCornerShape(2.dp))
+                .padding(3.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(16.dp)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(ink.copy(alpha = 0.6f)),
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .background(pageEdge),
+            )
+        }
+        // Das Plus liegt oben rechts ein Stück über dem Polaroid.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = 3.dp, y = (-3).dp)
+                .size(16.dp)
+                .clip(CircleShape)
+                .background(frame)
+                .border(1.dp, ink, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Default.Add,
+                contentDescription = "Fotos hinzufügen",
+                tint = ink,
+                modifier = Modifier.size(12.dp),
+            )
+        }
+    }
 }
 
 @Composable
@@ -884,11 +938,7 @@ fun FullscreenElement(
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             IconButton(onClick = { onAddPhotos(entry.id) }) {
-                                                Icon(
-                                                    Icons.Default.Add,
-                                                    contentDescription = "Fotos hinzufügen",
-                                                    tint = ink,
-                                                )
+                                                AddPhotoIcon()
                                             }
                                             IconButton(onClick = {
                                                 viewModel.deleteEntry(entry.id)
