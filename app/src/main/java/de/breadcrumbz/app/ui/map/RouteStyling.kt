@@ -46,6 +46,8 @@ object RouteStyling {
         /** Selbst gesetzte Punkte pro Abschnitt – auch offline sichtbar. */
         waypoints: Map<String, List<GeoPoint>> = emptyMap(),
         onLineClick: (GeoPoint) -> Unit = {},
+        /** Hier landen die Punkte aller Flug-Abschnitte (für das mitfliegende Flugzeug). */
+        planePaths: MutableList<List<GeoPoint>>? = null,
     ): List<Polyline> {
         // Die Reihenfolge kommt chronologisch aus der Reise (Foto-Zeitstempel).
         // Der Aufruf sortiert die Stops vor; hier darf nichts mehr umsortiert werden.
@@ -98,8 +100,12 @@ object RouteStyling {
                 } else {
                     smooth(raw)
                 }
-                add(underLine(mapView, points))
-                add(topLine(mapView, points) { _, _, point ->
+                if (mode == TransportMode.PLANE) planePaths?.add(points)
+                // An- und Abreise sind nur Rahmen der Reise: dünner und blasser.
+                val subtle = (index == 1 && from.isArrivalDeparture) ||
+                    (index == ordered.lastIndex && to.isArrivalDeparture)
+                add(underLine(mapView, points, subtle))
+                add(topLine(mapView, points, subtle) { _, _, point ->
                     onLineClick(point ?: GeoPoint(to.latitude, to.longitude))
                     true
                 })
@@ -107,16 +113,37 @@ object RouteStyling {
         }
     }
 
-    private fun underLine(mapView: MapView, points: List<GeoPoint>): Polyline =
-        line(mapView, points, UNDER_COLOR, UNDER_WIDTH, dashed = false).apply {
-            infoWindow = null
-        }
+    /** Blasse, dünne Variante für An- und Abreise. */
+    val SUBTLE_LINE_COLOR = 0x803B2B20.toInt()
+    val SUBTLE_UNDER_COLOR = 0x99FFFFFF.toInt()
+    const val SUBTLE_LINE_WIDTH = 6f
+    const val SUBTLE_UNDER_WIDTH = 12f
+
+    private fun underLine(
+        mapView: MapView,
+        points: List<GeoPoint>,
+        subtle: Boolean = false,
+    ): Polyline = line(
+        mapView, points,
+        if (subtle) SUBTLE_UNDER_COLOR else UNDER_COLOR,
+        if (subtle) SUBTLE_UNDER_WIDTH else UNDER_WIDTH,
+        dashed = false,
+    ).apply {
+        infoWindow = null
+    }
 
     private fun topLine(
         mapView: MapView,
         points: List<GeoPoint>,
+        subtle: Boolean = false,
         onClick: Polyline.OnClickListener,
-    ): Polyline = line(mapView, points, LINE_COLOR, LINE_WIDTH, dashed = true).apply {
+    ): Polyline = line(
+        mapView, points,
+        if (subtle) SUBTLE_LINE_COLOR else LINE_COLOR,
+        if (subtle) SUBTLE_LINE_WIDTH else LINE_WIDTH,
+        dashed = true,
+        dashScale = if (subtle) 0.5f else 1f,
+    ).apply {
         // Keine Sprechblase: ein Tippen öffnet die Verkehrsmittel-Auswahl.
         infoWindow = null
         setOnClickListener(onClick)
@@ -128,6 +155,7 @@ object RouteStyling {
         color: Int,
         width: Float,
         dashed: Boolean,
+        dashScale: Float = 1f,
     ): Polyline = Polyline(mapView).apply {
         setPoints(points)
         this.color = color
@@ -135,7 +163,7 @@ object RouteStyling {
         val density = mapView.resources.displayMetrics.density
         paint.pathEffect = if (dashed) {
             DashPathEffect(
-                floatArrayOf(DASH_DP * density, GAP_DP * density),
+                floatArrayOf(DASH_DP * density * dashScale, GAP_DP * density * dashScale),
                 0f,
             )
         } else {
@@ -160,7 +188,7 @@ object RouteStyling {
                 val start = nodes[index - 1]
                 val end = nodes[index]
                 val segment = when (mode) {
-                    TransportMode.PLANE -> arc(start, end, wave = false)
+                    TransportMode.PLANE -> flightArc(start, end)
                     TransportMode.KAYAK -> arc(start, end, wave = true)
                     TransportMode.CAR, TransportMode.CAMPER -> handDrawnRoad(start, end)
                     else -> listOf(start, end)
@@ -283,7 +311,37 @@ object RouteStyling {
         return result
     }
 
-    /** Bogen für Flugzeug und Kajak; wc === true erzeugt eine Welle. */
+    /**
+     * Flugbogen: seitlich ausgebeult wie eine Flugroute auf alten Karten.
+     * Die Ausbeulung beträgt ein Fünftel der Strecke, egal wie weit der Flug ist.
+     */
+    private fun flightArc(from: GeoPoint, to: GeoPoint): List<GeoPoint> {
+        val steps = 40
+        val cosLat = cos(Math.toRadians((from.latitude + to.latitude) / 2.0)).coerceAtLeast(0.05)
+        val dLat = to.latitude - from.latitude
+        val dLonScaled = (to.longitude - from.longitude) * cosLat
+        val length = hypot(dLat, dLonScaled)
+        if (length == 0.0) return listOf(from, to)
+        // Senkrechte nach links, nach Norden gedreht, damit Bögen nach oben gehen.
+        var perpLat = dLonScaled / length
+        var perpLon = -dLat / length
+        if (perpLat < 0) {
+            perpLat = -perpLat
+            perpLon = -perpLon
+        }
+        val lift = length * 0.2
+        return (0..steps).map { index ->
+            val t = index.toDouble() / steps
+            val arch = 4.0 * t * (1.0 - t)
+            GeoPoint(
+                from.latitude + dLat * t + perpLat * lift * arch,
+                from.longitude + (to.longitude - from.longitude) * t +
+                    perpLon * lift * arch / cosLat,
+            )
+        }
+    }
+
+    /** Bogen für das Kajak; wave = true erzeugt eine Welle. */
     private fun arc(from: GeoPoint, to: GeoPoint, wave: Boolean): List<GeoPoint> {
         val steps = 24
         val midLat = (from.latitude + to.latitude) / 2.0

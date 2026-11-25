@@ -36,6 +36,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import de.breadcrumbz.app.ui.theme.Sepia
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -91,6 +94,7 @@ fun TripsScreen(
 
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showInfo by remember { mutableStateOf(false) }
     var showEditor by rememberSaveable { mutableStateOf(false) }
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var titleInput by rememberSaveable { mutableStateOf("") }
@@ -193,6 +197,13 @@ fun TripsScreen(
                                     )
                                 },
                             )
+                            DropdownMenuItem(
+                                text = { Text("Info") },
+                                onClick = {
+                                    menuExpanded = false
+                                    showInfo = true
+                                },
+                            )
                         }
                     }
                 },
@@ -227,9 +238,13 @@ fun TripsScreen(
                         val coverPath = overview.coverPhoto?.let {
                             viewModel.photoPath(it.fileName)
                         }
+                        val storedModes by remember(overview.trip.id) {
+                            viewModel.segmentModes(overview.trip.id)
+                        }.collectAsState(initial = emptyList())
                         TripMapCard(
                             overview = overview,
                             coverPath = coverPath,
+                            segmentModes = storedModes.associate { it.id to it.mode },
                             onOpen = { onOpenTrip(overview.trip.id) },
                             onEdit = { openEditor(overview.trip) },
                         )
@@ -237,6 +252,10 @@ fun TripsScreen(
                 }
             }
         }
+    }
+
+    if (showInfo) {
+        InfoDialog(onDismiss = { showInfo = false })
     }
 
     if (showSettings) {
@@ -378,3 +397,46 @@ fun TripsScreen(
         )
     }
 }
+
+/** Adresse für „Buy me a coffee“ – Platzhalter, bis der Name feststeht. */
+private const val COFFEE_URL = ""
+private const val GITHUB_URL = "https://github.com/mumblemood/breadcrumbz"
+
+/** Info: Version, Entwickler, GitHub und (vorbereitet) Buy me a coffee. */
+@Composable
+private fun InfoDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    val version = remember {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull().orEmpty()
+    }
+    PaperAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Breadcrumbz") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Dein Reisetagebuch mit Karte, Fotos und Zeitleiste.")
+                if (version.isNotBlank()) {
+                    Text("Version $version", color = Sepia)
+                }
+                Text("Entwickelt von mumblemood")
+                TextButton(onClick = { runCatching { uriHandler.openUri(GITHUB_URL) } }) {
+                    Text("Auf GitHub ansehen")
+                }
+                if (COFFEE_URL.isNotBlank()) {
+                    TextButton(onClick = { runCatching { uriHandler.openUri(COFFEE_URL) } }) {
+                        Text("☕ Buy me a coffee")
+                    }
+                } else {
+                    Text("☕ Buy me a coffee – kommt bald", color = Sepia)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Schließen") }
+        },
+    )
+}
+
