@@ -18,7 +18,6 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Overlay
 import kotlin.math.abs
-import kotlin.math.hypot
 
 /**
  * Foto-Polaroids auf der Karte. Das Bild wird nie verzogen: Der Rahmen passt
@@ -75,8 +74,14 @@ class PolaroidOverlay(
         val fanIndex: Int = 0,
         /** Pin, zu dem die meisten Fotos dieses Stapels gehören. */
         val stopId: String? = null,
+        /** Mitte des aufgefächerten Stapels und Versatz dieser Karte darin (Pixel). */
+        val fanCenterLat: Double = latitude,
+        val fanCenterLon: Double = longitude,
+        val fanDx: Float = 0f,
+        val fanDy: Float = 0f,
     )
 
+    private var dotRadius = 8f
     private val cache = LruCache<String, Bitmap>(24)
     private val hitAreas = mutableListOf<Triple<RectF, List<String>, String>>()
     /** Für jeden gezeichneten Pin: wie viele Foto-Flächen lagen zu dem Zeitpunkt schon darunter. */
@@ -131,14 +136,17 @@ class PolaroidOverlay(
         // und verdecken auch bei starkem Hineinzoomen nicht die Umgebung.
         val zoomFactor = (1.0 + (mapView.zoomLevelDouble - 14.0) * 0.075)
             .coerceIn(0.8, 1.3).toFloat()
-        val scale = 5f * zoomFactor
+        // Kleiner als früher: die Karte bleibt aufgeräumt.
+        val scale = 4f * zoomFactor
         val imageWidth = 88f * scale
         val padding = 5f * scale
         val captionHeight = 12f * scale
         val shadowOffset = 3f * scale
         val needleLength = 18f * zoomFactor
         borderPaint.strokeWidth = 2f * scale
-        pinPaint.strokeWidth = 3f * scale
+        // Feine Nadel statt dicker Striche quer über die Karte.
+        pinPaint.strokeWidth = 1.6f * mapView.resources.displayMetrics.density
+        dotRadius = 3.5f * mapView.resources.displayMetrics.density
         badgeTextPaint.textSize = 34f * zoomFactor
         captionPaint.textSize = 36f * zoomFactor
 
@@ -214,28 +222,30 @@ class PolaroidOverlay(
                 GeoPoint(group.latitude, group.longitude),
                 null,
             )
-            val tilt = ((group.representative.id.hashCode() ushr 4) % 29).toFloat() - 14f
+            // Nur leicht schräg; aufgefächerte Bilder fast gerade.
+            val tiltRange = if (group.fanIndex > 0) 5 else 11
+            val tilt = ((group.representative.id.hashCode() ushr 4) % tiltRange).toFloat() -
+                (tiltRange / 2).toFloat()
 
             // Oberer weißer Rand: die Spitze der Nadel landet in seiner Mitte.
             val top = needleLength - padding / 2f
             val rect = RectF(-cardWidth / 2f, top, cardWidth / 2f, top + cardHeight)
             val originX = point.x.toFloat()
             val originY = point.y.toFloat()
-            // Aufgelöste Stapel liegen leicht versetzt nebeneinander, damit man
-            // jedes einzelne Polaroid treffen kann. Die Nadel zeigt trotzdem
-            // weiter auf den ursprünglichen Ort.
-            val fanStepX = cardWidth * 0.58f
-            val fanStepY = cardHeight * 0.92f
-            val fanSlot = group.fanIndex - 1
-            val pinX = if (fanSlot >= 0) {
-                originX + (((fanSlot % 4) - 1.5f) * fanStepX)
+            // Aufgelöste Stapel liegen ordentlich im Raster um die Mitte des
+            // Stapels. Die feine Nadel zeigt weiter auf den eigenen Ort.
+            val pinX: Float
+            val pinY: Float
+            if (group.fanIndex > 0) {
+                val center = projection.toPixels(
+                    GeoPoint(group.fanCenterLat, group.fanCenterLon),
+                    null,
+                )
+                pinX = center.x + group.fanDx
+                pinY = center.y + group.fanDy
             } else {
-                originX
-            }
-            val pinY = if (fanSlot >= 0) {
-                originY + ((fanSlot / 4) * fanStepY)
-            } else {
-                originY
+                pinX = originX
+                pinY = originY
             }
 
             // Hintere Karten des Stapels.
@@ -304,7 +314,7 @@ class PolaroidOverlay(
 
             // Nadel vom Originalort bis zur Mitte des oberen weißen Rahmens.
             canvas.drawLine(originX, originY, pinX, pinY + top, pinPaint)
-            canvas.drawCircle(originX, originY, 9f * zoomFactor, pinPaint)
+            canvas.drawCircle(originX, originY, dotRadius, pinPaint)
             if (group.ids.size > 1) {
                 val badgeRadius = 34f * zoomFactor
                 val badgeX = pinX + cardWidth / 2f - badgeRadius * 0.35f
@@ -403,9 +413,12 @@ class PolaroidOverlay(
         val zoom = mapView.zoomLevelDouble
         val projection = mapView.projection
         val zoomFactor = (1.0 + (zoom - 14.0) * 0.075).coerceIn(0.8, 1.3).toFloat()
-        // Etwas mehr als die halbe Polaroidbreite: so überdecken sich
-        // nebeneinanderliegende Bilder höchstens leicht.
-        val thresholdPx = 88f * 5f * zoomFactor * 0.6f
+        // Ungefähre Kartengröße (wie in draw): Polaroids, die sich mehr als ein
+        // wenig überdecken würden, wandern auf einen Stapel.
+        val scale = 4f * zoomFactor
+        val cardWidth = 88f * scale + 10f * scale
+        val cardHeight = 5f * scale + 88f * scale * 0.75f + 12f * scale
+        val needle = 18f * zoomFactor
         val expanded = if (expandedPhotoIds.isNotEmpty() && zoom >= expandedAtZoom - 0.75) {
             expandedPhotoIds
         } else {
@@ -418,49 +431,70 @@ class PolaroidOverlay(
             photo.id to (point.x.toFloat() to point.y.toFloat())
         }
         val buckets = mutableListOf<MutableList<Photo>>()
-
         placed.forEach { photo ->
-            // Aufgelöster Stapel: jedes Bild bekommt einen eigenen Platz.
-            if (photo.id in expanded) {
-                buckets.add(mutableListOf(photo))
-                return@forEach
-            }
             val (x, y) = screen.getValue(photo.id)
             val neighbour = buckets.firstOrNull { bucket ->
-                bucket.none { it.id in expanded } &&
-                    bucket.any { other ->
-                        val (ox, oy) = screen.getValue(other.id)
-                        hypot(x - ox, y - oy) <= thresholdPx
-                    }
+                bucket.any { other ->
+                    val (ox, oy) = screen.getValue(other.id)
+                    abs(x - ox) < cardWidth * 0.8f && abs(y - oy) < cardHeight * 0.8f
+                }
             }
             if (neighbour != null) neighbour.add(photo) else buckets.add(mutableListOf(photo))
         }
 
-        return buckets.map { items ->
+        fun stopOf(items: List<Photo>) = items.mapNotNull(stopIdOf)
+            .groupingBy { it }.eachCount()
+            .maxByOrNull { it.value }?.key
+
+        return buckets.flatMap { items ->
             val sorted = items.sortedBy { it.capturedAt ?: Long.MAX_VALUE }
-            // Das gerade in der Mitte der Timeline liegende Bild kommt nach vorn.
-            val front = frontPhotoId?.let { id -> sorted.firstOrNull { it.id == id } }
-            val ordered = if (front != null) {
-                sorted.filter { it.id != front.id } + front
+            val centerLat = sorted.mapNotNull { it.latitude }.average()
+            val centerLon = sorted.mapNotNull { it.longitude }.average()
+            if (items.size > 1 && items.any { it.id in expanded }) {
+                // Aufgefächert: ordentliches Raster um die Mitte des Stapels.
+                val columns = when {
+                    sorted.size <= 2 -> sorted.size
+                    sorted.size <= 4 -> 2
+                    else -> 3
+                }
+                val rows = (sorted.size + columns - 1) / columns
+                val stepX = cardWidth * 1.06f
+                val stepY = (cardHeight + needle) * 1.04f
+                sorted.mapIndexed { index, photo ->
+                    val column = index % columns
+                    val row = index / columns
+                    val inRow = minOf(columns, sorted.size - row * columns)
+                    Group(
+                        ids = listOf(photo.id),
+                        representative = photo,
+                        latitude = photo.latitude!!,
+                        longitude = photo.longitude!!,
+                        fanIndex = index + 1,
+                        stopId = stopIdOf(photo),
+                        fanCenterLat = centerLat,
+                        fanCenterLon = centerLon,
+                        fanDx = (column - (inRow - 1) / 2f) * stepX,
+                        fanDy = (row - (rows - 1) / 2f) * stepY - (cardHeight + needle) / 2f,
+                    )
+                }
             } else {
-                sorted
+                // Das gerade in der Mitte der Timeline liegende Bild kommt nach vorn.
+                val front = frontPhotoId?.let { id -> sorted.firstOrNull { it.id == id } }
+                val ordered = if (front != null) {
+                    sorted.filter { it.id != front.id } + front
+                } else {
+                    sorted
+                }
+                listOf(
+                    Group(
+                        ids = ordered.map { it.id },
+                        representative = ordered.last(),
+                        latitude = centerLat,
+                        longitude = centerLon,
+                        stopId = stopOf(items),
+                    ),
+                )
             }
-            val fanIndex = if (items.size == 1 && items.first().id in expanded) {
-                expanded.toList().indexOf(items.first().id) + 1
-            } else {
-                0
-            }
-            val stopId = items.mapNotNull(stopIdOf)
-                .groupingBy { it }.eachCount()
-                .maxByOrNull { it.value }?.key
-            Group(
-                ids = ordered.map { it.id },
-                representative = ordered.last(),
-                latitude = sorted.mapNotNull { it.latitude }.average(),
-                longitude = sorted.mapNotNull { it.longitude }.average(),
-                fanIndex = fanIndex,
-                stopId = stopId,
-            )
         }.sortedBy { it.representative.capturedAt ?: Long.MAX_VALUE }
     }
 
