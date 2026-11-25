@@ -145,7 +145,7 @@ class BackupManager(
             tripDao.upsert(obj.toTrip()); trips++
         }
         root.optJSONArray("stops").forEachRow { obj ->
-            stopDao.upsert(obj.toStop()); stops++
+            stopDao.insert(obj.toStop()); stops++
         }
         root.optJSONArray("entries").forEachRow { obj ->
             entryDao.upsert(obj.toEntry()); entries++

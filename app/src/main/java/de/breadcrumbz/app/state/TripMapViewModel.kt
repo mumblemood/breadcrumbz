@@ -208,12 +208,18 @@ class TripMapViewModel(
      * Pin eine Zeit, wird sie vom Pin übernommen.
      */
     suspend fun createEntry(stopId: String? = null): Entry = withContext(Dispatchers.IO) {
-        val stopTime = stopId?.let { id ->
-            repository.observeStops(tripId).first().firstOrNull { it.id == id }?.visitedAt
+        val stop = stopId?.let { id ->
+            repository.observeStops(tripId).first().firstOrNull { it.id == id }
         }
         val created = repository.addEntry(tripId, stopId, "", "")
+        // Rückverlinkung: der Pin gilt jetzt als tbe-Pin und steht nicht mehr
+        // zusätzlich als alleinstehender Pin in der Zeitleiste.
+        if (stop != null && stop.entryId == null) {
+            repository.updateStop(stop.copy(entryId = created.id))
+        }
+        val stopTime = stop?.visitedAt
         if (stopTime != null) {
-            val timed = created.copy(entryAt = stopTime)
+            val timed = created.copy(entryAt = stopTime, timeFromPhoto = false)
             repository.updateEntry(timed)
             timed
         } else {
@@ -235,6 +241,15 @@ class TripMapViewModel(
             val entry = repository.observeEntriesForTrip(tripId)
                 .first().firstOrNull { it.id == entryId } ?: return@launch
             repository.updateEntry(entry.copy(entryAt = time, timeFromPhoto = false))
+        }
+    }
+
+    /** Bearbeitbare Zeit eines alleinstehenden Pins; null löscht sie wieder. */
+    fun setStopVisitedAt(stopId: String, time: Long?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val stop = repository.observeStops(tripId).first()
+                .firstOrNull { it.id == stopId } ?: return@launch
+            repository.updateStop(stop.copy(visitedAt = time))
         }
     }
 
@@ -612,12 +627,21 @@ class TripMapViewModel(
         }
     }
 
-    /** Beim Ziehen eines Pins ziehen Eintrag und alle zugehörigen Bilder mit. */
-    fun moveStop(stopId: String, latitude: Double, longitude: Double) {
+    /**
+     * Beim Ziehen eines Pins ziehen Eintrag und Bilder mit. Bei Pins ohne tbe
+     * bleiben die Bilder ortsfest – nur der Pin wandert.
+     */
+    fun moveStop(
+        stopId: String,
+        latitude: Double,
+        longitude: Double,
+        moveLinkedContent: Boolean = true,
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             val stopsNow = repository.observeStops(tripId).first()
             val stop = stopsNow.firstOrNull { it.id == stopId } ?: return@launch
             repository.updateStop(stop.copy(latitude = latitude, longitude = longitude))
+            if (!moveLinkedContent) return@launch
 
             val entriesNow = repository.observeEntriesForTrip(tripId).first()
             val entryIds = entriesNow
@@ -642,6 +666,10 @@ class TripMapViewModel(
                 }
         }
     }
+
+    /** Standalone-Pin: nur der Pin zieht um, Fotos behalten ihre GPS-Daten. */
+    fun moveStopOnly(stopId: String, latitude: Double, longitude: Double) =
+        moveStop(stopId, latitude, longitude, moveLinkedContent = false)
 
     private fun placePhoto(photoId: String, latitude: Double, longitude: Double) {
         viewModelScope.launch(Dispatchers.IO) {

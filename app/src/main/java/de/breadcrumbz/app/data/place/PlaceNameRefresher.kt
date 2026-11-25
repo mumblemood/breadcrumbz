@@ -18,7 +18,7 @@ class PlaceNameRefresher(
         stopDao.observeAll().first().forEach { stop ->
             val name = resolver.resolve(stop.latitude, stop.longitude, force)
             if (!name.isNullOrBlank() && name != stop.title) {
-                stopDao.upsert(stop.copy(title = name, updatedAt = System.currentTimeMillis()))
+                stopDao.update(stop.copy(title = name, updatedAt = System.currentTimeMillis()))
                 changed++
             }
         }

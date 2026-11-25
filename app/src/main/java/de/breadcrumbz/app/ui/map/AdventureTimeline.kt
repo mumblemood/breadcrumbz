@@ -58,7 +58,10 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.breadcrumbz.app.R
@@ -153,6 +156,8 @@ fun AdventureTimeline(
     entryBodies: Map<String, String> = emptyMap(),
     mapZoom: Float = 14f,
     externalKey: String? = null,
+    /** Neuer Wert erzwingt das Scrollen, auch wenn der Schlüssel gleich bleibt. */
+    externalSeq: Long = 0L,
     /** Foto, das von Karte oder Zeitleiste markiert wurde (sanftes Leuchten). */
     highlightPhotoId: String? = null,
     onScrollFraction: (Float) -> Unit = {},
@@ -166,6 +171,8 @@ fun AdventureTimeline(
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val scrollScope = rememberCoroutineScope()
+    val textMeasurer = rememberTextMeasurer()
+    val typography = MaterialTheme.typography
     val zoomFactor = (mapZoom / 14f).coerceIn(0.85f, 1.25f)
     val scrollState = rememberScrollState()
     var timelineBounds by remember { mutableStateOf(Rect.Zero) }
@@ -184,12 +191,27 @@ fun AdventureTimeline(
         .coerceAtLeast(with(density) { 76.dp.toPx() })
     val photoCaptionHeightPx = with(density) { 20.dp.toPx() }
 
-    /** Textbreite aus dem echten Inhalt – kein fester Platz für leere Felder. */
-    fun textWidthPx(text: String, maxChars: Int, minDp: Float, maxDp: Float): Float {
+    /**
+     * Gemessene Textbreite mit exakt dem Schriftbild, das auch gezeichnet wird.
+     * Schätzwerte wie „6.2 dp pro Zeichen“ waren die Ursache für überlagerte
+     * Textfelder und Rahmen.
+     */
+    fun measuredWidth(
+        text: String,
+        style: TextStyle,
+        maxLines: Int,
+        minDp: Float,
+        maxDp: Float,
+    ): Float {
         if (text.isBlank()) return 0f
-        return with(density) {
-            (text.take(maxChars).length * 6.2f).coerceIn(minDp, maxDp).dp.toPx()
-        }
+        val maxPx = with(density) { maxDp.dp.toPx() }
+        val measured = textMeasurer.measure(
+            text = text,
+            style = style,
+            constraints = Constraints(maxWidth = maxPx.roundToInt()),
+            maxLines = maxLines,
+        ).size.width.toFloat()
+        return measured.coerceIn(with(density) { minDp.dp.toPx() }, maxPx)
     }
 
     /** Ein Bild nimmt fast die ganze Eintragshöhe ein – zugeschnitten auf 4:3. */
@@ -213,6 +235,12 @@ fun AdventureTimeline(
     var lastProgrammaticScrollAt by remember { mutableStateOf(0L) }
     val startPx = with(density) { 34.dp.toPx() }
     val baseY = with(density) { 74.dp.toPx() }
+    // Groß genug, dass die Rahmen der Nachbarn sich nicht berühren, selbst
+    // wenn beide 10 dp Innenabstand zum Kartenrand haben.
+    val itemGapPx = with(density) { 30.dp.toPx() }
+    val entryPadPx = with(density) { 10.dp.toPx() }
+    // Rotierte Polaroids (8°) und der Schatten ragen seitlich über ihre Karte.
+    val photoVisualExtraPx = with(density) { 16.dp.toPx() } + photoHeightPx * 0.15f
 
     val orderedStops = remember(stops) { stops.sortedBy { it.sortIndex } }
     val stopKm = remember(orderedStops) {
@@ -247,10 +275,11 @@ fun AdventureTimeline(
     val points = remember(
         items, dayLabels, photosByEntry, entryBodies, photoBitmap, stopKm,
         photoHeightPx, photoCaptionHeightPx, zoomFactor, startPx,
+        typography, textMeasurer, itemGapPx, photoVisualExtraPx,
     ) {
         val result = mutableListOf<TimelinePoint>()
         val kmOf = { item: TimelineItem -> item.stopId?.let { stopKm[it] } ?: 0.0 }
-        val gapPx = with(density) { 8.dp.toPx() }
+        val gapPx = itemGapPx
         val padPx = with(density) { 16.dp.toPx() }
         val iconPx = with(density) { 22.dp.toPx() }
         val daySlotPx = with(density) { 54.dp.toPx() }
@@ -298,12 +327,18 @@ fun AdventureTimeline(
                     ""
                 }
                 val textWidth = when (item.kind) {
-                    TimelineKind.STOP -> textWidthPx(label, 20, 44f, 132f)
-                    TimelineKind.ENTRY -> maxOf(
-                        textWidthPx(label, 24, 56f, 150f),
-                        textWidthPx(body, 70, 56f, 150f),
+                    TimelineKind.STOP -> measuredWidth(
+                        label, typography.bodySmall, 2, 44f, 132f,
                     )
-                    TimelineKind.PHOTO -> textWidthPx(label, 20, 44f, 120f)
+                    TimelineKind.ENTRY -> maxOf(
+                        measuredWidth(label, typography.bodyMedium, 2, 56f, 150f),
+                        measuredWidth(body, typography.bodySmall, 3, 56f, 150f),
+                    )
+                    TimelineKind.PHOTO -> measuredWidth(
+                        label,
+                        typography.bodySmall.copy(fontSize = 9.sp),
+                        1, 44f, 120f,
+                    )
                     else -> 0f
                 }
                 val stripWidth = if (photoWidths.isEmpty()) {
@@ -311,7 +346,7 @@ fun AdventureTimeline(
                 } else {
                     photoWidths.sum() + gapPx * (photoWidths.size - 1)
                 }
-                val slot = when (item.kind) {
+                val rawSlot = when (item.kind) {
                     TimelineKind.STOP -> iconPx +
                         (if (textWidth > 0f) gapPx + textWidth else 0f) + padPx
                     TimelineKind.ENTRY -> textWidth +
@@ -320,7 +355,13 @@ fun AdventureTimeline(
                         ?: with(density) { 88.dp.toPx() }) +
                         (if (textWidth > 0f) gapPx + textWidth else 0f) + padPx
                     else -> daySlotPx
-                }.coerceAtLeast(with(density) { 44.dp.toPx() })
+                }
+                // 5 % Reserve für den 1.03-fachen Fokus-Scale; einzelne Fotos
+                // brauchen zusätzlich Platz für Drehung und Schatten.
+                val slot = (
+                    rawSlot * 1.05f +
+                        (if (item.kind == TimelineKind.PHOTO) photoVisualExtraPx else 0f)
+                    ).coerceAtLeast(with(density) { 44.dp.toPx() })
                 result.add(
                     TimelinePoint(
                         key = item.id,
@@ -349,7 +390,7 @@ fun AdventureTimeline(
     }
 
     val contentWidthPx = startPx + points.sumOf { it.slot.toDouble() }.toFloat() +
-        (points.size - 1).coerceAtLeast(0) * with(density) { 8.dp.toPx() } +
+        (points.size - 1).coerceAtLeast(0) * itemGapPx +
         with(density) { 56.dp.toPx() }
     val contentWidth = with(density) { contentWidthPx.toDp() }
     val viewportPx = if (timelineBounds.width > 0f) {
@@ -364,7 +405,7 @@ fun AdventureTimeline(
         0f
     }
     LaunchedEffect(scrollFraction) { onScrollFraction(scrollFraction) }
-    LaunchedEffect(externalKey, viewportPx, points) {
+    LaunchedEffect(externalKey, externalSeq, viewportPx) {
         if (externalKey == null) return@LaunchedEffect
         // Ein Foto im Eintrag hat keinen eigenen Punkt: wir scrollen zu seinem
         // Eintrag und markieren das einzelne Bild dort.
@@ -431,7 +472,9 @@ fun AdventureTimeline(
         ) {
             val viewportPx = with(density) { maxWidth.toPx() }
             val centerPixel = scrollState.value + viewportPx / 2f
-            val centerPoint = points.minByOrNull { abs(it.x - centerPixel) }
+            // Tagesköpfe haben keine Geo-Position und dürfen die Karte nicht ziehen.
+            val centerPoint = points.filter { it.kind != 0 }
+                .minByOrNull { abs(it.x - centerPixel) }
             val centerKey = centerPoint?.key
             val centerPhotoId = centerPoint?.photoId
             LaunchedEffect(centerKey) { onCenterKeyChange(centerKey) }
@@ -447,7 +490,7 @@ fun AdventureTimeline(
             // berühren sich die Rahmen benachbarter Einträge.
             // Größer als die Innen-Padding der Karten (8 dp), damit kein Text
             // über den Rahmen ragt. Die Trennung der Rahmen erfolgt weiter unten.
-            val entryPad = with(density) { 12.dp.toPx() }
+            val entryPad = entryPadPx
             val dayTopPx = with(density) { 46.dp.toPx() }
             val dayBottomPx = with(density) { (maxHeight - 8.dp).toPx() }
             val entryBottomPx = with(density) { (maxHeight - 14.dp).toPx() }
@@ -484,52 +527,25 @@ fun AdventureTimeline(
                     key to Rect(safeLeft, dayTopPx, safeRight, dayBottomPx)
                 }.filter { it.second != Rect.Zero }.toMap()
             }
-            // Eintragsrahmen bleiben innerhalb ihres Tagesrahmens und
-            // überschneiden sich garantiert nicht: pro Tag werden sie in
-            // Leserichtung sortiert und mit Mindestabstand getrennt.
+            // Die Rahmen werden ausschließlich aus den echten Kartenbreiten
+            // gebaut. Sie werden nie verschoben, ohne dass sich die Karten
+            // mitbewegen – das war die Ursache für überlagerte Textfelder.
             val entryFrames = remember(
                 points, dayFrames, entryPad, entryTopPx, entryBottomPx,
             ) {
-                val raw = points.filter { it.kind == 2 && it.item?.entryId != null }
+                points.filter { it.kind == 2 && it.item?.entryId != null }
                     .mapNotNull { entry ->
                         val id = entry.item?.entryId ?: return@mapNotNull null
                         val children = points.filter { it.entryId == id }
                         if (children.isEmpty()) return@mapNotNull null
                         val dayRect = entry.dayKey?.let { dayFrames[it] }
-                        // Die breiteste Karte liegt nicht zwangsläufig am Rand:
-                        // deshalb alle Karten des Eintrags berücksichtigen.
                         val rawLeft = children.minOf { it.x - it.slot / 2f } - entryPad
                         val rawRight = children.maxOf { it.x + it.slot / 2f } + entryPad
                         val left = if (dayRect != null) maxOf(rawLeft, dayRect.left) else rawLeft
                         val right = if (dayRect != null) minOf(rawRight, dayRect.right) else rawRight
                         if (right <= left + 4f) return@mapNotNull null
-                        Triple(entry.dayKey, id, Rect(left, entryTopPx, right, entryBottomPx))
-                    }
-                val minGap = with(density) { 6.dp.toPx() }
-                val separated = linkedMapOf<String, Rect>()
-                raw.groupBy({ it.first }, { it.second to it.third })
-                    .forEach { (dayKey, items) ->
-                        val dayRect = dayKey?.let { dayFrames[it] }
-                        var lastRight = Float.NEGATIVE_INFINITY
-                        items.sortedBy { it.second.left }.forEach { (id, rect) ->
-                            var left = if (lastRight == Float.NEGATIVE_INFINITY) {
-                                rect.left
-                            } else {
-                                maxOf(rect.left, lastRight + minGap)
-                            }
-                            var right = rect.right
-                            if (dayRect != null) {
-                                left = left.coerceAtMost(dayRect.right - 8f)
-                                    .coerceAtLeast(dayRect.left)
-                                right = minOf(right, dayRect.right)
-                            }
-                            if (right > left + 4f) {
-                                separated[id] = Rect(left, rect.top, right, rect.bottom)
-                                lastRight = right
-                            }
-                        }
-                    }
-                separated
+                        id to Rect(left, entryTopPx, right, entryBottomPx)
+                    }.toMap()
             }
 
             Box(
@@ -914,6 +930,13 @@ fun AdventureTimeline(
                                 } else {
                                     entryPhotos
                                 }
+                                // Genau die gemessenen Breiten verwenden, die auch
+                                // für Slot und Rahmen berechnet wurden.
+                                val orderedWidths = ordered.map { id ->
+                                    val index = entryPhotos.indexOf(id)
+                                    point.photoWidthsPx.getOrNull(index)
+                                        ?: with(density) { 96.dp.toPx() }
+                                }
                                 Row(
                                     modifier = Modifier
                                         .width(cardWidth)
@@ -958,19 +981,9 @@ fun AdventureTimeline(
                                                 .width(with(density) { stripWidth.toDp() }),
                                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         ) {
-                                            ordered.forEach { photoId ->
+                                            ordered.forEachIndexed { index, photoId ->
                                                 val bitmap = photoBitmap(photoId)
-                                                val ratio = if (bitmap != null && bitmap.height > 0) {
-                                                    bitmap.width.toFloat() / bitmap.height.toFloat()
-                                                } else {
-                                                    4f / 3f
-                                                }
-                                                val widthPx = (photoHeightPx *
-                                                    ratio.coerceIn(0.75f, 1.5f) * zoomFactor)
-                                                    .coerceIn(
-                                                        with(density) { 64.dp.toPx() },
-                                                        with(density) { 190.dp.toPx() },
-                                                    )
+                                                val widthPx = orderedWidths[index]
                                                 // Markierte Bilder leuchten sanft.
                                                 val photoMarked = photoId == highlightPhotoId
                                                 var photoDragOffset by remember(photoId) {

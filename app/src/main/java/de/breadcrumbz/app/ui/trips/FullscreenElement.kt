@@ -538,6 +538,39 @@ fun FullscreenElement(
                                     var modePickerOpen by remember(stop.id) {
                                         mutableStateOf(false)
                                     }
+                                    fun pickStopDateTime() {
+                                        val start = Calendar.getInstance().apply {
+                                            timeInMillis = stop.visitedAt
+                                                ?: System.currentTimeMillis()
+                                        }
+                                        DatePickerDialog(
+                                            context,
+                                            { _, year, month, day ->
+                                                val withDate = Calendar.getInstance().apply {
+                                                    timeInMillis = stop.visitedAt
+                                                        ?: System.currentTimeMillis()
+                                                    set(year, month, day)
+                                                }
+                                                TimePickerDialog(
+                                                    context,
+                                                    { _, hour, minute ->
+                                                        val chosen = Calendar.getInstance().apply {
+                                                            timeInMillis = withDate.timeInMillis
+                                                            set(Calendar.HOUR_OF_DAY, hour)
+                                                            set(Calendar.MINUTE, minute)
+                                                        }.timeInMillis
+                                                        viewModel.setStopVisitedAt(stop.id, chosen)
+                                                    },
+                                                    withDate.get(Calendar.HOUR_OF_DAY),
+                                                    withDate.get(Calendar.MINUTE),
+                                                    true,
+                                                ).show()
+                                            },
+                                            start.get(Calendar.YEAR),
+                                            start.get(Calendar.MONTH),
+                                            start.get(Calendar.DAY_OF_MONTH),
+                                        ).show()
+                                    }
                                     Column(modifier = Modifier.fillMaxWidth()) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             PlacePinIcon(
@@ -554,7 +587,48 @@ fun FullscreenElement(
                                                 color = ink,
                                             )
                                         }
-                                        if (stop.visitedAt != null) SmallMeta(dateText(stop.visitedAt))
+                                        if (stop.entryId == null) {
+                                            // Alleinstehender Pin: Datum + Uhrzeit direkt
+                                            // bearbeiten, ohne Umweg über einen Eintrag.
+                                            Row(
+                                                modifier = Modifier.clickable {
+                                                    pickStopDateTime()
+                                                },
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Icon(
+                                                    painter = painterResource(R.drawable.ic_clock),
+                                                    contentDescription = "Datum und Uhrzeit",
+                                                    tint = ink,
+                                                    modifier = Modifier.size(
+                                                        with(density) {
+                                                            MaterialTheme.typography.bodySmall.fontSize.toDp()
+                                                        },
+                                                    ),
+                                                )
+                                                Spacer(Modifier.width(4.dp))
+                                                Text(
+                                                    text = if (stop.visitedAt == null) {
+                                                        "Datum + Uhrzeit"
+                                                    } else {
+                                                        dateText(stop.visitedAt)
+                                                    },
+                                                    color = if (stop.visitedAt == null) {
+                                                        ink.copy(alpha = 0.45f)
+                                                    } else {
+                                                        ink
+                                                    },
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontStyle = if (stop.visitedAt == null) {
+                                                        FontStyle.Italic
+                                                    } else {
+                                                        FontStyle.Normal
+                                                    },
+                                                )
+                                            }
+                                        } else if (stop.visitedAt != null) {
+                                            SmallMeta(dateText(stop.visitedAt))
+                                        }
                                         // Nur ein kleines Symbol; ein Tippen darauf
                                         // öffnet die Auswahl.
                                         Box(
@@ -657,12 +731,26 @@ fun FullscreenElement(
                                             horizontalArrangement = Arrangement.End,
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
-                                            IconButton(onClick = { onAddEntry(stop.id) }) {
-                                                Icon(
-                                                    Icons.Default.Add,
-                                                    contentDescription = "Eintrag hier hinzufügen",
-                                                    tint = ink,
-                                                )
+                                            if (stop.entryId == null && linkedEntries.isEmpty()) {
+                                                // Notizbuch-Symbol: direkt ein leerer tbe
+                                                // an diesem Pin anlegen und öffnen.
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(36.dp)
+                                                        .clip(CircleShape)
+                                                        .background(frame)
+                                                        .border(1.dp, ink, CircleShape)
+                                                        .clickable {
+                                                            onAddEntry(stop.id)
+                                                        },
+                                                    contentAlignment = Alignment.Center,
+                                                ) {
+                                                    Text(
+                                                        "📝",
+                                                        fontSize = 19.sp,
+                                                    )
+                                                }
+                                                Spacer(Modifier.width(8.dp))
                                             }
                                             IconButton(onClick = { confirmDeletePin = true }) {
                                                 Icon(

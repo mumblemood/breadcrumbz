@@ -70,6 +70,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -96,6 +97,7 @@ import de.breadcrumbz.app.ui.map.PolaroidOverlay
 import de.breadcrumbz.app.ui.map.RouteEditOverlay
 import de.breadcrumbz.app.ui.map.RouteStyling
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.events.MapListener
@@ -143,6 +145,19 @@ private fun contrastTiles() = XYTileSource(
     "© OpenStreetMap-Mitwirkende, HOT",
 )
 
+/** Ein gemeinsames Ziel für beide Richtungen der Karten-/Zeitleisten-Synchronisation. */
+private data class SyncTarget(
+    val key: String?,
+    val origin: String,
+    val seq: Long,
+)
+
+/** Zwei exklusive Stufen: Abschnittsdetails und die Verkehrsmittel-Auswahl. */
+private sealed interface SegmentDialog {
+    data class Detail(val stopId: String) : SegmentDialog
+    data class Modes(val stopId: String) : SegmentDialog
+}
+
 @Composable
 private fun rememberThumbnail(viewModel: TripMapViewModel, fileName: String): ImageBitmap? =
     remember(fileName) {
@@ -187,16 +202,19 @@ fun TripMapScreen(
 
     var didCenter by remember { mutableStateOf(false) }
     var mapZoom by remember { mutableStateOf(14f) }
+    /** Rohwert der Karte; wird erst nach kurzer Ruhe weitergegeben. */
+    var rawMapCenter by remember { mutableStateOf<GeoPoint?>(null) }
     var mapCenter by remember { mutableStateOf<GeoPoint?>(null) }
-    var lastTimelineSync by remember { mutableStateOf(0L) }
     /** Kurz nach einer programmgesteuerten Bewegung kein Echo zurückschicken. */
     var syncLockUntil by remember { mutableStateOf(0L) }
+    var syncSeq by remember { mutableStateOf(0L) }
+    var syncTarget by remember { mutableStateOf<SyncTarget?>(null) }
     var fullscreenKey by remember { mutableStateOf<String?>(null) }
     var centerKey by remember { mutableStateOf<String?>(null) }
     val markers = remember { mutableMapOf<String, Marker>() }
     var stackPhotoIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var coverPickerOpen by remember { mutableStateOf(false) }
-    var segmentModeStopId by remember { mutableStateOf<String?>(null) }
+    var segmentDialog by remember { mutableStateOf<SegmentDialog?>(null) }
     var defaultModePickerOpen by remember { mutableStateOf(false) }
     var photoTargetEntryId by remember { mutableStateOf<String?>(null) }
     var zoomOutToCurrent by remember { mutableStateOf(false) }
@@ -217,6 +235,8 @@ fun TripMapScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
 
     val thumbnails = photos.map { it.id to rememberThumbnail(viewModel, it.fileName) }.toMap()
+    // Stabile Lambda: sonst wird die Zeitleiste bei jeder Recomposition neu vermessen.
+    val bitmapForPhoto = remember(thumbnails) { { id: String -> thumbnails[id] } }
     val photosByEntry = remember(photos) {
         photos.filter { it.entryId != null }
             .sortedBy { it.capturedAt ?: it.createdAt }
@@ -247,12 +267,15 @@ fun TripMapScreen(
     }
 
     BackHandler {
+        val dialog = segmentDialog
         when {
             fullscreenKey != null -> fullscreenKey = null
             photoTargetEntryId != null -> photoTargetEntryId = null
             coverPickerOpen -> coverPickerOpen = false
             defaultModePickerOpen -> defaultModePickerOpen = false
-            segmentModeStopId != null -> segmentModeStopId = null
+            dialog is SegmentDialog.Modes ->
+                segmentDialog = SegmentDialog.Detail(dialog.stopId)
+            dialog is SegmentDialog.Detail -> segmentDialog = null
             stackPhotoIds.isNotEmpty() -> stackPhotoIds = emptyList()
             pendingPhotoId != null || pendingEntryId != null -> viewModel.cancelPlacement()
             activeStopId != null -> viewModel.selectStop(null)
@@ -372,9 +395,11 @@ fun TripMapScreen(
                 val now = System.currentTimeMillis()
                 // Ein bewusster Fokus bleibt kurz erhalten; danach führt die Karte.
                 if (focusKey != null && now - lastFocusAt > 600L) focusKey = null
-                if (now >= syncLockUntil && now - lastTimelineSync > 250L) {
-                    lastTimelineSync = now
-                    mapCenter = GeoPoint(mapView.mapCenter.latitude, mapView.mapCenter.longitude)
+                if (now >= syncLockUntil) {
+                    rawMapCenter = GeoPoint(
+                        mapView.mapCenter.latitude,
+                        mapView.mapCenter.longitude,
+                    )
                 }
                 return false
             }
@@ -384,8 +409,10 @@ fun TripMapScreen(
                 if (focusKey != null && now - lastFocusAt > 600L) focusKey = null
                 mapZoom = mapView.zoomLevelDouble.toFloat()
                 if (now >= syncLockUntil) {
-                    lastTimelineSync = now
-                    mapCenter = GeoPoint(mapView.mapCenter.latitude, mapView.mapCenter.longitude)
+                    rawMapCenter = GeoPoint(
+                        mapView.mapCenter.latitude,
+                        mapView.mapCenter.longitude,
+                    )
                 }
                 return false
             }
@@ -400,6 +427,8 @@ fun TripMapScreen(
         centerKey = key
         focusKey = key
         lastFocusAt = System.currentTimeMillis()
+        syncSeq += 1
+        syncTarget = SyncTarget(key, "focus", syncSeq)
         if (moveMap) syncLockUntil = System.currentTimeMillis() + 700L
         if (moveMap) {
             val entryStopId = photo.entryId
@@ -411,6 +440,9 @@ fun TripMapScreen(
                 stop?.let { GeoPoint(it.latitude, it.longitude) }
             }
             if (point != null) {
+                // Programmbewegung darf nicht als Nutzer-Wisch zurückkommen.
+                rawMapCenter = null
+                mapCenter = point
                 mapView.controller.animateTo(
                     point,
                     mapView.zoomLevelDouble,
@@ -478,6 +510,18 @@ fun TripMapScreen(
         }
     }
 
+    // Modus pro Abschnitt als eigener Key: GeoPoint-Listen vergleichen sich
+    // nach Koordinaten, ein reiner Moduswechsel wäre sonst unsichtbar.
+    val segmentModes = remember(orderedRouteStops, trip?.defaultTransportMode) {
+        orderedRouteStops.associate { stop ->
+            stop.id to (
+                stop.transportMode
+                    ?: trip?.defaultTransportMode
+                    ?: TransportMode.CAR
+                )
+        }
+    }
+
     // Dieselben Zwischenpunkte ein mal als GeoPoint – für Linie und Griff-Overlay.
     val waypointPointsByStop = remember(waypoints) {
         waypoints.groupBy({ it.afterStopId.orEmpty() }) { waypoint ->
@@ -489,16 +533,18 @@ fun TripMapScreen(
         mutableStateOf<Map<String, List<GeoPoint>>>(emptyMap())
     }
     LaunchedEffect(
-        routeSegments, onlineRouting, trip?.defaultTransportMode, trip?.routeMode,
+        routeSegments, segmentModes, onlineRouting, trip?.routeMode,
     ) {
         if (!onlineRouting || trip?.routeMode == RouteMode.DIRECT) {
             onlinePoints = emptyMap()
             return@LaunchedEffect
         }
+        // Alte Straßenpunkte sofort entfernen, statt sie bis zum neuen
+        // Routing-Ergebnis weiter zu zeigen.
+        onlinePoints = emptyMap()
         val fresh = mutableMapOf<String, List<GeoPoint>>()
         routeSegments.forEach { (stopId, points) ->
-            val stop = orderedRouteStops.firstOrNull { it.id == stopId } ?: return@forEach
-            val mode = stop.transportMode ?: trip?.defaultTransportMode ?: TransportMode.CAR
+            val mode = segmentModes[stopId] ?: return@forEach
             if (mode == TransportMode.CAR || mode == TransportMode.CAMPER) {
                 routingService.route(points)?.let { fresh[stopId] = it }
             }
@@ -506,25 +552,34 @@ fun TripMapScreen(
         onlinePoints = fresh
     }
 
+    // Nur Straßenpunkte für Abschnitte verwenden, die auch gerade ein Auto
+    // oder Wohnmobil nutzen – doppelter Schutz gegen veraltete Antworten.
+    val effectiveOnlinePoints = remember(onlinePoints, segmentModes) {
+        onlinePoints.filterKeys { id ->
+            val mode = segmentModes[id]
+            mode == TransportMode.CAR || mode == TransportMode.CAMPER
+        }
+    }
+
     // Zum Antippen zählt die gezeichnete Linie, nicht die gerade Verbindung.
-    val routeEditSegments = remember(routeSegments, onlinePoints) {
+    val routeEditSegments = remember(routeSegments, effectiveOnlinePoints) {
         routeSegments.map { (stopId, points) ->
-            stopId to (onlinePoints[stopId] ?: points)
+            stopId to (effectiveOnlinePoints[stopId] ?: points)
         }
     }
 
     // Nur neu bauen, wenn sich Pins oder Verkehrsmittel ändern – nicht bei
     // jeder Kartenbewegung. So bleiben die Striche der Reiselinie stabil.
     val routeLines = remember(
-        orderedRouteStops, trip?.defaultTransportMode, trip?.routeMode,
-        onlinePoints, waypointPointsByStop, routeEditSegments,
+        orderedRouteStops, segmentModes, trip?.defaultTransportMode, trip?.routeMode,
+        effectiveOnlinePoints, waypointPointsByStop, routeEditSegments,
     ) {
         RouteStyling.build(
             mapView = mapView,
             stops = orderedRouteStops,
             defaultMode = trip?.defaultTransportMode ?: TransportMode.CAR,
             routeMode = trip?.routeMode ?: RouteMode.AUTO,
-            overridePoints = onlinePoints,
+            overridePoints = effectiveOnlinePoints,
             waypoints = waypointPointsByStop,
             // Tippen auf die Linie öffnet die Verkehrsmittelwahl,
             // keine Sprechblase (InfoWindow ist in RouteStyling null).
@@ -540,7 +595,9 @@ fun TripMapScreen(
                         )
                     }
                 }
-                segmentModeStopId = nearestSegment?.first
+                segmentDialog = nearestSegment?.first?.let {
+                    SegmentDialog.Detail(it)
+                }
             },
         )
     }
@@ -577,8 +634,13 @@ fun TripMapScreen(
             onCreateStop = { latitude, longitude ->
                 viewModel.onMapLongPress(latitude, longitude)
             },
-            onMove = { id, latitude, longitude ->
-                viewModel.moveStop(id, latitude, longitude)
+            onMove = { id, latitude, longitude, moveLinkedContent ->
+                viewModel.moveStop(
+                    id,
+                    latitude,
+                    longitude,
+                    moveLinkedContent = moveLinkedContent,
+                )
             },
             // Halten auf Foto oder Linie erzeugt weder Pin noch Foto-Löschdialog.
             ignoreLongPress = { x, y ->
@@ -626,6 +688,19 @@ fun TripMapScreen(
         }
     }
 
+    /** Kanonische Position eines Timeline-Eintrags – auch ohne eigenen Pin. */
+    fun geoFor(item: TimelineItem): GeoPoint? {
+        val stop = item.stopId?.let { id -> stops.firstOrNull { it.id == id } }
+        if (stop != null) return GeoPoint(stop.latitude, stop.longitude)
+        val entryPhotoIds = item.entryId?.let { photosByEntry[it] }.orEmpty()
+        val photoId = item.photoId ?: entryPhotoIds.firstOrNull()
+        val photo = photoId?.let { id -> photos.firstOrNull { it.id == id } }
+        if (photo?.latitude != null && photo.longitude != null) {
+            return GeoPoint(photo.latitude, photo.longitude)
+        }
+        return null
+    }
+
     fun handleTimelineClick(item: TimelineItem) {
         when (item.kind) {
             TimelineKind.PHOTO -> {
@@ -634,7 +709,11 @@ fun TripMapScreen(
             TimelineKind.STOP -> {
                 val stop = stops.firstOrNull { it.id == item.stopId }
                 if (stop != null) {
+                    syncSeq += 1
+                    syncTarget = SyncTarget(item.id, "focus", syncSeq)
                     syncLockUntil = System.currentTimeMillis() + 700L
+                    rawMapCenter = null
+                    mapCenter = GeoPoint(stop.latitude, stop.longitude)
                     focusStop(mapView, stop.latitude, stop.longitude)
                     fullscreenKey = "stop-${stop.id}"
                     viewModel.selectStop(stop.id)
@@ -642,6 +721,19 @@ fun TripMapScreen(
             }
             TimelineKind.ENTRY -> {
                 if (item.entryId != null) {
+                    syncSeq += 1
+                    syncTarget = SyncTarget(item.id, "focus", syncSeq)
+                    val point = geoFor(item)
+                    if (point != null) {
+                        syncLockUntil = System.currentTimeMillis() + 700L
+                        rawMapCenter = null
+                        mapCenter = point
+                        mapView.controller.animateTo(
+                            point,
+                            mapView.zoomLevelDouble,
+                            350L,
+                        )
+                    }
                     fullscreenKey = "entry-${item.entryId}"
                     if (!item.hasLocation) {
                         // Ort setzen bleibt im Vollbild möglich.
@@ -652,17 +744,7 @@ fun TripMapScreen(
         }
     }
 
-    fun geoFor(item: TimelineItem): GeoPoint? {
-        val stop = stops.firstOrNull { it.id == item.stopId }
-        if (stop != null) return GeoPoint(stop.latitude, stop.longitude)
-        val photo = photos.firstOrNull { it.id == item.photoId }
-        if (photo?.latitude != null && photo.longitude != null) {
-            return GeoPoint(photo.latitude, photo.longitude)
-        }
-        return null
-    }
-
-    val nearestIndex = remember(mapCenter, timeline, stops, photos) {
+    val nearestIndex = remember(mapCenter, timeline, stops, photosByEntry, photos) {
         val center = mapCenter
         if (center == null || timeline.isEmpty()) {
             null
@@ -677,6 +759,28 @@ fun TripMapScreen(
                     Double.MAX_VALUE
                 }
             }
+        }
+    }
+
+    // Die Karte meldet sehr viele Scroll-Ereignisse. Erst nach kurzer Ruhe
+    // wird daraus ein Ziel mit neuer Sequenz – das verhindert Echo-Schleifen.
+    LaunchedEffect(rawMapCenter) {
+        val center = rawMapCenter ?: return@LaunchedEffect
+        delay(220L)
+        if (System.currentTimeMillis() < syncLockUntil) return@LaunchedEffect
+        mapCenter = center
+        val index = timeline.indices.minByOrNull { i ->
+            val point = geoFor(timeline[i])
+            if (point != null) {
+                haversineMeters(center.latitude, center.longitude, point.latitude, point.longitude)
+            } else {
+                Double.MAX_VALUE
+            }
+        } ?: return@LaunchedEffect
+        val key = timeline[index].id
+        if (syncTarget?.key != key || syncTarget?.origin != "map") {
+            syncSeq += 1
+            syncTarget = SyncTarget(key, "map", syncSeq)
         }
     }
 
@@ -1048,11 +1152,13 @@ fun TripMapScreen(
                     entryBodies = allEntries.associate { it.id to it.body },
                     onItemClick = { item -> handleTimelineClick(item) },
                     onPhotoClick = { id -> focusPhoto(id, moveMap = true) },
-                    photoBitmap = { id -> thumbnails[id] },
+                    photoBitmap = bitmapForPhoto,
                     photoTimes = photoTimes,
                     mapZoom = mapZoom,
-                    externalKey = focusKey
+                    externalKey = syncTarget?.key
+                        ?: focusKey
                         ?: timeline.getOrNull(nearestIndex ?: -1)?.id,
+                    externalSeq = syncTarget?.seq ?: 0L,
                     onPinClick = { stopId ->
                         viewModel.selectStop(stopId)
                         fullscreenKey = "stop-$stopId"
@@ -1062,11 +1168,16 @@ fun TripMapScreen(
                     // Die Umkehrung (Karte -> Zeitleiste) läuft über externalKey.
                     onUserCenterKey = { key ->
                         centerKey = key
+                        syncSeq += 1
+                        syncTarget = SyncTarget(key, "timeline", syncSeq)
                         if (key != null) {
                             val item = timeline.firstOrNull { it.id == key }
                             val point = item?.let { geoFor(it) }
                             if (point != null) {
                                 syncLockUntil = System.currentTimeMillis() + 700L
+                                // Programmbewegung kein Echo: Rohwert und Ziel klar trennen.
+                                rawMapCenter = null
+                                mapCenter = point
                                 mapView.controller.animateTo(
                                     point,
                                     mapView.zoomLevelDouble,
@@ -1133,62 +1244,117 @@ fun TripMapScreen(
     }
 
     // Verkehrsmittel und An-/Abreise für einen Abschnitt – nach Tap auf die Linie.
-    segmentModeStopId?.let { stopId ->
-        val stop = stops.firstOrNull { it.id == stopId }
-        val target = stop?.title?.takeIf { it.isNotBlank() } ?: "diesem Pin"
-        val firstStop = orderedRouteStops.firstOrNull()
-        val lastStop = orderedRouteStops.lastOrNull()
-        val firstSegmentStopId = orderedRouteStops.getOrNull(1)?.id
-        // Bei genau zwei Pins sind erster und letzter Abschnitt derselbe;
-        // dann braucht es zwei Häkchen in einem Pop-up.
-        val lastSegmentStopId =
-            if (orderedRouteStops.size >= 2) orderedRouteStops.lastOrNull()?.id else null
-        // Die Auswahl gehört zum Ankunftspin, das Häkchen meint aber den
-        // ersten bzw. letzten Pin der Gesamtstrecke.
-        val endpointRows = buildList<Pair<String, String>> {
-            if (firstStop != null && stopId == firstSegmentStopId) {
-                add(firstStop.id to "Anreise: erster Pin zählt nicht mit")
+    when (val dialog = segmentDialog) {
+        is SegmentDialog.Detail -> {
+            val stopId = dialog.stopId
+            val stop = stops.firstOrNull { it.id == stopId }
+            val target = stop?.title?.takeIf { it.isNotBlank() } ?: "diesem Pin"
+            val effectiveMode = segmentModes[stopId]
+                ?: trip?.defaultTransportMode
+                ?: TransportMode.CAR
+            val firstStop = orderedRouteStops.firstOrNull()
+            val lastStop = orderedRouteStops.lastOrNull()
+            val firstSegmentStopId = orderedRouteStops.getOrNull(1)?.id
+            // Bei genau zwei Pins sind erster und letzter Abschnitt derselbe;
+            // dann braucht es zwei Häkchen in einem Pop-up.
+            val lastSegmentStopId = orderedRouteStops.lastOrNull()?.id
+            // Die Auswahl gehört zum Ankunftspin, das Häkchen meint aber den
+            // ersten bzw. letzten Pin der Gesamtstrecke.
+            val endpointRows = buildList<Pair<String, String>> {
+                if (firstStop != null && stopId == firstSegmentStopId) {
+                    add(firstStop.id to "Anreise: erster Pin zählt nicht mit")
+                }
+                if (lastStop != null && stopId == lastSegmentStopId &&
+                    lastStop.id != firstStop?.id
+                ) {
+                    add(lastStop.id to "Abreise: letzter Pin zählt nicht mit")
+                }
             }
-            if (lastStop != null && stopId == lastSegmentStopId && lastStop.id != firstStop?.id) {
-                add(lastStop.id to "Abreise: letzter Pin zählt nicht mit")
-            }
+            AlertDialog(
+                onDismissRequest = { segmentDialog = null },
+                title = { Text("Abschnitt bis $target") },
+                text = {
+                    Column {
+                        Text(
+                            "Verkehrsmittel bis hierhin",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        // Genau ein Symbol; ein Tippen öffnet die Auswahl.
+                        Box(
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(17.dp))
+                                .background(Color(0xFFE7DAC2))
+                                .clickable {
+                                    segmentDialog = SegmentDialog.Modes(stopId)
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(effectiveMode.symbol(), fontSize = 19.sp)
+                        }
+                        endpointRows.forEach { (endpointId, label) ->
+                            val checked = stops.firstOrNull { it.id == endpointId }
+                                ?.isArrivalDeparture == true
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = checked,
+                                    onCheckedChange = {
+                                        viewModel.setStopArrivalDeparture(endpointId, it)
+                                    },
+                                )
+                                Text(label, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { segmentDialog = null }) { Text("Fertig") }
+                },
+            )
         }
-        AlertDialog(
-            onDismissRequest = { segmentModeStopId = null },
-            title = { Text("Abschnitt bis $target") },
-            text = {
-                Column {
-                    TransportMode.entries.forEach { mode ->
+        is SegmentDialog.Modes -> {
+            val stopId = dialog.stopId
+            val stop = stops.firstOrNull { it.id == stopId }
+            val target = stop?.title?.takeIf { it.isNotBlank() } ?: "diesem Pin"
+            AlertDialog(
+                onDismissRequest = {
+                    segmentDialog = SegmentDialog.Detail(stopId)
+                },
+                title = { Text("Verkehrsmittel bis $target") },
+                text = {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        TransportMode.entries.forEach { mode ->
+                            TextButton(onClick = {
+                                viewModel.setStopTransportMode(stopId, mode)
+                                // Direktmodus ignoriert Verkehrsmittel – einmal umstellen.
+                                if (trip?.routeMode == RouteMode.DIRECT) {
+                                    viewModel.setRouteMode(RouteMode.AUTO)
+                                }
+                                segmentDialog = SegmentDialog.Detail(stopId)
+                            }) {
+                                Text("${mode.symbol()}   ${mode.label}")
+                            }
+                        }
                         TextButton(onClick = {
-                            viewModel.setStopTransportMode(stopId, mode)
-                            // Die Auswahl soll die Linie sofort beeinflussen.
+                            viewModel.clearStopTransportMode(stopId)
                             if (trip?.routeMode == RouteMode.DIRECT) {
                                 viewModel.setRouteMode(RouteMode.AUTO)
                             }
-                            segmentModeStopId = null
+                            segmentDialog = SegmentDialog.Detail(stopId)
                         }) {
-                            Text("${mode.symbol()}   ${mode.label}")
+                            Text("Standard der Reise")
                         }
                     }
-                    endpointRows.forEach { (endpointId, label) ->
-                        val checked = stops.firstOrNull { it.id == endpointId }
-                            ?.isArrivalDeparture == true
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = checked,
-                                onCheckedChange = {
-                                    viewModel.setStopArrivalDeparture(endpointId, it)
-                                },
-                            )
-                            Text(label, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { segmentModeStopId = null }) { Text("Fertig") }
-            },
-        )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        segmentDialog = SegmentDialog.Detail(stopId)
+                    }) { Text("Zurück") }
+                },
+            )
+        }
+        null -> Unit
     }
 
     if (coverPickerOpen) {

@@ -107,12 +107,12 @@ class RoomBreadcrumbzRepository(
             createdAt = now,
             updatedAt = now,
         )
-        stopDao.upsert(stop.toEntity())
+        stopDao.insert(stop.toEntity())
         return stop
     }
 
     override suspend fun updateStop(stop: Stop) {
-        stopDao.upsert(stop.copy(updatedAt = System.currentTimeMillis()).toEntity())
+        stopDao.update(stop.copy(updatedAt = System.currentTimeMillis()).toEntity())
     }
 
     override suspend fun deleteStop(id: String) = stopDao.deleteById(id)

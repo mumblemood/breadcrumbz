@@ -25,7 +25,8 @@ class PinInteractionOverlay(
     private val onTap: (String) -> Unit,
     private val onEmptyTap: () -> Unit,
     private val onCreateStop: (Double, Double) -> Unit,
-    private val onMove: (String, Double, Double) -> Unit,
+    /** Letzter Wert: sollen Einträge und Bilder mitwandern? */
+    private val onMove: (String, Double, Double, Boolean) -> Unit,
     /** Foto-Polaroids sollen kein Halten-auf-freier-Fläche auslösen. */
     private val ignoreLongPress: (Float, Float) -> Boolean = { _, _ -> false },
 ) : Overlay() {
@@ -97,7 +98,9 @@ class PinInteractionOverlay(
                 if (hit != null) {
                     candidateStopId = hit.id
                     // Nur der bereits ausgewählte Pin darf durch Halten losgelöst werden.
-                    if (hit.id == selectedStopId) {
+                    if (hit.id == selectedStopId &&
+                        !ignoreLongPress(event.x, event.y)
+                    ) {
                         pendingStopId = hit.id
                         handler.postDelayed(unlock, 2_000L)
                     }
@@ -169,7 +172,15 @@ class PinInteractionOverlay(
                 if (dragging != null) {
                     val marker = markers[dragging]
                     if (marker != null) {
-                        onMove(dragging, marker.position.latitude, marker.position.longitude)
+                        // Pin ohne tbe: nur der Pin zieht um, die Bilder bleiben.
+                        val moveLinkedContent =
+                            stops.firstOrNull { it.id == dragging }?.entryId != null
+                        onMove(
+                            dragging,
+                            marker.position.latitude,
+                            marker.position.longitude,
+                            moveLinkedContent,
+                        )
                     }
                     draggingStopId = null
                     dragOriginal = null

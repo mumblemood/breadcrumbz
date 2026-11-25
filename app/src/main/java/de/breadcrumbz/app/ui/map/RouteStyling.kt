@@ -65,7 +65,11 @@ object RouteStyling {
                 val from = ordered[index - 1]
                 val to = ordered[index]
                 val mode = to.transportMode ?: defaultMode
-                val online = overridePoints[to.id]
+                // Veraltete Straßendaten dürfen niemals in einen anderen Modus
+                // hineinwirken – sonst bleibt CAR sichtbar, obwohl WALK gewählt ist.
+                val online = overridePoints[to.id]?.takeIf {
+                    mode == TransportMode.CAR || mode == TransportMode.CAMPER
+                }
                 val raw = online ?: routeVia(
                     from = GeoPoint(from.latitude, from.longitude),
                     to = GeoPoint(to.latitude, to.longitude),
@@ -145,67 +149,42 @@ object RouteStyling {
     }
 
     /**
-     * Aus den vielen Online-Punkten nur die Stellen behalten, an denen die
-     * Route wirklich abbiegt. Danach ein kleiner, gleichmäßiger Schwung – wie
-     * mit dem Stift nachgezogen – und alles als Spline geglättet. Start und
-     * Ziel bleiben exakt auf ihren Pins.
+     * Online-Punkte nur alle 1000 m entlang der gefahrenen Strecke sampeln.
+     * Start und Ende bleiben exakt; danach ein einziger Catmull-Rom-Spline
+     * durch alle Samples. Keine seitliche Sinus-Welle.
      */
     private fun sketchLine(source: List<GeoPoint>): List<GeoPoint> {
-        if (source.size < 3) return source
-        val kept = mutableListOf(source.first())
-        for (index in 1 until source.lastIndex) {
-            val point = source[index]
-            val distance = haversineMeters(
-                kept.last().latitude, kept.last().longitude,
-                point.latitude, point.longitude,
+        if (source.size < 2) return source
+
+        val sampled = mutableListOf(source.first())
+        var travelled = 0.0
+        var nextSample = 1_000.0
+
+        for (index in 1 until source.size) {
+            val from = source[index - 1]
+            val to = source[index]
+            val leg = haversineMeters(
+                from.latitude, from.longitude,
+                to.latitude, to.longitude,
             )
-            val turn = turnDegrees(source[index - 1], point, source[index + 1])
-            // Grobe Punkte: ein Zwischenpunkt etwa alle 300 m, scharfe
-            // Abbiegungen zusätzlich. So bleibt die Linie nur ungefähr
-            // an der Straße, statt ihr Punkt für Punkt zu folgen.
-            if (distance >= 300.0 || turn >= 30.0) kept.add(point)
-        }
-        kept.add(source.last())
-        if (kept.size < 3) return smooth(kept)
+            if (leg <= 0.0 || leg.isNaN()) continue
 
-        val seed = source.first().latitude * 13.0 + source.first().longitude * 7.0
-        val wobbled = kept.mapIndexed { index, point ->
-            if (index == 0 || index == kept.lastIndex) {
-                point
-            } else {
-                val t = index.toDouble() / kept.lastIndex
-                val envelope = Math.sin(t * Math.PI)
-                // Sichtbarer, aber ruhiger Stift-Schwung nach beiden Seiten.
-                val lateral = Math.sin(index * 1.7 + seed) * 120.0 * envelope
-                val before = kept[index - 1]
-                val after = kept[index + 1]
-                val cosLat = Math.cos(Math.toRadians(point.latitude)).coerceAtLeast(0.01)
-                val dx = (after.longitude - before.longitude) * cosLat * 111_320.0
-                val dy = (after.latitude - before.latitude) * 111_320.0
-                val length = Math.hypot(dx, dy).coerceAtLeast(1.0)
-                val nx = -dy / length
-                val ny = dx / length
-                GeoPoint(
-                    point.latitude + ny * lateral / 111_320.0,
-                    point.longitude + nx * lateral / (111_320.0 * cosLat),
+            while (nextSample < travelled + leg - 1e-6) {
+                val t = (nextSample - travelled) / leg
+                sampled.add(
+                    GeoPoint(
+                        from.latitude + (to.latitude - from.latitude) * t,
+                        from.longitude + (to.longitude - from.longitude) * t,
+                    ),
                 )
+                nextSample += 1_000.0
             }
+            travelled += leg
         }
-        return smooth(wobbled)
-    }
 
-    /** Winkel zwischen zwei aufeinanderfolgenden Teilen der Route in Grad. */
-    private fun turnDegrees(a: GeoPoint, b: GeoPoint, c: GeoPoint): Double {
-        val cosLat = Math.cos(Math.toRadians(b.latitude)).coerceAtLeast(0.01)
-        val ax = (b.longitude - a.longitude) * cosLat
-        val ay = b.latitude - a.latitude
-        val bx = (c.longitude - b.longitude) * cosLat
-        val by = c.latitude - b.latitude
-        return Math.abs(
-            Math.toDegrees(
-                Math.atan2(ax * by - ay * bx, ax * bx + ay * by),
-            ),
-        )
+        // Letzter Punkt exakt, aber kein Doppelpunkt bei exaktem km-Rand.
+        if (sampled.last() != source.last()) sampled.add(source.last())
+        return smooth(sampled)
     }
 
     /**
@@ -289,7 +268,7 @@ object RouteStyling {
         val midLon = (from.longitude + to.longitude) / 2.0
         val distance = haversineMeters(from.latitude, from.longitude, to.latitude, to.longitude)
         val lift = minOf(distance / 4_000_000.0, 4.0)
-        val bend = if (wave) 1.2 else 0.6
+        val bend = if (wave) 1.2 else 0.0
         val result = mutableListOf<GeoPoint>()
         for (index in 0..steps) {
             val t = index.toDouble() / steps

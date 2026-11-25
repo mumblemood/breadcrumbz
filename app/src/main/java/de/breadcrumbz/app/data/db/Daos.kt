@@ -40,8 +40,13 @@ interface StopDao {
     @Query("SELECT * FROM stops ORDER BY tripId, sortIndex ASC")
     fun observeAll(): Flow<List<StopEntity>>
 
+    /** Neue Pins einfügen – nicht für Änderungen an bestehenden Pins benutzen. */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(stop: StopEntity)
+    suspend fun insert(stop: StopEntity)
+
+    /** Nur die Pin-Zeile ändern – ON DELETE der Kinder darf nicht auslösen. */
+    @Update
+    suspend fun update(stop: StopEntity)
 
     @Query("DELETE FROM stops WHERE id = :id")
     suspend fun deleteById(id: String)
