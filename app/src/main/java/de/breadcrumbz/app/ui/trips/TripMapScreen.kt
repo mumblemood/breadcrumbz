@@ -121,6 +121,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.log2
 import kotlin.math.roundToInt
 
@@ -174,6 +176,49 @@ private data class RouteSegment(
     val points: List<GeoPoint>,
 )
 
+/**
+ * Abstand eines Tipps zur gezeichneten Linie – nicht nur zu ihren Punkten.
+ * Bei dicht beieinander liegenden Abschnitten landet das Pop-up sonst am
+ * falschen Abschnitt und zeigt die An-/Abreise-Häkchen nicht an.
+ */
+private fun distanceToPolylineMeters(point: GeoPoint, points: List<GeoPoint>): Double {
+    if (points.isEmpty()) return Double.MAX_VALUE
+    if (points.size == 1) {
+        return haversineMeters(
+            point.latitude, point.longitude,
+            points[0].latitude, points[0].longitude,
+        )
+    }
+    var best = Double.MAX_VALUE
+    for (index in 0 until points.size - 1) {
+        val from = points[index]
+        val to = points[index + 1]
+        val midLatRad = Math.toRadians(
+            (from.latitude + to.latitude + point.latitude) / 3.0,
+        )
+        val latMeters = 111_320.0
+        val lonMeters = latMeters * cos(midLatRad).coerceAtLeast(0.01)
+        val ax = from.longitude * lonMeters
+        val ay = from.latitude * latMeters
+        val bx = to.longitude * lonMeters
+        val by = to.latitude * latMeters
+        val px = point.longitude * lonMeters
+        val py = point.latitude * latMeters
+        val dx = bx - ax
+        val dy = by - ay
+        val lengthSquared = dx * dx + dy * dy
+        val part = if (lengthSquared > 0.0) {
+            (((px - ax) * dx + (py - ay) * dy) / lengthSquared).coerceIn(0.0, 1.0)
+        } else {
+            0.0
+        }
+        val closestX = ax + dx * part
+        val closestY = ay + dy * part
+        best = minOf(best, hypot(px - closestX, py - closestY))
+    }
+    return best
+}
+
 /** Zwei exklusive Stufen: Abschnittsdetails und die Verkehrsmittel-Auswahl. */
 private sealed interface SegmentDialog {
     data class Detail(val segment: RouteSegment) : SegmentDialog
@@ -189,7 +234,7 @@ private fun RouteScrollbar(
 ) {
     val density = LocalDensity.current
     var width by remember { mutableStateOf(0f) }
-    val thumbPx = with(density) { 18.dp.toPx() }
+    val thumbPx = with(density) { 22.dp.toPx() }
     val padPx = with(density) { 8.dp.toPx() }
     fun fractionAt(x: Float): Float {
         val usable = width - thumbPx - padPx * 2f
@@ -214,19 +259,27 @@ private fun RouteScrollbar(
                 .align(Alignment.CenterStart)
                 .padding(horizontal = 8.dp)
                 .fillMaxWidth()
-                .height(3.dp)
+                .height(4.dp)
                 .clip(RoundedCornerShape(2.dp))
-                .background(Color(0xFF3B2B20).copy(alpha = 0.18f)),
+                .background(Color(0xFF6B4A35).copy(alpha = 0.42f)),
         )
         val usable = (width - thumbPx - padPx * 2f).coerceAtLeast(1f)
         Box(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .offset(x = with(density) { (padPx + fraction * usable).toDp() })
-                .size(18.dp)
-                .clip(RoundedCornerShape(9.dp))
-                .background(Color(0xFF3B2B20)),
-        )
+                .size(22.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(Color(0xFFFBF4E4))
+                .padding(2.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(Color(0xFF2A1D15)),
+            )
+        }
     }
 }
 
@@ -626,9 +679,10 @@ fun TripMapScreen(
         chronologicalStops(stops, allEntries, photos)
     }
 
-    // Zieht eine Zeitänderung die Reihenfolge um, wandern Anreise/Abreise mit
-    // an die neuen Endpunkte. Sonst würde ein ehemaliger Endpin irgendwo in
-    // der Mitte fälschlich aus Datum und Kilometern fallen.
+    // Zieht eine Zeitänderung die Reihenfolge um, wandern Anreise und Abreise
+    // mit an die neuen Endpunkte. Die Rollen werden eindeutig aus dem alten
+    // ersten/letzten Pin gelesen und gemeinsam geschrieben – ohne Race und ohne
+    // Sonderfall, der bei zwei Pins beide Häkchen auf denselben Pin setzte.
     var previousRouteIds by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(orderedRouteStops) {
         val ids = orderedRouteStops.map { it.id }
@@ -639,31 +693,16 @@ fun TripMapScreen(
         val oldLast = oldIds.lastOrNull()
         val newFirst = ids.firstOrNull()
         val newLast = ids.lastOrNull()
-        val isFlagged = { id: String? ->
-            id != null && stops.firstOrNull { it.id == id }?.isArrivalDeparture == true
-        }
-        val clear = mutableSetOf<String>()
-        val flag = mutableSetOf<String>()
-        if (isFlagged(oldFirst) && oldFirst != newFirst && newFirst != null) {
-            oldFirst?.let { clear.add(it) }
-            flag.add(newFirst)
-        }
-        if (isFlagged(oldLast) && oldLast != newLast && newLast != null &&
-            oldLast != oldFirst
-        ) {
-            oldLast?.let { clear.add(it) }
-            flag.add(newLast)
-        }
-        // Bei genau zwei Pins saßen beide Häkchen am selben Stop.
-        if (isFlagged(oldFirst) && oldFirst == oldLast && oldFirst != newFirst &&
-            newFirst != null && newLast != null
-        ) {
-            oldFirst?.let { clear.add(it) }
-            flag.add(newFirst)
-            flag.add(newLast)
-        }
-        clear.forEach { viewModel.setStopArrivalDeparture(it, false) }
-        flag.forEach { viewModel.setStopArrivalDeparture(it, true) }
+        fun flagged(id: String?) = id != null &&
+            stops.firstOrNull { it.id == id }?.isArrivalDeparture == true
+        val hadAnreise = flagged(oldFirst)
+        val hadAbreise = flagged(oldLast) && oldLast != oldFirst
+        val nextAnreise = if (hadAnreise) newFirst else null
+        var nextAbreise = if (hadAbreise) newLast else null
+        // Bei einem Pin gibt es nur eine Rolle. Zwei Rollen auf demselben Pin
+        // wären bei der nächsten Reihenfolgeänderung nicht mehr zuzuordnen.
+        if (nextAnreise != null && nextAnreise == nextAbreise) nextAbreise = null
+        viewModel.setTripBoundaries(nextAnreise, nextAbreise)
     }
 
     // Jeder Abschnitt mit allen selbst gesetzten Zwischenpunkten in Fahrtrichtung.
@@ -689,6 +728,16 @@ fun TripMapScreen(
                     ),
                 )
             }
+        }
+    }
+
+    // Wechselt die Reihenfolge, während das Pop-up offen ist, gehört der alte
+    // Abschnitt nicht mehr zur Reise. Das Pop-up wird geschlossen statt mit
+    // veralteten Pinen weiterzuarbeiten.
+    LaunchedEffect(routeSegments) {
+        val open = segmentDialog
+        if (open != null && routeSegments.none { it.key == open.segment.key }) {
+            segmentDialog = null
         }
     }
 
@@ -773,12 +822,7 @@ fun TripMapScreen(
                 // nicht einfach zum nächsten Pin. Der erste Pin hat selbst
                 // keinen Abschnitt und darf hier nicht ausgewählt werden.
                 val nearestKey = routeEditSegments.minByOrNull { (_, points) ->
-                    points.minOf { point ->
-                        haversineMeters(
-                            point.latitude, point.longitude,
-                            clicked.latitude, clicked.longitude,
-                        )
-                    }
+                    distanceToPolylineMeters(clicked, points)
                 }?.first
                 val nearest = routeSegments.firstOrNull { it.key == nearestKey }
                 segmentDialog = nearest?.let { SegmentDialog.Detail(it) }
@@ -1414,25 +1458,50 @@ fun TripMapScreen(
         return "Abschnitt: ${label(from)} → ${label(to)}"
     }
 
+    /** Setzt genau die gewählte Endrolle und räumt die andere Seite mit auf. */
+    fun applyBoundary(isAnreise: Boolean, value: Boolean) {
+        val firstId = orderedRouteStops.firstOrNull()?.id
+        val lastId = orderedRouteStops.lastOrNull()?.id
+        val currentAnreise = firstId?.takeIf { id ->
+            stops.firstOrNull { it.id == id }?.isArrivalDeparture == true
+        }
+        val currentAbreise = lastId?.takeIf { id ->
+            id != firstId && stops.firstOrNull { it.id == id }?.isArrivalDeparture == true
+        }
+        val nextAnreise = if (isAnreise) firstId?.takeIf { value } else currentAnreise
+        var nextAbreise = if (isAnreise) currentAbreise else lastId?.takeIf { value }
+        if (nextAnreise != null && nextAnreise == nextAbreise) nextAbreise = null
+        viewModel.setTripBoundaries(nextAnreise, nextAbreise)
+    }
+
     when (val dialog = segmentDialog) {
         is SegmentDialog.Detail -> {
-            val segment = dialog.segment
+            // Immer den aktuellen Abschnitt benutzen, auch wenn sich die
+            // Reihenfolge während des offenen Pop-ups geändert hat.
+            val segment = routeSegments.firstOrNull { it.key == dialog.segment.key }
+                ?: dialog.segment
             val effectiveMode = segmentModes[segment.key]
                 ?: trip?.defaultTransportMode
                 ?: TransportMode.CAR
             val firstStop = orderedRouteStops.firstOrNull()
             val lastStop = orderedRouteStops.lastOrNull()
-            val firstSegmentStopId = orderedRouteStops.getOrNull(1)?.id
-            // Bei genau zwei Pins sind erster und letzter Abschnitt derselbe;
-            // dann braucht es zwei Häkchen in einem Pop-up.
-            val endpointRows = buildList<Pair<String, String>> {
-                if (firstStop != null && segment.arrivalStopId == firstSegmentStopId) {
-                    add(firstStop.id to "Anreise: erster Pin zählt nicht mit")
+            val segmentIndex = routeSegments.indexOfFirst { it.key == segment.key }
+            val isCurrentSegment = segmentIndex >= 0 &&
+                orderedRouteStops.getOrNull(segmentIndex)?.id == segment.fromStopId &&
+                orderedRouteStops.getOrNull(segmentIndex + 1)?.id == segment.arrivalStopId
+            // Der Index der Strecke entscheidet – nicht nur ein einzelner Pin.
+            // Bei zwei Pins ist derselbe Abschnitt erster und letzter und bekommt
+            // deshalb zwei Häkchen in einem Pop-up.
+            val endpointRows = buildList<Triple<Boolean, String, String>> {
+                if (isCurrentSegment && segmentIndex == 0) {
+                    firstStop?.let {
+                        add(Triple(true, it.id, "Anreise: erster Pin zählt nicht mit"))
+                    }
                 }
-                if (lastStop != null && segment.arrivalStopId == lastStop.id &&
-                    lastStop.id != firstStop?.id
-                ) {
-                    add(lastStop.id to "Abreise: letzter Pin zählt nicht mit")
+                if (isCurrentSegment && segmentIndex == routeSegments.lastIndex) {
+                    lastStop?.takeIf { it.id != firstStop?.id }?.let {
+                        add(Triple(false, it.id, "Abreise: letzter Pin zählt nicht mit"))
+                    }
                 }
             }
             AlertDialog(
@@ -1458,15 +1527,13 @@ fun TripMapScreen(
                         ) {
                             Text(effectiveMode.symbol(), fontSize = 19.sp)
                         }
-                        endpointRows.forEach { (endpointId, label) ->
+                        endpointRows.forEach { (isAnreise, endpointId, label) ->
                             val checked = stops.firstOrNull { it.id == endpointId }
                                 ?.isArrivalDeparture == true
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(
                                     checked = checked,
-                                    onCheckedChange = {
-                                        viewModel.setStopArrivalDeparture(endpointId, it)
-                                    },
+                                    onCheckedChange = { applyBoundary(isAnreise, it) },
                                 )
                                 Text(label, style = MaterialTheme.typography.bodySmall)
                             }
@@ -1479,7 +1546,8 @@ fun TripMapScreen(
             )
         }
         is SegmentDialog.Modes -> {
-            val segment = dialog.segment
+            val segment = routeSegments.firstOrNull { it.key == dialog.segment.key }
+                ?: dialog.segment
             AlertDialog(
                 onDismissRequest = {
                     segmentDialog = SegmentDialog.Detail(segment)

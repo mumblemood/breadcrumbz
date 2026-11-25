@@ -631,12 +631,21 @@ class TripMapViewModel(
         }
     }
 
-    /** An-/Abreise eines Pins markieren: zählt nicht bei Datum und Kilometern. */
-    fun setStopArrivalDeparture(stopId: String, value: Boolean) {
+    /**
+     * Anreise und Abreise der Reise gemeinsam setzen. Es gibt höchstens zwei
+     * markierte Pins. Alle anderen Häkchen werden entfernt, damit ein alter
+     * Endpin nicht irgendwo in der Mitte aus Datum und Kilometern fällt.
+     * Die Änderungen laufen nacheinander in einer Coroutine – ein gleichzeitiges
+     * Setzen und Löschen desselben Pins kann so nicht mehr gewinnen.
+     */
+    fun setTripBoundaries(anreiseStopId: String?, abreiseStopId: String?) {
         viewModelScope.launch(Dispatchers.IO) {
-            val stop = repository.observeStops(tripId).first().firstOrNull { it.id == stopId }
-                ?: return@launch
-            repository.updateStop(stop.copy(isArrivalDeparture = value))
+            val marked = setOfNotNull(anreiseStopId, abreiseStopId)
+            val changes = repository.observeStops(tripId).first()
+                .filter { it.isArrivalDeparture != (it.id in marked) }
+                .map { it.copy(isArrivalDeparture = it.id in marked) }
+            changes.filterNot { it.isArrivalDeparture }.forEach { repository.updateStop(it) }
+            changes.filter { it.isArrivalDeparture }.forEach { repository.updateStop(it) }
         }
     }
 

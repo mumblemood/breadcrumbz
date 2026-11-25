@@ -105,6 +105,8 @@ private val pageEdge = Color(0xFFCDBB9C)
 
 private val ink = Color(0xFF3B2B20)
 private val frame = Color(0xFFDCCDB4)
+private val notebookTab = Color(0xFF2E6B6B)
+private val marginLine = Color(0xFFB8782F)
 // Comic Sans ist nicht auf allen Geräten installiert. Die systemweite
 // Comic/Cursive-Schrift ist die zuverlässige Wahl.
 private val comic = FontFamily.Cursive
@@ -454,12 +456,12 @@ fun FullscreenElement(
                                 // dahinter – das Buch läuft nicht an den Rand.
                                 .padding(end = 20.dp, bottom = 14.dp)
                                 .drawBehind {
-                                    // Klassisch & ruhig: warmer Papierstapel, ein
-                                    // schmaler Falz und ein sehr weicher Schatten.
-                                    val strip = 30.dp.toPx()
-                                    val fold = 3.dp.toPx()
-                                    val step = 5.dp.toPx()
-                                    // Zwei weitere Seiten liegen dezent versetzt hinten.
+                                    // Notizbuch: Seitenstapel, Bindungslöcher,
+                                    // Falz und feine Linien auf der rechten Seite.
+                                    val strip = 36.dp.toPx()
+                                    val fold = 4.dp.toPx()
+                                    val step = 6.dp.toPx()
+                                    // Zwei weitere Seiten liegen versetzt hinten.
                                     for (layer in 2 downTo 1) {
                                         val dx = layer * step
                                         val dy = layer * step * 0.6f
@@ -484,6 +486,38 @@ fun FullscreenElement(
                                         topLeft = Offset.Zero,
                                         size = Size(strip, size.height),
                                     )
+                                    // Feine Linierung und eine schmale Randlinie.
+                                    val marginX = strip + fold + 14.dp.toPx()
+                                    val lineStartX = marginX + 4.dp.toPx()
+                                    val lineEndX = size.width - 8.dp.toPx()
+                                    var lineY = 104.dp.toPx()
+                                    while (lineY < size.height - 8.dp.toPx()) {
+                                        drawLine(
+                                            color = frame.copy(alpha = 0.55f),
+                                            start = Offset(lineStartX, lineY),
+                                            end = Offset(lineEndX, lineY),
+                                            strokeWidth = 1.dp.toPx(),
+                                        )
+                                        lineY += 30.dp.toPx()
+                                    }
+                                    // Drei Bindungslöcher in der linken Lasche.
+                                    val holeRadius = 3.dp.toPx()
+                                    listOf(84.dp.toPx(), 168.dp.toPx(), 252.dp.toPx())
+                                        .forEach { holeY ->
+                                            if (holeY < size.height - 12.dp.toPx()) {
+                                                val center = Offset(strip / 2f, holeY)
+                                                drawCircle(
+                                                    color = pageEdge,
+                                                    radius = holeRadius,
+                                                    center = center,
+                                                )
+                                                drawCircle(
+                                                    color = leftPage,
+                                                    radius = holeRadius * 0.62f,
+                                                    center = center,
+                                                )
+                                            }
+                                        }
                                     // Sehr weicher Schatten rechts am Falz.
                                     drawRect(
                                         brush = Brush.horizontalGradient(
@@ -507,6 +541,12 @@ fun FullscreenElement(
                                         color = ink.copy(alpha = 0.16f),
                                         start = Offset(strip + fold, 0f),
                                         end = Offset(strip + fold, size.height),
+                                        strokeWidth = 1.dp.toPx(),
+                                    )
+                                    drawLine(
+                                        color = marginLine.copy(alpha = 0.38f),
+                                        start = Offset(marginX, 0f),
+                                        end = Offset(marginX, size.height),
                                         strokeWidth = 1.dp.toPx(),
                                     )
                                     // Feine Unterkante der rechten Seite.
@@ -536,7 +576,8 @@ fun FullscreenElement(
                                 when {
                                     photoOnly -> Modifier
                                     entryOnly -> Modifier.padding(
-                                        start = 44.dp, end = 16.dp,
+                                        // Text beginnt rechts der Randlinie des Notizbuchs.
+                                        start = 62.dp, end = 16.dp,
                                         top = 10.dp, bottom = 10.dp,
                                     )
                                     else -> Modifier.padding(
@@ -829,8 +870,8 @@ fun FullscreenElement(
                                         ?.let { target -> stops.firstOrNull { it.id == target }?.title }
                                     val timeIsAuto = entry.timeFromPhoto && entry.entryAt != null
                                     val placeIsAuto = entry.placeFromPhoto && entry.stopId != null
-                                    // Tagebuch-Schrift: kein Rahmen, kein Label,
-                                    // nur eine feine Bindung links (siehe unten).
+                                    // Tagebuch-Schrift auf linierter Seite;
+                                    // Bindung und Register kommen direkt darunter.
                                     val diaryStyle = MaterialTheme.typography.bodyLarge.copy(
                                         color = ink,
                                         fontFamily = comic,
@@ -871,6 +912,25 @@ fun FullscreenElement(
 
                                     // Der Falz wird außen am Buch gezeichnet (siehe Card).
                                     Column(modifier = Modifier.fillMaxWidth()) {
+                                        // Kleines Register, damit die Seite wie ein
+                                        // echtes Notizbuch wirkt.
+                                        Box(
+                                            modifier = Modifier
+                                                .background(
+                                                    notebookTab,
+                                                    RoundedCornerShape(4.dp),
+                                                )
+                                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                                        ) {
+                                            Text(
+                                                text = "TAGEBUCH",
+                                                color = paper,
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                ),
+                                            )
+                                        }
+                                        Spacer(Modifier.height(10.dp))
                                         BasicTextField(
                                             value = titleDraft,
                                             onValueChange = {
@@ -1041,7 +1101,14 @@ fun FullscreenElement(
                                             horizontalArrangement = Arrangement.End,
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
-                                            IconButton(onClick = { onAddPhotos(entry.id) }) {
+                                            // Keine IconButton-Kreismaske: sie schnitt
+                                            // das Polaroid und das Plus an den Ecken ab.
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(42.dp)
+                                                    .clickable { onAddPhotos(entry.id) },
+                                                contentAlignment = Alignment.Center,
+                                            ) {
                                                 AddPhotoIcon()
                                             }
                                             IconButton(onClick = {
