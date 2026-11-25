@@ -826,6 +826,7 @@ fun AdventureTimeline(
                     )
                 }
             }
+        }
 
         TimelineScrollbar(scrollState = scrollState)
     }
