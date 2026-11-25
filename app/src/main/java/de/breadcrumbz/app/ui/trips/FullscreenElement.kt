@@ -510,7 +510,7 @@ fun FullscreenElement(
                                     // Umblättern: die Seite dreht sich um den Falz.
                                     rotationY = pageFlip.value
                                     transformOrigin = TransformOrigin(0f, 0.5f)
-                                    cameraDistance = 14f * density
+                                    cameraDistance = 14f * this.density
                                 }
                                 .pointerInput(elementKey) {
                                     var total = 0f
