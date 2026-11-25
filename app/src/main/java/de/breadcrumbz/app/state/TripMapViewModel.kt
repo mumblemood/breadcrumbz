@@ -154,8 +154,8 @@ class TripMapViewModel(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Live-Luftlinie in km in der gleichen Reihenfolge wie die gezeichnete Route. */
-    val distanceKm = combine(stops, allEntries, allPhotos) { list, entries, photos ->
-        val ordered = chronologicalStops(list, entries, photos)
+    val distanceKm = combine(stops, allEntries, photos) { list, entries, photoList ->
+        val ordered = chronologicalStops(list, entries, photoList)
         val meters = (1 until ordered.size).sumOf { index ->
             val previous = ordered[index - 1]
             val current = ordered[index]

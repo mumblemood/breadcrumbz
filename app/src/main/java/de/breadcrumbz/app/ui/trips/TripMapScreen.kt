@@ -1039,12 +1039,10 @@ fun TripMapScreen(
                             }
                             marker.isDraggable = false
                             markers[stop.id] = marker
-                            if (!clustered) view.overlays.add(marker)
+                            view.overlays.add(marker)
                         }
-                        if (!clustered) {
-                            view.overlays.add(pinOverlay)
-                            view.overlays.add(routeEditOverlay)
-                        }
+                        view.overlays.add(pinOverlay)
+                        view.overlays.add(routeEditOverlay)
                         view.invalidate()
                     },
                 )
@@ -1350,7 +1348,7 @@ fun TripMapScreen(
                 onDismissRequest = {
                     segmentDialog = SegmentDialog.Detail(stopId)
                 },
-                title = { Text("Verkehrsmittel bis $target") },
+                title = { Text(segmentTitle(stopId)) },
                 text = {
                     Column(Modifier.verticalScroll(rememberScrollState())) {
                         TransportMode.entries.forEach { mode ->
