@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android-Sicherung ab Android 12: alles wie bisher, nur die Fotos
+     empfangener Reisen nicht (sie gehören dem Absender). -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude
+            domain="file"
+            path="received_photos/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude
+            domain="file"
+            path="received_photos/" />
+    </device-transfer>
+</data-extraction-rules>

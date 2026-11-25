@@ -17,7 +17,9 @@ import de.breadcrumbz.app.data.db.MIGRATION_9_10
 import de.breadcrumbz.app.data.db.MIGRATION_10_11
 import de.breadcrumbz.app.data.db.MIGRATION_11_12
 import de.breadcrumbz.app.data.db.MIGRATION_12_13
+import de.breadcrumbz.app.data.db.MIGRATION_13_14
 import de.breadcrumbz.app.data.photo.InternalPhotoStore
+import de.breadcrumbz.app.data.share.TripShareManager
 import de.breadcrumbz.app.data.route.RoutingService
 import de.breadcrumbz.app.data.settings.SettingsStore
 import de.breadcrumbz.app.data.place.PlaceNameRefresher
@@ -66,6 +68,7 @@ class AppContainer(context: Context) {
         MIGRATION_10_11,
         MIGRATION_11_12,
         MIGRATION_12_13,
+        MIGRATION_13_14,
     ).build()
 
     private val tripDao = database.tripDao()
@@ -104,13 +107,27 @@ class AppContainer(context: Context) {
         appVersion = BuildConfig.VERSION_NAME,
     )
 
+    /** Einzelne Reisen als Datei verschicken und empfangen. */
+    val shareManager = TripShareManager(
+        context = appContext,
+        database = database,
+        tripDao = tripDao,
+        stopDao = stopDao,
+        entryDao = entryDao,
+        photoDao = photoDao,
+        waypointDao = waypointDao,
+        segmentModeDao = segmentModeDao,
+        photoStore = photoStore,
+        appVersion = BuildConfig.VERSION_NAME,
+    )
+
     /** Rein lokale Einstellungen, u. a. der Schalter für Online-Routing. */
     val settingsStore = SettingsStore(appContext)
 
     /** Holt Straßenlinien – nur Koordinaten, kein Konto. */
     val routingService = RoutingService()
 
-    private val placeRefresher = PlaceNameRefresher(stopDao, placeNameResolver)
+    private val placeRefresher = PlaceNameRefresher(stopDao, tripDao, placeNameResolver)
     private val settings: SharedPreferences =
         appContext.getSharedPreferences("breadcrumbz", Context.MODE_PRIVATE)
     private val workScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

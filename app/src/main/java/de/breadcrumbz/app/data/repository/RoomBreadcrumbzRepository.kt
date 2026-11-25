@@ -73,7 +73,19 @@ class RoomBreadcrumbzRepository(
         tripDao.update(trip.copy(updatedAt = System.currentTimeMillis()).toEntity())
     }
 
-    override suspend fun deleteTrip(id: String) = tripDao.deleteById(id)
+    override suspend fun deleteTrip(id: String) {
+        // Fotos einer empfangenen Reise gehören nur zu ihr: Dateien mit aufräumen.
+        val receivedFiles = if (tripDao.isReceived(id) == true) {
+            photoDao.fileNamesForTrip(id)
+        } else {
+            emptyList()
+        }
+        tripDao.deleteById(id)
+        receivedFiles.forEach { photoStore.deleteReceived(it) }
+    }
+
+    override suspend fun isReceivedTrip(tripId: String): Boolean =
+        tripDao.isReceived(tripId) == true
 
     override fun observeStops(tripId: String): Flow<List<Stop>> =
         stopDao.observeForTrip(tripId).map { rows -> rows.map { it.toDomain() } }

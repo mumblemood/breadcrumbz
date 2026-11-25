@@ -23,7 +23,8 @@ class BreadcrumbzViewModelFactory(
 
             modelClass.isAssignableFrom(TripMapViewModel::class.java) && tripId != null ->
                 return TripMapViewModel(
-                    repository, photoStore, placeNameResolver, settingsStore, tripId,
+                    // Empfangene Reisen: alle Änderungen werden hier abgefangen.
+                    ReceivedTripGuard(repository, tripId), photoStore, placeNameResolver, settingsStore, tripId,
                 ) as T
         }
         throw IllegalArgumentException("Unbekanntes ViewModel: $modelClass")

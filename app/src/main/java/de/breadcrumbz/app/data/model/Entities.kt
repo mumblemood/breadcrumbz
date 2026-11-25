@@ -24,6 +24,13 @@ data class TripEntity(
     val titleIsAuto: Boolean = false,
     val createdAt: Long,
     val updatedAt: Long,
+    /** v14: Reise wurde von jemand anderem empfangen – nur ansehen. */
+    @ColumnInfo(defaultValue = "0")
+    val isReceived: Boolean = false,
+    /** v14: Name, den der Absender beim Verschicken angegeben hat. */
+    val receivedFrom: String? = null,
+    /** v14: Zeitpunkt des Empfangs. */
+    val receivedAt: Long? = null,
 )
 
 @Entity(

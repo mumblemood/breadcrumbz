@@ -4,4 +4,8 @@
     <files-path
         name="photos"
         path="photos/" />
+    <!-- Reise-Datei zum Verschicken über das Teilen-Menü (nur kurz im Cache). -->
+    <cache-path
+        name="share"
+        path="share/" />
 </paths>

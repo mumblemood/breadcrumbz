@@ -32,6 +32,9 @@ interface BreadcrumbzRepository {
     suspend fun updateTrip(trip: Trip)
     suspend fun deleteTrip(id: String)
 
+    /** Empfangene Reisen sind schreibgeschützt (nur ansehen). */
+    suspend fun isReceivedTrip(tripId: String): Boolean
+
     fun observeStops(tripId: String): Flow<List<Stop>>
     /** Alle Pins aller Reisen – für automatisch abgeleitete Reise-Infos. */
     fun observeAllStops(): Flow<List<Stop>>

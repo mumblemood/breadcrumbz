@@ -98,6 +98,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.FileProvider
 import de.breadcrumbz.app.R
@@ -252,6 +253,8 @@ private fun PhotoPolaroidDetail(
     /** Mit zwei Fingern gedreht – wie ein Foto in der Hand. */
     rotation: Float = 0f,
     onOpenOriginal: () -> Unit,
+    /** Empfangene Reise: kein Original öffnen, Titel nicht bearbeiten. */
+    readOnly: Boolean = false,
 ) {
     var editingTitle by remember(photo.id) { mutableStateOf(false) }
     // Nur an das Foto gebunden: jede Speicherung würde sonst die Eingabe zurücksetzen.
@@ -305,7 +308,7 @@ private fun PhotoPolaroidDetail(
                 .aspectRatio(4f / 3f)
                 .clip(RoundedCornerShape(2.dp))
                 .background(Color(0xFFE7DAC2))
-                .clickable {
+                .clickable(enabled = !readOnly) {
                     if (editingTitle) {
                         editingTitle = false
                     } else {
@@ -317,7 +320,7 @@ private fun PhotoPolaroidDetail(
             if (bitmap != null) {
                 Image(
                     bitmap = bitmap,
-                    contentDescription = "Original anzeigen",
+                    contentDescription = if (readOnly) "Foto" else "Original anzeigen",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -326,7 +329,7 @@ private fun PhotoPolaroidDetail(
             }
         }
         Spacer(Modifier.height(12.dp))
-        if (editingTitle) {
+        if (editingTitle && !readOnly) {
             BasicTextField(
                 value = titleDraft,
                 onValueChange = {
@@ -353,7 +356,7 @@ private fun PhotoPolaroidDetail(
                 fontStyle = if (titleIsEmpty) FontStyle.Italic else FontStyle.Normal,
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.clickable { editingTitle = true },
+                modifier = Modifier.clickable(enabled = !readOnly) { editingTitle = true },
             )
         }
         Spacer(Modifier.height(8.dp))
@@ -416,6 +419,8 @@ fun FullscreenElement(
     onAddPhotos: (String) -> Unit,
     onAddEntry: (String) -> Unit,
     onAdoptPhotoLocation: (String) -> Unit,
+    /** Empfangene Reise: nur ansehen. */
+    readOnly: Boolean = false,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -453,6 +458,9 @@ fun FullscreenElement(
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             dismissOnBackPress = true,
+            // Das Pop-up ist ein eigenes Fenster: Bildschirmfoto-Sperre hier
+            // ausdrücklich setzen, sonst wären die Fotos darin abfotografierbar.
+            securePolicy = if (readOnly) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit,
         ),
     ) {
         // Etwas dunkler dimmen, damit sich die Detailansicht klar abhebt.
@@ -770,7 +778,9 @@ fun FullscreenElement(
                                         scale = photoScale,
                                         pan = photoPan,
                                         rotation = photoRotation,
+                                        readOnly = readOnly,
                                         onOpenOriginal = {
+                                            if (readOnly) return@PhotoPolaroidDetail
                                             val file = File(viewModel.photoPath(currentPhoto.fileName))
                                             val uri = FileProvider.getUriForFile(
                                                 context,
@@ -856,7 +866,7 @@ fun FullscreenElement(
                                             // Alleinstehender Pin: Datum + Uhrzeit direkt
                                             // bearbeiten, ohne Umweg über einen Eintrag.
                                             Row(
-                                                modifier = Modifier.clickable {
+                                                modifier = Modifier.clickable(enabled = !readOnly) {
                                                     pickStopDateTime()
                                                 },
                                                 verticalAlignment = Alignment.CenterVertically,
@@ -940,7 +950,7 @@ fun FullscreenElement(
                                             }
                                         }
                                         Spacer(Modifier.height(12.dp))
-                                        Row(
+                                        if (!readOnly) Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.End,
                                             verticalAlignment = Alignment.CenterVertically,
@@ -1093,6 +1103,7 @@ fun FullscreenElement(
                                                 titleDraft = it
                                                 viewModel.updateEntryText(entry.id, it, bodyDraft)
                                             },
+                                            readOnly = readOnly,
                                             singleLine = true,
                                             textStyle = diaryStyle.copy(
                                                 fontFamily = comic,
@@ -1121,7 +1132,7 @@ fun FullscreenElement(
                                         Spacer(Modifier.height(6.dp))
                                         // Datum und Pin direkt unterm Titel.
                                         Row(
-                                            modifier = Modifier.clickable { pickDateTime() },
+                                            modifier = Modifier.clickable(enabled = !readOnly) { pickDateTime() },
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             Icon(
@@ -1155,7 +1166,9 @@ fun FullscreenElement(
                                             )
                                         }
                                         Row(
-                                            modifier = Modifier.clickable { placePickerOpen = true },
+                                            modifier = Modifier.clickable(enabled = !readOnly) {
+                                                placePickerOpen = true
+                                            },
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             PlacePinIcon(
@@ -1187,6 +1200,7 @@ fun FullscreenElement(
                                                 bodyDraft = it
                                                 viewModel.updateEntryText(entry.id, titleDraft, it)
                                             },
+                                            readOnly = readOnly,
                                             minLines = 5,
                                             textStyle = diaryStyle,
                                             modifier = Modifier.fillMaxWidth(),
@@ -1262,7 +1276,7 @@ fun FullscreenElement(
                                         }
 
                                         Spacer(Modifier.height(12.dp))
-                                        Row(
+                                        if (!readOnly) Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.End,
                                             verticalAlignment = Alignment.CenterVertically,

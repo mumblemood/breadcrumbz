@@ -52,13 +52,19 @@ class BackupManager(
     private val appVersion: String,
 ) {
     suspend fun exportTo(uri: Uri): String = withContext(Dispatchers.IO) {
-        val trips = tripDao.observeAll().first()
-        val stops = stopDao.observeAll().first()
-        val entries = entryDao.observeAll().first()
-        val photos = photoDao.observeAll().first()
+        // Empfangene Reisen gehören dem Absender: Sie kommen nie ins eigene
+        // Backup, damit ihre Fotos die App auf diesem Weg nicht verlassen.
+        val allTrips = tripDao.observeAll().first()
+        val received = allTrips.filter { it.isReceived }.map { it.id }.toSet()
+        val trips = allTrips.filterNot { it.id in received }
+        val stops = stopDao.observeAll().first().filterNot { it.tripId in received }
+        val entries = entryDao.observeAll().first().filterNot { it.tripId in received }
+        val photos = photoDao.observeAll().first().filterNot {
+            it.tripId in received || photoStore.isReceived(it.fileName)
+        }
         val places = placeNameDao.observeAll().first()
-        val waypoints = waypointDao.observeAll().first()
-        val segmentModes = segmentModeDao.observeAll().first()
+        val waypoints = waypointDao.observeAll().first().filterNot { it.tripId in received }
+        val segmentModes = segmentModeDao.observeAll().first().filterNot { it.tripId in received }
 
         val data = JSONObject().apply {
             put("format", "breadcrumbz-backup")
@@ -193,6 +199,8 @@ class BackupManager(
         database.withTransaction {
             root.optJSONArray("trips").forEachRow { obj ->
                 val row = obj.toTrip()
+                // Empfangene Reisen werden nur über „Reise empfangen“ angelegt.
+                if (tripDao.isReceived(row.id) == true) return@forEachRow
                 when {
                     tripDao.insertIfMissing(row) != -1L -> added("trips")
                     row.updatedAt > (tripDao.updatedAtOf(row.id) ?: Long.MAX_VALUE) -> {
@@ -333,199 +341,4 @@ class BackupManager(
             }
         }
     }
-
-    private fun JSONObject.longOrNull(key: String): Long? =
-        if (has(key) && !isNull(key)) optLong(key) else null
-
-    private fun JSONObject.doubleOrNull(key: String): Double? =
-        if (has(key) && !isNull(key)) optDouble(key) else null
-
-    private fun JSONObject.putNullable(key: String, value: Long?) {
-        put(key, value ?: JSONObject.NULL)
-    }
-
-    private fun JSONObject.putNullable(key: String, value: Double?) {
-        put(key, value ?: JSONObject.NULL)
-    }
-
-    private fun TripEntity.toJson() = JSONObject().apply {
-        put("id", id)
-        put("title", title)
-        put("titleIsAuto", titleIsAuto)
-        put("description", description)
-        putNullable("startDate", startDate)
-        putNullable("endDate", endDate)
-        put("coverPhotoId", coverPhotoId ?: JSONObject.NULL)
-        put("overlayMode", overlayMode)
-        put("defaultTransportMode", defaultTransportMode)
-        put("routeMode", routeMode)
-        put("createdAt", createdAt)
-        put("updatedAt", updatedAt)
-    }
-
-    private fun JSONObject.toTrip() = TripEntity(
-        id = optString("id").ifBlank { UUID.randomUUID().toString() },
-        title = optString("title", "Neue Reise"),
-        titleIsAuto = optBoolean("titleIsAuto", false),
-        description = optString("description", ""),
-        startDate = longOrNull("startDate"),
-        endDate = longOrNull("endDate"),
-        coverPhotoId = if (isNull("coverPhotoId")) null else optString("coverPhotoId"),
-        overlayMode = optString("overlayMode", "STANDARD"),
-        defaultTransportMode = optString("defaultTransportMode", "CAR"),
-        routeMode = optString("routeMode", "AUTO"),
-        createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
-        // Fehlt der Zeitstempel (alte Backups), gewinnt beim Import der Stand auf dem Handy.
-        updatedAt = longOrNull("updatedAt") ?: longOrNull("createdAt") ?: 0L,
-    )
-
-    private fun StopEntity.toJson() = JSONObject().apply {
-        put("id", id)
-        put("tripId", tripId)
-        put("entryId", entryId ?: JSONObject.NULL)
-        put("isArrivalDeparture", isArrivalDeparture)
-        put("title", title)
-        put("latitude", latitude)
-        put("longitude", longitude)
-        put("sortIndex", sortIndex)
-        putNullable("visitedAt", visitedAt)
-        put("source", source)
-        putNullable("distanceFromPreviousMeters", distanceFromPreviousMeters)
-        put("distanceSource", distanceSource ?: JSONObject.NULL)
-        putNullable("distanceUpdatedAt", distanceUpdatedAt)
-        put("createdAt", createdAt)
-        put("updatedAt", updatedAt)
-    }
-
-    private fun JSONObject.toStop() = StopEntity(
-        id = optString("id").ifBlank { UUID.randomUUID().toString() },
-        tripId = optString("tripId"),
-        entryId = if (isNull("entryId")) null else optString("entryId"),
-        // Alte Backups ohne Feld behalten ihre bisherige Gesamtansicht.
-        isArrivalDeparture = optBoolean("isArrivalDeparture", false),
-        title = optString("title", "Wegpunkt"),
-        latitude = doubleOrNull("latitude") ?: 0.0,
-        longitude = doubleOrNull("longitude") ?: 0.0,
-        sortIndex = optInt("sortIndex", 0),
-        visitedAt = longOrNull("visitedAt"),
-        source = optString("source", "MANUAL"),
-        distanceFromPreviousMeters = doubleOrNull("distanceFromPreviousMeters"),
-        distanceSource = if (isNull("distanceSource")) null else optString("distanceSource"),
-        distanceUpdatedAt = longOrNull("distanceUpdatedAt"),
-        createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
-        // Fehlt der Zeitstempel (alte Backups), gewinnt beim Import der Stand auf dem Handy.
-        updatedAt = longOrNull("updatedAt") ?: longOrNull("createdAt") ?: 0L,
-    )
-
-    private fun EntryEntity.toJson() = JSONObject().apply {
-        put("id", id)
-        put("tripId", tripId)
-        put("stopId", stopId ?: JSONObject.NULL)
-        putNullable("entryAt", entryAt)
-        put("title", title)
-        put("body", body)
-        put("sortIndex", sortIndex)
-        put("createdAt", createdAt)
-        put("updatedAt", updatedAt)
-        put("timeFromPhoto", timeFromPhoto)
-        put("placeFromPhoto", placeFromPhoto)
-    }
-
-    private fun JSONObject.toEntry() = EntryEntity(
-        id = optString("id").ifBlank { UUID.randomUUID().toString() },
-        tripId = optString("tripId"),
-        stopId = if (isNull("stopId")) null else optString("stopId"),
-        entryAt = longOrNull("entryAt"),
-        title = optString("title", ""),
-        body = optString("body", ""),
-        sortIndex = optInt("sortIndex", 0),
-        createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
-        // Fehlt der Zeitstempel (alte Backups), gewinnt beim Import der Stand auf dem Handy.
-        updatedAt = longOrNull("updatedAt") ?: longOrNull("createdAt") ?: 0L,
-        timeFromPhoto = optBoolean("timeFromPhoto", false),
-        placeFromPhoto = optBoolean("placeFromPhoto", false),
-    )
-
-    private fun PhotoEntity.toJson() = JSONObject().apply {
-        put("id", id)
-        put("tripId", tripId)
-        put("stopId", stopId ?: JSONObject.NULL)
-        put("entryId", entryId ?: JSONObject.NULL)
-        put("fileName", fileName)
-        put("mimeType", mimeType)
-        putNullable("capturedAt", capturedAt)
-        putNullable("latitude", latitude)
-        putNullable("longitude", longitude)
-        put("caption", caption)
-        put("sortIndex", sortIndex)
-        put("createdAt", createdAt)
-    }
-
-    private fun JSONObject.toPhoto() = PhotoEntity(
-        id = optString("id").ifBlank { UUID.randomUUID().toString() },
-        tripId = optString("tripId"),
-        stopId = if (isNull("stopId")) null else optString("stopId"),
-        entryId = if (isNull("entryId")) null else optString("entryId"),
-        fileName = optString("fileName").ifBlank { UUID.randomUUID().toString() + ".jpg" },
-        mimeType = optString("mimeType", "image/jpeg"),
-        capturedAt = longOrNull("capturedAt"),
-        latitude = doubleOrNull("latitude"),
-        longitude = doubleOrNull("longitude"),
-        caption = optString("caption", ""),
-        sortIndex = optInt("sortIndex", 0),
-        createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
-    )
-
-    private fun PlaceNameEntity.toJson() = JSONObject().apply {
-        put("key", key)
-        put("name", name)
-        put("createdAt", createdAt)
-    }
-
-    private fun JSONObject.toPlace() = PlaceNameEntity(
-        key = optString("key"),
-        name = optString("name"),
-        createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
-    )
-
-    private fun RouteWaypointEntity.toJson() = JSONObject().apply {
-        put("id", id)
-        put("tripId", tripId)
-        put("afterStopId", afterStopId ?: JSONObject.NULL)
-        put("latitude", latitude)
-        put("longitude", longitude)
-        put("sortIndex", sortIndex)
-        put("createdAt", createdAt)
-    }
-
-    private fun JSONObject.toWaypoint() = RouteWaypointEntity(
-        id = optString("id").ifBlank { UUID.randomUUID().toString() },
-        tripId = optString("tripId"),
-        afterStopId = if (isNull("afterStopId")) null else optString("afterStopId"),
-        latitude = doubleOrNull("latitude") ?: 0.0,
-        longitude = doubleOrNull("longitude") ?: 0.0,
-        sortIndex = optInt("sortIndex", 0),
-        createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
-    )
-
-    private fun RouteSegmentModeEntity.toJson() = JSONObject().apply {
-        put("id", id)
-        put("tripId", tripId)
-        put("fromStopId", fromStopId)
-        put("toStopId", toStopId)
-        put("mode", mode)
-        put("createdAt", createdAt)
-        put("updatedAt", updatedAt)
-    }
-
-    private fun JSONObject.toSegmentMode() = RouteSegmentModeEntity(
-        id = optString("id").ifBlank { UUID.randomUUID().toString() },
-        tripId = optString("tripId"),
-        fromStopId = optString("fromStopId"),
-        toStopId = optString("toStopId"),
-        mode = optString("mode", "CAR"),
-        createdAt = longOrNull("createdAt") ?: System.currentTimeMillis(),
-        // Fehlt der Zeitstempel (alte Backups), gewinnt beim Import der Stand auf dem Handy.
-        updatedAt = longOrNull("updatedAt") ?: longOrNull("createdAt") ?: 0L,
-    )
 }
