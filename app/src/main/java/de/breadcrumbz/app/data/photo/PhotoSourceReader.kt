@@ -95,6 +95,7 @@ object PhotoSourceReader {
 
     private fun candidates(context: Context, uri: Uri): List<Uri> = buildList {
         if (uri.scheme == "content" && uri.authority == "media") add(uri)
+        embeddedMediaUri(uri)?.let { add(it) }
         // getMediaUri gibt es erst ab API 30 – ältere Geräte dürfen nicht abstürzen.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             runCatching { MediaStore.getMediaUri(context, uri) }.getOrNull()?.let { add(it) }
@@ -205,6 +206,23 @@ object PhotoSourceReader {
         if (index >= 0 && !isNull(index)) getLong(index) else null
     } catch (_: Exception) {
         null
+    }
+
+    /**
+     * Google Fotos teilt Bilder vom Handy als eigene Adresse, in der die
+     * eigentliche Galerie-Adresse verschlüsselt steckt, z. B.
+     * content://com.google.android.apps.photos.contentprovider/-1/1/
+     * content%3A%2F%2Fmedia%2Fexternal%2Fimages%2Fmedia%2F1234/ORIGINAL/NONE/…
+     * Über diese Galerie-Adresse kommen wir an das Original mit GPS.
+     */
+    private fun embeddedMediaUri(uri: Uri): Uri? {
+        if (uri.scheme != "content" || uri.authority == "media") return null
+        val inner = uri.pathSegments.firstOrNull { it.startsWith("content://media/") }
+            ?: return null
+        val parsed = runCatching { Uri.parse(inner) }.getOrNull() ?: return null
+        // Nur echte Foto-Einträge mit Nummer am Ende.
+        if (parsed.lastPathSegment?.toLongOrNull() == null) return null
+        return parsed
     }
 
     private fun documentId(context: Context, uri: Uri): String? {
