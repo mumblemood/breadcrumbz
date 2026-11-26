@@ -53,6 +53,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
@@ -438,6 +439,8 @@ fun TripMapScreen(
     var scrollSync by remember { mutableStateOf(ScrollSync(0f, "start", 0L)) }
     var lastTimelineMoveAt by remember { mutableStateOf(0L) }
     var fullscreenKey by remember { mutableStateOf<String?>(null) }
+    /** Tagebuch, das unter einem daraus geöffneten Polaroid offen bleibt. */
+    var diaryUnderKey by remember { mutableStateOf<String?>(null) }
     var centerKey by remember { mutableStateOf<String?>(null) }
     val markers = remember { mutableMapOf<String, Marker>() }
     var stackPhotoIds by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -689,8 +692,22 @@ fun TripMapScreen(
         MapView(context).apply {
             setTileSource(standardTiles())
             setMultiTouchControls(true)
-            // Nicht weiter raus als ein Kartenbildschirm in der Höhe.
+            // Nicht weiter raus als ein Kartenbildschirm in der Höhe: oben
+            // und unten nie über den Rand der Weltkarte hinaus.
             minZoomLevel = 1.0
+            isVerticalMapRepetitionEnabled = false
+            setScrollableAreaLimitLatitude(
+                MapView.getTileSystem().maxLatitude,
+                MapView.getTileSystem().minLatitude,
+                0,
+            )
+            addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+                if (bottom - top > 0) {
+                    val fill = maxOf(1.0, log2((bottom - top) / 256.0))
+                    minZoomLevel = fill
+                    if (zoomLevelDouble < fill) controller.setZoom(fill)
+                }
+            }
             controller.setZoom(14.0)
             controller.setCenter(GeoPoint(51.0, 10.0))
         }
@@ -893,6 +910,10 @@ fun TripMapScreen(
                     ?: TransportMode.CAR
                 )
         }
+    }
+
+    val manualSegmentModes = remember(storedSegmentModes) {
+        storedSegmentModes.associate { it.id to it.mode }
     }
 
     // Dieselben Zwischenpunkte ein mal als GeoPoint – für Linie und Griff-Overlay.
@@ -1162,7 +1183,7 @@ fun TripMapScreen(
         }
         val box = BoundingBox.fromGeoPoints(points).increaseByScale(1.3f)
         if (mapView.width <= 0) return@getOrPut ItemView(box.centerWithDateLine, 14.0)
-        ItemView(box.centerWithDateLine, boxZoom(box).coerceIn(3.0, 17.0))
+        ItemView(box.centerWithDateLine, boxZoom(box).coerceIn(10.0, 17.0))
     }
 
     // Die gezeichnete Route als eine durchgehende Punktfolge mit Längen.
@@ -1238,7 +1259,9 @@ fun TripMapScreen(
         val itemB = timeline.firstOrNull { it.id == nextKey } ?: return
         val geoA = geoFor(itemA) ?: geoFor(itemB) ?: return
         val geoB = geoFor(itemB) ?: geoA
-        val viewA = itemView(previousKey) ?: ItemView(geoA, mapView.zoomLevelDouble)
+        // Ohne eigenen Ausschnitt nah genug, dass Fotos gut zu sehen sind –
+        // nie die aktuelle (vielleicht weit herausgezoomte) Stufe übernehmen.
+        val viewA = itemView(previousKey) ?: ItemView(geoA, 14.5)
         val viewB = itemView(nextKey) ?: ItemView(geoB, viewA.zoom)
         // Rund um jedes Element bleibt die Karte eine Weile stehen (Ausschnitt
         // und Zoom rasten ein) und gleitet erst dazwischen weich weiter.
@@ -1260,13 +1283,22 @@ fun TripMapScreen(
         var zoom = base
         if (previousKey != nextKey && mapView.width > 0 && geoA.distanceToAsDouble(geoB) > 50.0) {
             val legZoom = boxZoom(BoundingBox.fromGeoPoints(listOf(geoA, geoB)).increaseByScale(1.25f))
-            val dip = (base - legZoom).coerceAtLeast(0.0)
+            // Höchstens gut zwei Stufen heraus, sonst sind Fotos zu weit weg.
+            val dip = (base - legZoom).coerceIn(0.0, 2.5)
             zoom = base - dip * sin(Math.PI * part)
         }
         syncLockUntil = now + 250L
         rawMapCenter = null
         mapCenter = center
-        mapView.controller.setZoom(zoom.coerceIn(mapView.minZoomLevel, 17.0))
+        val target = zoom.coerceIn(mapView.minZoomLevel, 17.0)
+        if (abs(mapView.zoomLevelDouble - target) > 1.5) {
+            // Großer Sprung (z. B. aus der Gesamtansicht): einmal weich hinzoomen.
+            itemZoomUntil = now + 450L
+            syncLockUntil = now + 650L
+            mapView.controller.animateTo(center, target, 450L)
+            return
+        }
+        mapView.controller.setZoom(target)
         mapView.controller.setCenter(center)
     }
 
@@ -1505,6 +1537,10 @@ fun TripMapScreen(
                         if (!didCenter && view.height > 0 &&
                             (stops.isNotEmpty() || photos.isNotEmpty())
                         ) {
+                            // Beim Öffnen: ganze Reise inkl. An-/Abreise zeigen und
+                            // die zl am Anfang lassen (kein Echo der Kartenbewegung).
+                            syncLockUntil = System.currentTimeMillis() + 2_000L
+                            rawMapCenter = null
                             zoomToRelevant(view, stops, photos)
                             didCenter = true
                         }
@@ -1769,6 +1805,8 @@ fun TripMapScreen(
                         followRoute(previousKey, nextKey, part)
                     },
                     onSettleKey = { key -> settleOn(key) },
+                    // Nur von Hand gewählte Verkehrsmittel bekommen ein Symbol.
+                    segmentModes = manualSegmentModes,
                     // Das mittlere Element dient nur noch der Markierung.
                     onUserCenterKey = { key -> centerKey = key },
                     onDropElement = { source, entryId ->
@@ -2084,26 +2122,52 @@ fun TripMapScreen(
         )
     }
 
+    // Ein Polaroid aus dem Tagebuch öffnet sich über dem Tagebuch; schließt
+    // man es, liegt das Tagebuch wieder offen da.
+    LaunchedEffect(fullscreenKey) {
+        if (fullscreenKey?.startsWith("photo-") != true) diaryUnderKey = null
+    }
     val activeFullscreenKey = fullscreenKey
-    if (activeFullscreenKey != null) {
-        FullscreenElement(
-            elementKey = activeFullscreenKey,
-            viewModel = viewModel,
-            stops = stops,
-            photos = photos,
-            entries = allEntries,
-            photoBitmap = { id -> thumbnails[id] },
-            onClose = { fullscreenKey = null },
-            onOpenElement = { key -> fullscreenKey = key },
-            onAddPhotos = { entryId ->
-                fullscreenKey = null
-                photoTargetEntryId = entryId
-                startGalleryPick()
-            },
-            onAddEntry = { stopId -> openNewEntry(stopId) },
-            onAdoptPhotoLocation = { id -> viewModel.adoptPhotoLocation(id) },
-            readOnly = readOnly,
-        )
+    val openKeys = listOfNotNull(
+        diaryUnderKey?.takeIf { activeFullscreenKey?.startsWith("photo-") == true },
+        activeFullscreenKey,
+    )
+    openKeys.forEach { elementKey ->
+        key(elementKey) {
+            FullscreenElement(
+                elementKey = elementKey,
+                viewModel = viewModel,
+                stops = stops,
+                photos = photos,
+                entries = allEntries,
+                photoBitmap = { id -> thumbnails[id] },
+                onClose = {
+                    val under = diaryUnderKey
+                    if (elementKey.startsWith("photo-") && under != null) {
+                        fullscreenKey = under
+                        diaryUnderKey = null
+                    } else {
+                        diaryUnderKey = null
+                        fullscreenKey = null
+                    }
+                },
+                onOpenElement = { next ->
+                    if (elementKey.startsWith("entry-") && next.startsWith("photo-")) {
+                        diaryUnderKey = elementKey
+                    }
+                    fullscreenKey = next
+                },
+                onAddPhotos = { entryId ->
+                    diaryUnderKey = null
+                    fullscreenKey = null
+                    photoTargetEntryId = entryId
+                    startGalleryPick()
+                },
+                onAddEntry = { stopId -> openNewEntry(stopId) },
+                onAdoptPhotoLocation = { id -> viewModel.adoptPhotoLocation(id) },
+                readOnly = readOnly,
+            )
+        }
     }
 
     val shareTrip = trip

@@ -71,6 +71,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.breadcrumbz.app.R
 import de.breadcrumbz.app.ui.theme.HandFont
+import de.breadcrumbz.app.domain.model.TransportMode
+import de.breadcrumbz.app.domain.util.segmentKey
+import de.breadcrumbz.app.ui.theme.iconRes
+import androidx.compose.foundation.shape.CircleShape
 import de.breadcrumbz.app.domain.model.Stop
 import de.breadcrumbz.app.domain.model.TimelineItem
 import de.breadcrumbz.app.domain.model.TimelineKind
@@ -289,6 +293,8 @@ fun AdventureTimeline(
     onCenterBetween: (String, String, Float) -> Unit = { _, _, _ -> },
     /** Die zl ist auf einem Element eingerastet. */
     onSettleKey: (String) -> Unit = {},
+    /** Von Hand gewählte Verkehrsmittel je Abschnitt (Start>Ziel) – als Symbol auf der Linie. */
+    segmentModes: Map<String, TransportMode> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -1007,6 +1013,41 @@ fun AdventureTimeline(
                                 .background(paper, RoundedCornerShape(50))
                                 .border(1.5.dp, ink, RoundedCornerShape(50))
                                 .padding(horizontal = 7.dp, vertical = 1.dp),
+                        )
+                    }
+                }
+
+                // Von Hand gewählte Verkehrsmittel: kleines Stempel-Symbol mitten
+                // auf dem Abschnitt, genau auf der Linie.
+                if (points.size > 1) segmentHits.forEach { hit ->
+                    val mode = segmentModes[segmentKey(hit.fromStopId, hit.toStopId)]
+                        ?: return@forEach
+                    val centerX = hit.center
+                    val nextIndex = points.indexOfFirst { it.x >= centerX }
+                    if (nextIndex <= 0) return@forEach
+                    val a = points[nextIndex - 1]
+                    val b = points[nextIndex]
+                    val t = ((centerX - a.x) / (b.x - a.x).coerceAtLeast(1f)).coerceIn(0f, 1f)
+                    val eased = t * t * (3f - 2f * t)
+                    val waveA = sin((nextIndex - 1) * WAVE_FREQUENCY)
+                    val waveB = sin(nextIndex * WAVE_FREQUENCY)
+                    val lineY = with(density) {
+                        (baseY + (waveA + (waveB - waveA) * eased) * WAVE_DP.dp.toPx()).toDp()
+                    }
+                    val x = with(density) { centerX.toDp() }
+                    Box(
+                        modifier = Modifier
+                            .offset(x = x - 12.dp, y = lineY - 12.dp)
+                            .size(24.dp)
+                            .background(paper, CircleShape)
+                            .border(1.5.dp, ink, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(mode.iconRes()),
+                            contentDescription = mode.label,
+                            tint = ink,
+                            modifier = Modifier.size(15.dp),
                         )
                     }
                 }
