@@ -38,6 +38,7 @@ class PlaneOverlay(
         val screen = projection.intrinsicScreenRect
         val margin = iconSize.toFloat()
 
+        val drawn = mutableListOf<Pair<Float, Float>>()
         paths.forEach { path ->
             if (path.size < 2) return@forEach
             val pixels = path.map { projection.toPixels(it, null) }
@@ -92,9 +93,21 @@ class PlaneOverlay(
                 }
             }
             if (bestStart < 0) return@forEach
+            // Weit herausgezoomt ist der sichtbare Bogen nur ein Strich: dann
+            // blendet das Flugzeug weich aus, statt über Pins zu zappeln.
+            val visibleLength = total * bestLength / samples
+            val fade = ((visibleLength - iconSize * 3f) / (iconSize * 2f)).coerceIn(0f, 1f)
+            if (fade <= 0f) return@forEach
             val middle = (bestStart + bestLength / 2).coerceIn(1, samples - 1)
             val x = xs[middle]
             val y = ys[middle]
+            // Liegen zwei Flüge übereinander, reicht ein Flugzeug.
+            if (drawn.any { hypot(it.first - x, it.second - y) < iconSize * 1.6f }) return@forEach
+            drawn.add(x to y)
+            val alpha = (fade * 255).toInt()
+            haloPaint.alpha = alpha
+            ringPaint.alpha = alpha
+            icon.alpha = alpha
             val angle = Math.toDegrees(
                 atan2(
                     (ys[middle + 1] - ys[middle - 1]).toDouble(),
