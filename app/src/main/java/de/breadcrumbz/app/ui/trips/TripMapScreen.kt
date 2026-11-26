@@ -406,6 +406,9 @@ fun TripMapScreen(
     settingsStore: SettingsStore,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Aus Google Fotos (o. Ä.) geteilte Fotos, die in diese Reise sollen. */
+    incomingPhotos: List<ImportedPhoto>? = null,
+    onIncomingPhotosHandled: () -> Unit = {},
 ) {
     val trip by viewModel.trip.collectAsStateWithLifecycle()
     // Empfangene Reise: nur ansehen, keine Bildschirmfotos.
@@ -576,6 +579,29 @@ fun TripMapScreen(
             activeStopId != null -> viewModel.selectStop(null)
             else -> onBack()
         }
+    }
+
+    // Geteilte Fotos: als neuer Eintrag speichern und diesen gleich öffnen.
+    val tripLoaded = trip != null
+    LaunchedEffect(incomingPhotos, tripLoaded) {
+        val photos = incomingPhotos ?: return@LaunchedEffect
+        if (!tripLoaded) return@LaunchedEffect
+        if (readOnly) {
+            onIncomingPhotosHandled()
+            return@LaunchedEffect
+        }
+        try {
+            val entry = viewModel.createEntry()
+            viewModel.addPhotosToEntry(entry.id, photos)
+            fullscreenKey = "entry-${entry.id}"
+        } catch (_: Throwable) {
+            Toast.makeText(
+                context,
+                "Fotos konnten nicht gespeichert werden.",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+        onIncomingPhotosHandled()
     }
 
     val dialogImageLauncher = rememberLauncherForActivityResult(

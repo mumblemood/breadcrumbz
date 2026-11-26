@@ -17,8 +17,8 @@ android {
         targetSdk = 35
         // versionCode zählt still mit (nötig fürs Update über die bestehende
         // Installation). Sichtbar ist nur versionName: jeder Build +0.01.
-        versionCode = 47
-        versionName = "0.30"
+        versionCode = 48
+        versionName = "0.31"
     }
 
     // Fester Test-Schlüssel: jeder Build bekommt dadurch dieselbe Signatur.
