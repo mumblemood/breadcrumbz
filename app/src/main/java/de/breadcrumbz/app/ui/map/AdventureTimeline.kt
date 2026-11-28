@@ -1369,14 +1369,22 @@ fun AdventureTimeline(
                                             )
                                         }
                                     }
-                                    if (point.label.isNotBlank()) {
-                                        Spacer(Modifier.height(3.dp))
-                                        Text(
-                                            text = point.label,
-                                            color = ink,
-                                            style = TimelinePhotoCaption,
-                                            maxLines = 1,
-                                        )
+                                    // Polaroid-Unterkante immer zeigen – auch ohne
+                                    // Bildtitel (z. B. frisch geteilte Fotos).
+                                    Box(
+                                        modifier = Modifier.height(
+                                            with(density) { photoCaptionHeightPx.toDp() },
+                                        ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (point.label.isNotBlank()) {
+                                            Text(
+                                                text = point.label,
+                                                color = ink,
+                                                style = TimelinePhotoCaption,
+                                                maxLines = 1,
+                                            )
+                                        }
                                     }
                                 }
                             }
