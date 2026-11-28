@@ -543,6 +543,56 @@ class TripMapViewModel(
             }
         }
 
+    /**
+     * Geteilte Fotos (z. B. aus Google Fotos) kommen ohne Tagebucheintrag in
+     * die Reise: Jedes steht einzeln in der zl und lässt sich später per
+     * Drag & Drop einem tbe zuordnen. Fotos mit Ort landen wie gewohnt an
+     * einem passenden Foto-Pin oder bekommen einen neuen.
+     */
+    suspend fun addLoosePhotos(images: List<ImportedPhoto>): Int =
+        withContext(Dispatchers.IO) {
+            if (images.isEmpty()) return@withContext 0
+            val now = System.currentTimeMillis()
+            val startIndex = repository.observePhotos(tripId).first().size
+            var added = 0
+            images.forEachIndexed { index, item ->
+                // Ein einzelnes schlechtes Foto darf den ganzen Import nicht umbringen.
+                val metadata = try {
+                    PhotoImporter.read(item.bytes)
+                } catch (_: Throwable) {
+                    null
+                }
+                val fileName = try {
+                    photoStore.save(item.bytes, item.mimeType)
+                } catch (_: Throwable) {
+                    return@forEachIndexed
+                }
+                val photo = Photo(
+                    id = UUID.randomUUID().toString(),
+                    tripId = tripId,
+                    stopId = null,
+                    entryId = null,
+                    fileName = fileName,
+                    mimeType = item.mimeType,
+                    capturedAt = item.capturedAt ?: metadata?.capturedAt,
+                    latitude = item.latitude ?: metadata?.latitude,
+                    longitude = item.longitude ?: metadata?.longitude,
+                    caption = "",
+                    sortIndex = startIndex + index,
+                    createdAt = now + index,
+                )
+                try {
+                    repository.insertPhoto(photo)
+                    added++
+                } catch (_: Throwable) {
+                    // Dieses Bild überspringen, den Rest trotzdem übernehmen.
+                }
+            }
+            // Fotos mit Ort an Foto-Pins hängen (bestehende oder neue).
+            if (added > 0) runCatching { clusterUnassigned() }
+            added
+        }
+
     /** Fotos ohne offenen Eintrag landen in einem neuen Eintrag. */
     fun importPhotos(items: List<ImportedPhoto>) {
         if (items.isEmpty()) return
