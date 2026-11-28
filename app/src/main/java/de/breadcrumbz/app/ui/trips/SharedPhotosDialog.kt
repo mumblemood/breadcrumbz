@@ -87,8 +87,9 @@ fun SharedPhotosDialog(
                         Spacer(Modifier.height(8.dp))
                     }
                     Text(
-                        "Die Fotos kommen als neuer Eintrag in die Reise und " +
-                            "landen – wenn sie einen Ort haben – am passenden Pin.",
+                        "Die Fotos kommen ohne Tagebucheintrag in die Zeitleiste " +
+                            "und – wenn sie einen Ort haben – an den passenden Pin. " +
+                            "Per Drag & Drop kannst du sie später einem Eintrag zuordnen.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.height(10.dp))

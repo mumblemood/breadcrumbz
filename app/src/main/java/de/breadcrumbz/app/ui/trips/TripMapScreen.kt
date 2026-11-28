@@ -581,7 +581,7 @@ fun TripMapScreen(
         }
     }
 
-    // Geteilte Fotos: als neuer Eintrag speichern und diesen gleich öffnen.
+    // Geteilte Fotos: ohne tbe in die zl, später per Drag & Drop zuordnen.
     val tripLoaded = trip != null
     LaunchedEffect(incomingPhotos, tripLoaded) {
         val photos = incomingPhotos ?: return@LaunchedEffect
@@ -591,9 +591,13 @@ fun TripMapScreen(
             return@LaunchedEffect
         }
         try {
-            val entry = viewModel.createEntry()
-            viewModel.addPhotosToEntry(entry.id, photos)
-            fullscreenKey = "entry-${entry.id}"
+            val added = viewModel.addLoosePhotos(photos)
+            Toast.makeText(
+                context,
+                if (added == 1) "1 Foto in die Zeitleiste übernommen."
+                else "$added Fotos in die Zeitleiste übernommen.",
+                Toast.LENGTH_SHORT,
+            ).show()
         } catch (_: Throwable) {
             Toast.makeText(
                 context,
