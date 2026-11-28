@@ -1799,6 +1799,14 @@ fun TripMapScreen(
                     entryBodies = allEntries.associate { it.id to it.body },
                     onItemClick = { item -> handleTimelineClick(item) },
                     onPhotoClick = { id -> focusPhoto(id, moveMap = true) },
+                    onPhotoLongPress = { id ->
+                        if (!readOnly) {
+                            scope.launch {
+                                val entry = viewModel.createEntryFromPhoto(id)
+                                if (entry != null) fullscreenKey = "entry-${entry.id}"
+                            }
+                        }
+                    },
                     onSegmentClick = { fromId, toId ->
                         routeSegments.firstOrNull { it.key == segmentKey(fromId, toId) }
                             ?.takeIf { !readOnly }
