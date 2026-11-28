@@ -264,6 +264,26 @@ class TripMapViewModel(
         }
     }
 
+    /**
+     * Langes Drücken auf ein loses Foto in der zl: neuer tbe mit genau diesem
+     * Foto. Hat das Foto einen Pin, bekommt der tbe diesen Ort; die Zeit
+     * kommt aus dem Foto, damit der tbe an derselben Stelle der zl steht.
+     */
+    suspend fun createEntryFromPhoto(photoId: String): Entry? = withContext(Dispatchers.IO) {
+        val photo = repository.observePhotos(tripId).first()
+            .firstOrNull { it.id == photoId } ?: return@withContext null
+        if (photo.entryId != null) return@withContext null
+        var entry = createEntry(photo.stopId)
+        val photoTime = photo.capturedAt
+        if (photoTime != null) {
+            entry = entry.copy(entryAt = photoTime, timeFromPhoto = true)
+        }
+        if (photo.stopId != null) entry = entry.copy(placeFromPhoto = true)
+        repository.updateEntry(entry)
+        repository.updatePhoto(photo.copy(entryId = entry.id))
+        entry
+    }
+
     /** Über „+“ angelegter Eintrag, der nur mit Inhalt bestehen bleibt. */
     @Volatile
     private var draftEntryId: String? = null

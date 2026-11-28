@@ -451,6 +451,8 @@ fun TripMapScreen(
     var segmentDialog by remember { mutableStateOf<SegmentDialog?>(null) }
     var defaultModePickerOpen by remember { mutableStateOf(false) }
     var photoTargetEntryId by remember { mutableStateOf<String?>(null) }
+    // Loses Foto lang gedrückt (ohne Ziehen): kleines Menü dazu.
+    var photoMenuId by remember { mutableStateOf<String?>(null) }
     var zoomOutToCurrent by remember { mutableStateOf(false) }
     var didRequestEmptyLocation by remember { mutableStateOf(false) }
     var mapBounds by remember { mutableStateOf(Rect.Zero) }
@@ -1799,6 +1801,7 @@ fun TripMapScreen(
                     entryBodies = allEntries.associate { it.id to it.body },
                     onItemClick = { item -> handleTimelineClick(item) },
                     onPhotoClick = { id -> focusPhoto(id, moveMap = true) },
+                    onPhotoLongPress = { id -> if (!readOnly) photoMenuId = id },
                     onSegmentClick = { fromId, toId ->
                         routeSegments.firstOrNull { it.key == segmentKey(fromId, toId) }
                             ?.takeIf { !readOnly }
@@ -2105,6 +2108,31 @@ fun TripMapScreen(
                         coverPickerOpen = false
                     }) { Text("Titelbild entfernen") }
                 }
+            },
+        )
+    }
+
+    photoMenuId?.let { id ->
+        PaperAlertDialog(
+            onDismissRequest = { photoMenuId = null },
+            title = { Text("Foto") },
+            text = {
+                Text(
+                    "Dieses Foto hat noch keinen Tagebucheintrag. Zum Zuordnen " +
+                        "an einen bestehenden Eintrag: lang drücken und ziehen.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    photoMenuId = null
+                    scope.launch {
+                        val entry = viewModel.createEntryFromPhoto(id)
+                        if (entry != null) fullscreenKey = "entry-${entry.id}"
+                    }
+                }) { Text("Neuer Eintrag") }
+            },
+            dismissButton = {
+                TextButton(onClick = { photoMenuId = null }) { Text("Abbrechen") }
             },
         )
     }

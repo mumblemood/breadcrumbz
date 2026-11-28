@@ -285,6 +285,8 @@ fun AdventureTimeline(
     highlightPhotoId: String? = null,
     onScrollFraction: (Float, Boolean) -> Unit = { _, _ -> },
     onDropElement: (String, String?) -> Unit = { _, _ -> },
+    /** Loses Foto lang gedrückt und ohne Ziehen losgelassen. */
+    onPhotoLongPress: (String) -> Unit = {},
     onDropEntry: (String, Float, Float) -> Unit = { _, _, _ -> },
     onCenterKeyChange: (String?) -> Unit = {},
     /** Nur vom Nutzer gestartetes Wischen soll die Karte mitziehen. */
@@ -1276,7 +1278,15 @@ fun AdventureTimeline(
                                                 cardTop + grabY + dragY,
                                             )
                                         }
-                                        if (source != null) {
+                                        // Lang gedrückt, aber kaum bewegt: kein
+                                        // Drag & Drop, sondern neuer tbe mit dem Foto.
+                                        val stillPx = with(density) { 12.dp.toPx() }
+                                        val heldStill = abs(dragX) < stillPx &&
+                                            abs(dragY) < stillPx &&
+                                            scrollState.value == startScroll
+                                        if (point.kind == 3 && heldStill) {
+                                            point.photoId?.let(onPhotoLongPress)
+                                        } else if (source != null) {
                                             val finalX = point.x + dragX +
                                                 (scrollState.value - startScroll)
                                             val target = points.firstOrNull { candidate ->
@@ -1359,14 +1369,22 @@ fun AdventureTimeline(
                                             )
                                         }
                                     }
-                                    if (point.label.isNotBlank()) {
-                                        Spacer(Modifier.height(3.dp))
-                                        Text(
-                                            text = point.label,
-                                            color = ink,
-                                            style = TimelinePhotoCaption,
-                                            maxLines = 1,
-                                        )
+                                    // Polaroid-Unterkante immer zeigen – auch ohne
+                                    // Bildtitel (z. B. frisch geteilte Fotos).
+                                    Box(
+                                        modifier = Modifier.height(
+                                            with(density) { photoCaptionHeightPx.toDp() },
+                                        ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (point.label.isNotBlank()) {
+                                            Text(
+                                                text = point.label,
+                                                color = ink,
+                                                style = TimelinePhotoCaption,
+                                                maxLines = 1,
+                                            )
+                                        }
                                     }
                                 }
                             }
